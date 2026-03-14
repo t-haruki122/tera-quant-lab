@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Analyzer — 株式情報ダッシュボード</title>
+    <meta name="description" content="株価分析・投資指数をモダンなUIで確認できるWebアプリケーション">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="/static/index.css">
+</head>
+<body>
+    <!-- ヘッダー -->
+    <header id="app-header">
+        <div class="header-left">
+            <h1 class="logo">
+                <span class="logo-icon">📈</span>
+                <span>Stock Analyzer</span>
+            </h1>
+        </div>
+        <nav class="header-nav">
+            <button class="nav-btn active" id="btn-detail-view" onclick="switchView('detail')">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+                詳細ビュー
+            </button>
+            <button class="nav-btn" id="btn-list-view" onclick="switchView('list')">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                リスト比較
+            </button>
+        </nav>
+    </header>
+
+    <!-- 詳細ビュー -->
+    <main id="detail-view" class="view active">
+        <!-- 検索バー -->
+        <section class="search-section">
+            <div class="search-container">
+                <div class="search-input-wrapper">
+                    <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <input type="text" id="search-input" placeholder="ティッカーを入力（例: AAPL, TSLA, 7203.T）" autocomplete="off">
+                    <button id="search-btn" onclick="searchStock()">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ウェルカムメッセージ（初期状態） -->
+        <section id="welcome-section" class="welcome-section">
+            <div class="welcome-content">
+                <div class="welcome-icon">🔍</div>
+                <h2>銘柄を検索しましょう</h2>
+                <p>上の検索バーにティッカーシンボルを入力すると、<br>株価・財務情報・投資指数などの詳細情報を確認できます。</p>
+                <div class="welcome-examples">
+                    <span class="example-chip" onclick="quickSearch('AAPL')">AAPL</span>
+                    <span class="example-chip" onclick="quickSearch('GOOGL')">GOOGL</span>
+                    <span class="example-chip" onclick="quickSearch('MSFT')">MSFT</span>
+                    <span class="example-chip" onclick="quickSearch('TSLA')">TSLA</span>
+                    <span class="example-chip" onclick="quickSearch('7203.T')">7203.T</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- ローディング -->
+        <section id="loading-section" class="loading-section hidden">
+            <div class="spinner"></div>
+            <p id="loading-text">データを取得中...</p>
+        </section>
+
+        <!-- エラー表示 -->
+        <section id="error-section" class="error-section hidden">
+            <div class="error-content">
+                <div class="error-icon">⚠️</div>
+                <h3 id="error-title">エラー</h3>
+                <p id="error-message"></p>
+                <button class="btn-retry" onclick="searchStock()">再試行</button>
+            </div>
+        </section>
+
+        <!-- 株式詳細データ -->
+        <section id="stock-detail" class="stock-detail hidden">
+            <!-- ヘッダー: 会社名・現在株価 -->
+            <div class="stock-header">
+                <div class="stock-header-left">
+                    <div class="stock-name-row">
+                        <h2 id="company-name"></h2>
+                        <span class="ticker-badge" id="ticker-badge"></span>
+                    </div>
+                    <div class="stock-meta" id="stock-meta"></div>
+                </div>
+                <div class="stock-header-right">
+                    <div class="price-display" id="price-display"></div>
+                    <div class="price-timestamp" id="price-timestamp"></div>
+                </div>
+            </div>
+
+            <!-- チャート -->
+            <div class="card chart-card">
+                <div class="card-header">
+                    <h3>📊 株価チャート</h3>
+                    <div class="period-selector">
+                        <button class="period-btn" data-period="1mo" onclick="changePeriod('1mo')">1M</button>
+                        <button class="period-btn active" data-period="3mo" onclick="changePeriod('3mo')">3M</button>
+                        <button class="period-btn" data-period="6mo" onclick="changePeriod('6mo')">6M</button>
+                        <button class="period-btn" data-period="1y" onclick="changePeriod('1y')">1Y</button>
+                        <button class="period-btn" data-period="2y" onclick="changePeriod('2y')">2Y</button>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="price-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- カードグリッド -->
+            <div class="card-grid">
+                <!-- 会社情報 -->
+                <div class="card" id="profile-card">
+                    <div class="card-header"><h3>🏢 会社情報</h3></div>
+                    <div class="card-body" id="profile-body">
+                        <div class="skeleton-lines"><div></div><div></div><div></div></div>
+                    </div>
+                </div>
+
+                <!-- 財務情報 -->
+                <div class="card" id="financials-card">
+                    <div class="card-header"><h3>💰 財務情報</h3></div>
+                    <div class="card-body" id="financials-body">
+                        <div class="skeleton-lines"><div></div><div></div><div></div></div>
+                    </div>
+                </div>
+
+                <!-- 投資指数 -->
+                <div class="card" id="indicators-card">
+                    <div class="card-header"><h3>📐 投資指数</h3></div>
+                    <div class="card-body" id="indicators-body">
+                        <div class="skeleton-lines"><div></div><div></div><div></div></div>
+                    </div>
+                </div>
+
+                <!-- ニュース -->
+                <div class="card card-wide" id="news-card">
+                    <div class="card-header"><h3>📰 関連ニュース</h3></div>
+                    <div class="card-body" id="news-body">
+                        <div class="skeleton-lines"><div></div><div></div><div></div></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- リスト比較ビュー -->
+    <main id="list-view" class="view">
+        <section class="list-header-section">
+            <div class="list-header-row">
+                <h2>📋 銘柄リスト比較</h2>
+                <div class="list-add-form">
+                    <input type="text" id="list-add-input" placeholder="ティッカーを追加..." autocomplete="off">
+                    <button id="list-add-btn" onclick="addToList()">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        追加
+                    </button>
+                </div>
+            </div>
+            <p class="list-description">複数の銘柄を追加して、指標を比較できます。列ヘッダーをクリックすると並び替えできます。</p>
+        </section>
+
+        <!-- リストが空の場合 -->
+        <section id="list-empty" class="list-empty">
+            <div class="empty-content">
+                <div class="empty-icon">📊</div>
+                <h3>銘柄を追加しましょう</h3>
+                <p>上のフォームからティッカーを追加すると、比較テーブルが表示されます。</p>
+                <div class="welcome-examples">
+                    <span class="example-chip" onclick="quickAddToList('AAPL')">AAPL</span>
+                    <span class="example-chip" onclick="quickAddToList('GOOGL')">GOOGL</span>
+                    <span class="example-chip" onclick="quickAddToList('MSFT')">MSFT</span>
+                    <span class="example-chip" onclick="quickAddToList('AMZN')">AMZN</span>
+                    <span class="example-chip" onclick="quickAddToList('TSLA')">TSLA</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- 比較テーブル -->
+        <section id="list-table-section" class="list-table-section hidden">
+            <div class="table-container">
+                <table id="comparison-table">
+                    <thead>
+                        <tr>
+                            <th class="sortable" data-sort="symbol" onclick="sortTable('symbol')">ティッカー <span class="sort-arrow"></span></th>
+                            <th class="sortable" data-sort="name" onclick="sortTable('name')">会社名 <span class="sort-arrow"></span></th>
+                            <th class="sortable numeric" data-sort="price" onclick="sortTable('price')">株価 <span class="sort-arrow"></span></th>
+                            <th class="sortable numeric" data-sort="market_cap" onclick="sortTable('market_cap')">時価総額 <span class="sort-arrow"></span></th>
+                            <th class="sortable numeric" data-sort="per" onclick="sortTable('per')">PER <span class="sort-arrow"></span></th>
+                            <th class="sortable numeric" data-sort="pbr" onclick="sortTable('pbr')">PBR <span class="sort-arrow"></span></th>
+                            <th class="sortable numeric" data-sort="roe" onclick="sortTable('roe')">ROE <span class="sort-arrow"></span></th>
+                            <th class="sortable numeric" data-sort="mix_index" onclick="sortTable('mix_index')">ミックス指数 <span class="sort-arrow"></span></th>
+                            <th class="sortable numeric" data-sort="dividend_yield" onclick="sortTable('dividend_yield')">配当利回り <span class="sort-arrow"></span></th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="comparison-tbody"></tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>Stock Analyzer — Powered by yfinance & GNews</p>
+    </footer>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
