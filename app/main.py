@@ -1,8 +1,9 @@
 """Stock Data API - メインアプリケーション"""
 
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -11,6 +12,7 @@ from app.config import get_settings
 from app.database import init_db
 from app.routers import stock, user, stats, forex
 from app.exceptions import register_exception_handlers
+from app.stats import stats as app_stats
 
 settings = get_settings()
 
@@ -42,6 +44,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def stats_middleware(request: Request, call_next):
+    """リクエストの統計情報を記録するミドルウェア"""
+    start_time = time.time()
+    response = await call_next(request)
+    process_time = time.time() - start_time
+    
+    path = request.url.path
+    # 静的ファイル配信やルートへのアクセスはAPI統計から除外
+    if not path.startswith("/static") and path != "/":
+        app_stats.log_request(path, process_time, response.status_code)
+        
+    return response
 
 # ルーター登録
 app.include_router(stock.router)

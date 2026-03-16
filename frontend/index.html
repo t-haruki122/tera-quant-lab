@@ -42,6 +42,10 @@
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
                 リスト比較
             </button>
+            <button class="nav-btn" id="btn-stats-view" onclick="switchView('stats')">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="18" y="3" width="4" height="18"/><rect x="10" y="8" width="4" height="13"/><rect x="2" y="13" width="4" height="8"/></svg>
+                システム統計
+            </button>
             <!-- アカウントボタン -->
             <div class="account-section">
                 <button class="nav-btn account-btn" id="account-btn" onclick="toggleAccountMenu()">
@@ -321,6 +325,65 @@
                     </thead>
                     <tbody id="comparison-tbody"></tbody>
                 </table>
+            </div>
+        </section>
+    </main>
+
+    <!-- システム統計ビュー -->
+    <main id="stats-view" class="view">
+        <section class="stats-dashboard">
+            <div class="stats-header">
+                <h2>📈 システム統計モニター</h2>
+                <div class="stats-uptime">
+                    稼働時間: <span id="dash-uptime">0s</span>
+                </div>
+            </div>
+
+            <!-- メトリクスカード -->
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-label">サーバーリクエスト数</div>
+                    <div class="metric-value" id="dash-server-requests">-</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">キャッシュヒット数</div>
+                    <div class="metric-value" id="dash-cache-hits">-</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">平均レスポンスタイム</div>
+                    <div class="metric-value"><span id="dash-avg-time">-</span><span class="metric-unit">ms</span></div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">サーバーエラー数</div>
+                    <div class="metric-value"><span id="dash-errors">-</span><span class="metric-unit" id="dash-error-rate"></span></div>
+                </div>
+            </div>
+
+            <!-- チャートエリア -->
+            <div class="stats-charts-grid">
+                <!-- ヒット率ドーナツチャート -->
+                <div class="chart-card">
+                    <h3>キャッシュヒット率</h3>
+                    <div class="chart-container-pie">
+                        <canvas id="hitRateChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- エンドポイント別棒グラフ -->
+                <div class="chart-card">
+                    <h3>アクセスランキング</h3>
+                    <div class="chart-container-bar">
+                        <canvas id="endpointChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- レスポンスタイム推移 -->
+                <div class="chart-card card-wide-stats">
+                    <h3>サーバー平均レスポンスタイム推移</h3>
+                    <div class="chart-container-line">
+                        <canvas id="responseTimeChart"></canvas>
+                    </div>
+                </div>
             </div>
         </section>
     </main>

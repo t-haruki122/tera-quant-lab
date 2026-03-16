@@ -11,6 +11,13 @@ let currentSymbol = null;
 let priceChart = null;
 let currentPeriod = '3mo';
 
+// Stats History
+const statsHistory = [];
+const HISTORY_MAX_LEN = 20;
+let hitRateChartInstance = null;
+let endpointChartInstance = null;
+let responseTimeChartInstance = null;
+
 // 為替レート
 let exchangeRateUSDJPY = null;
 
@@ -51,7 +58,7 @@ let tagEditSymbol = null;
 function switchView(view) {
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
     document.querySelectorAll('.nav-btn').forEach(b => {
-        if (b.id === 'btn-detail-view' || b.id === 'btn-list-view') {
+        if (b.id === 'btn-detail-view' || b.id === 'btn-list-view' || b.id === 'btn-stats-view') {
             b.classList.remove('active');
         }
     });
@@ -59,6 +66,11 @@ function switchView(view) {
     if (view === 'detail') {
         document.getElementById('detail-view').classList.add('active');
         document.getElementById('btn-detail-view').classList.add('active');
+    } else if (view === 'stats') {
+        document.getElementById('stats-view').classList.add('active');
+        document.getElementById('btn-stats-view').classList.add('active');
+        // If switched to stats view, manually trigger stats fetch to update dashboard
+        fetchStats();
     } else {
         document.getElementById('list-view').classList.add('active');
         document.getElementById('btn-list-view').classList.add('active');
@@ -100,6 +112,7 @@ async function fetchStats() {
         if (!res.ok) return;
         const data = await res.json();
         
+        // 既存のステータスバーを更新
         document.getElementById('stat-api-calls').textContent = data.api_calls;
         document.getElementById('stat-cache-hits').textContent = data.cache_hits;
         document.getElementById('stat-hit-rate').textContent = data.hit_rate_percent.toFixed(1) + '%';
@@ -108,8 +121,145 @@ async function fetchStats() {
         if (data.total_requests > 0) {
             bar.classList.remove('hidden');
         }
+
+        // Stats HistoryとDashboardの更新
+        const now = new Date();
+        data.timestamp = now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        
+        statsHistory.push(data);
+        if (statsHistory.length > HISTORY_MAX_LEN) {
+            statsHistory.shift();
+        }
+
+        // Dashboard Viewが開かれている場合、ダッシュボードを更新
+        if (document.getElementById('stats-view').classList.contains('active')) {
+            updateStatsDashboard(data);
+        }
+
     } catch {
         // ignore errors for stats fetching
+    }
+}
+
+function updateStatsDashboard(data) {
+    // Uptimes
+    const minutes = Math.floor(data.uptime_seconds / 60);
+    const seconds = data.uptime_seconds % 60;
+    document.getElementById('dash-uptime').textContent = `${minutes}m ${seconds}s`;
+
+    // Metrics
+    document.getElementById('dash-server-requests').textContent = data.server_requests || 0;
+    document.getElementById('dash-cache-hits').textContent = data.cache_hits || 0;
+    document.getElementById('dash-avg-time').textContent = (data.avg_response_time_ms || 0).toFixed(1);
+    
+    document.getElementById('dash-errors').textContent = data.server_errors || 0;
+    document.getElementById('dash-error-rate').textContent = ` (${(data.error_rate_percent || 0).toFixed(1)}%)`;
+
+    // Charts
+    updateCharts(data);
+}
+
+function updateCharts(data) {
+    const isDark = true;
+    const textColor = '#94a3b8';
+    const gridColor = 'rgba(255,255,255,0.05)';
+
+    // Hit Rate (Pie Chart)
+    const hitCtx = document.getElementById('hitRateChart');
+    if (hitCtx) {
+        if (!hitRateChartInstance) {
+            hitRateChartInstance = new Chart(hitCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Cache Hits', 'API Calls'],
+                    datasets: [{
+                        data: [data.cache_hits, data.api_calls],
+                        backgroundColor: ['#10b981', '#3b82f6'],
+                        borderWidth: 0,
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'bottom', labels: { color: textColor } } }
+                }
+            });
+        } else {
+            hitRateChartInstance.data.datasets[0].data = [data.cache_hits, data.api_calls];
+            hitRateChartInstance.update();
+        }
+    }
+
+    // Endpoints (Bar Chart)
+    const epCtx = document.getElementById('endpointChart');
+    if (epCtx && data.top_endpoints) {
+        const labels = data.top_endpoints.map(e => e.endpoint.substring(0, 15) + (e.endpoint.length > 15 ? '...' : ''));
+        const counts = data.top_endpoints.map(e => e.count);
+        
+        if (!endpointChartInstance) {
+            endpointChartInstance = new Chart(epCtx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Hits',
+                        data: counts,
+                        backgroundColor: '#6366f1',
+                        borderRadius: 4,
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { color: textColor, font: { size: 10 }, maxRotation: 45, minRotation: 45 }, grid: { display: false } },
+                        y: { ticks: { color: textColor, precision: 0 }, grid: { color: gridColor, drawBorder: false }, beginAtZero: true }
+                    }
+                }
+            });
+        } else {
+            endpointChartInstance.data.labels = labels;
+            endpointChartInstance.data.datasets[0].data = counts;
+            endpointChartInstance.update();
+        }
+    }
+
+    // Response Time (Line Chart) over Time
+    const rtCtx = document.getElementById('responseTimeChart');
+    if (rtCtx) {
+        const labels = statsHistory.map(h => h.timestamp);
+        const avgTimes = statsHistory.map(h => h.avg_response_time_ms || 0);
+        
+        if (!responseTimeChartInstance) {
+            responseTimeChartInstance = new Chart(rtCtx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Avg Response Time (ms)',
+                        data: avgTimes,
+                        borderColor: '#f59e0b',
+                        backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        borderWidth: 2,
+                        pointRadius: 2,
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    animation: { duration: 0 }, // Disable animation for smoother over-time updates
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { color: textColor, maxTicksLimit: 6 }, grid: { display: false } },
+                        y: { ticks: { color: textColor }, grid: { color: gridColor, drawBorder: false }, beginAtZero: true }
+                    }
+                }
+            });
+        } else {
+            responseTimeChartInstance.data.labels = labels;
+            responseTimeChartInstance.data.datasets[0].data = avgTimes;
+            responseTimeChartInstance.update();
+        }
     }
 }
 
