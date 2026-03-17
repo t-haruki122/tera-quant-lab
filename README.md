@@ -69,6 +69,20 @@ python -m uvicorn app.main:app --reload
 - ReDoc: `http://localhost:8000/redoc`
 - ルート (`/`) にアクセスすると `frontend/index.html` を返します（存在する場合）
 
+## UIスクリーンショット
+
+### 詳細ビュー
+
+![詳細ビュー](docs/images/ScreenShots_2.png)
+
+### 銘柄リスト比較
+
+![銘柄リスト比較](docs/images/ScreenShots_3.png)
+
+### システム統計
+
+![システム統計](docs/images/ScreenShots_1.png)
+
 ## クイック利用例
 
 ```bash
