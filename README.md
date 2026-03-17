@@ -71,17 +71,14 @@ python -m uvicorn app.main:app --reload
 
 ## UIスクリーンショット
 
-### 詳細ビュー
-
-![詳細ビュー](docs/images/ScreenShots_2.png)
-
 ### 銘柄リスト比較
+![銘柄リスト比較](docs/images/ScreenShots_2.png)
 
-![銘柄リスト比較](docs/images/ScreenShots_3.png)
+### 詳細ビュー
+![詳細ビュー](docs/images/ScreenShots_1.png)
 
 ### システム統計
-
-![システム統計](docs/images/ScreenShots_1.png)
+![システム統計](docs/images/ScreenShots_3.png)
 
 ## クイック利用例
 
