@@ -374,6 +374,38 @@ function renderProfile(profile) {
     body.innerHTML = html || '<p style="color:var(--text-muted)">データなし</p>';
 }
 
+function getMixIndexRating(value) {
+    if (value == null) return null;
+    if (value < 22.5) return 'good';
+    if (value < 50) return 'neutral';
+    return 'bad';
+}
+
+function getRatingSymbol(rating) {
+    if (rating === 'good') return '◎';
+    if (rating === 'neutral') return '○';
+    return '△';
+}
+
+function getMarketCapCategory(marketCap, currency) {
+    if (marketCap == null) return null;
+
+    let marketCapUsd = null;
+    if (!currency || currency === 'USD') {
+        marketCapUsd = marketCap;
+    } else if (currency === 'JPY' && exchangeRateUSDJPY) {
+        marketCapUsd = marketCap / exchangeRateUSDJPY;
+    }
+
+    if (marketCapUsd == null) return null;
+    if (marketCapUsd < 50_000_000) return 'Nano';
+    if (marketCapUsd < 300_000_000) return 'Micro';
+    if (marketCapUsd < 2_000_000_000) return 'Small';
+    if (marketCapUsd < 10_000_000_000) return 'Mid';
+    if (marketCapUsd < 200_000_000_000) return 'Large';
+    return 'Mega';
+}
+
 // ===== Render: Indicators =====
 function renderIndicators(data) {
     const body = document.getElementById('indicators-body');
@@ -385,7 +417,7 @@ function renderIndicators(data) {
         ['PBR', data.pbr, '倍', v => v < 1 ? 'good' : v < 3 ? 'neutral' : 'bad', '低いほど割安'],
         ['PER', data.per, '倍', v => v < 15 ? 'good' : v < 30 ? 'neutral' : 'bad', '低いほど割安'],
         ['EPS', data.eps, '', null, '1株あたり利益'],
-        ['ミックス指数', data.mix_index, '', v => v < 22.5 ? 'good' : v < 50 ? 'neutral' : 'bad', 'PER×PBR（22.5以下が割安）'],
+        ['ミックス指数', data.mix_index, '', v => getMixIndexRating(v), 'PER×PBR（22.5以下が割安）'],
         ['配当利回り', data.dividend_yield, '%', v => v > 3 ? 'good' : v > 1 ? 'neutral' : 'bad', '高いほど良い'],
         ['利益率', data.profit_margin, '%', v => v > 20 ? 'good' : v > 10 ? 'neutral' : 'bad', '高いほど良い'],
         ['D/Eレシオ', data.debt_to_equity, '', v => v < 50 ? 'good' : v < 150 ? 'neutral' : 'bad', '低いほど財務健全'],
@@ -721,7 +753,7 @@ async function loadListItemData(symbol, tags) {
             fetchStockMemo(symbol),
         ]);
 
-        const idx = listItems.findIndex(i => i.symbol === symbol);
+            const idx = listItems.findIndex(i => i.symbol === symbol);
         if (idx >= 0) {
             listItems[idx] = {
                 symbol,
@@ -730,9 +762,6 @@ async function loadListItemData(symbol, tags) {
                 price: price.price,
                 currency: profile.currency,
                 market_cap: profile.market_cap,
-                per: indicators.per,
-                pbr: indicators.pbr,
-                roe: indicators.roe,
                 mix_index: indicators.mix_index,
                 dividend_yield: indicators.dividend_yield,
                 tags: tags || [],
@@ -836,9 +865,6 @@ async function addToList() {
                 price: price.price,
                 currency: profile.currency,
                 market_cap: profile.market_cap,
-                per: indicators.per,
-                pbr: indicators.pbr,
-                roe: indicators.roe,
                 mix_index: indicators.mix_index,
                 dividend_yield: indicators.dividend_yield,
                 tags: listItems[idx].tags || [],
@@ -963,7 +989,7 @@ function renderListTable() {
             html += `
                 <tr class="row-loading">
                     <td class="table-ticker">${item.symbol}</td>
-                    <td colspan="10" style="color:var(--text-muted)">読み込み中...</td>
+                    <td colspan="7" style="color:var(--text-muted)">読み込み中...</td>
                     <td><button class="btn-remove" onclick="event.stopPropagation(); removeFromList('${item.symbol}')">削除</button></td>
                 </tr>`;
             return;
@@ -982,17 +1008,17 @@ function renderListTable() {
             ? escapeHtml(item.memo.length > 24 ? `${item.memo.slice(0, 24)}...` : item.memo)
             : '<span class="memo-empty">未入力</span>';
         const memoTitle = item.memo ? escapeAttr(item.memo) : '';
+        const marketCapCategory = getMarketCapCategory(item.market_cap, item.currency);
+        const mixRating = getMixIndexRating(item.mix_index);
+        const mixBadge = mixRating ? `<span class="indicator-badge ${mixRating}">${getRatingSymbol(mixRating)}</span>` : '';
 
         html += `
             <tr onclick="goToDetail('${item.symbol}')">
                 <td class="table-ticker">${item.symbol}</td>
                 <td class="table-company">${escapeHtml(item.name || '—')}</td>
                 <td class="numeric">${item.price != null ? formatCurrency(item.price, item.currency) : '—'}</td>
-                <td class="numeric">${item.market_cap != null ? formatLargeNumber(item.market_cap, item.currency) : '—'}</td>
-                <td class="numeric">${item.per != null ? item.per.toFixed(2) : '—'}</td>
-                <td class="numeric">${item.pbr != null ? item.pbr.toFixed(2) : '—'}</td>
-                <td class="numeric">${item.roe != null ? item.roe.toFixed(2) + '%' : '—'}</td>
-                <td class="numeric">${item.mix_index != null ? item.mix_index.toFixed(2) : '—'}</td>
+                <td class="table-market-cap" title="${item.market_cap != null ? escapeAttr(formatLargeNumber(item.market_cap, item.currency)) : ''}">${marketCapCategory || '—'}</td>
+                <td class="numeric">${item.mix_index != null ? item.mix_index.toFixed(2) : '—'} ${mixBadge}</td>
                 <td class="numeric">${item.dividend_yield != null ? item.dividend_yield.toFixed(2) + '%' : '—'}</td>
                 <td class="table-tags" onclick="event.stopPropagation()">${tagsHtml}</td>
                 <td class="table-memo" onclick="event.stopPropagation()"><button class="btn-memo" onclick="event.stopPropagation(); editStockMemo('${item.symbol}')">📝</button><span class="memo-preview" title="${memoTitle}">${memoPreview}</span></td>

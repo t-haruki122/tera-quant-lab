@@ -881,6 +881,13 @@ body {
     font-weight: 500;
 }
 
+.table-market-cap {
+    text-align: center;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: var(--text-accent);
+}
+
 .btn-remove {
     padding: var(--space-xs) var(--space-sm);
     border: 1px solid var(--accent-rose);
