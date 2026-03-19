@@ -47,17 +47,15 @@
                 </button>
                 <!-- アカウントメニュー -->
                 <div class="account-menu hidden" id="account-menu">
-                    <div class="account-menu-common">
-                        <button class="account-menu-item" onclick="openStatsFromAccountMenu()">システム統計</button>
-                    </div>
                     <div class="account-menu-user hidden" id="account-menu-user">
                         <div class="account-menu-username" id="account-menu-username"></div>
-                        <button class="account-menu-item danger" onclick="logoutUser()">ログアウト</button>
                     </div>
                     <div class="account-menu-guest" id="account-menu-guest">
                         <button class="account-menu-item" onclick="openAuthModal('login')">ログイン</button>
                         <button class="account-menu-item" onclick="openAuthModal('register')">新規登録</button>
                     </div>
+                    <button class="account-menu-item" onclick="openStatsFromAccountMenu()">システム統計</button>
+                    <button class="account-menu-item danger hidden" id="account-menu-logout" onclick="logoutUser()">ログアウト</button>
                 </div>
             </div>
         </nav>
@@ -303,10 +301,6 @@
                             追加
                         </button>
                     </div>
-                    <button class="btn-filter" id="btn-filter" onclick="openFilterModal()">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-                        <span id="filter-btn-label">フィルタ</span>
-                    </button>
                 </div>
             </div>
             <p class="list-description">このページを幹として複数の銘柄を管理し、行クリックで各銘柄の詳細ページへ移動できます。列ヘッダーをクリックすると並び替えできます。</p>

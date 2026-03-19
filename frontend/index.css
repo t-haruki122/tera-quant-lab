@@ -1139,10 +1139,6 @@ footer {
     opacity: 0.8;
 }
 
-.account-menu-common {
-    border-bottom: 1px solid var(--border-color);
-}
-
 .account-btn.logged-in {
     background: rgba(16, 185, 129, 0.15);
     border-color: var(--accent-emerald);
@@ -1163,14 +1159,6 @@ footer {
     overflow: hidden;
     z-index: 200;
     animation: fadeIn 0.15s ease;
-}
-
-.account-menu.is-logged-in .account-menu-user {
-    order: 1;
-}
-
-.account-menu.is-logged-in .account-menu-common {
-    order: 2;
 }
 
 .account-menu-username {
@@ -1526,37 +1514,6 @@ footer {
     background: var(--accent-blue-glow);
     border-color: var(--accent-blue);
     color: var(--accent-blue);
-}
-
-/* --- Filter Button --- */
-.btn-filter {
-    display: flex;
-    align-items: center;
-    gap: var(--space-xs);
-    padding: var(--space-sm) var(--space-md);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-full);
-    background: transparent;
-    color: var(--text-secondary);
-    font-family: inherit;
-    font-size: 0.8rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all var(--transition-fast);
-    white-space: nowrap;
-}
-
-.btn-filter:hover {
-    background: var(--bg-glass);
-    border-color: var(--accent-blue);
-    color: var(--accent-blue);
-}
-
-.btn-filter.active {
-    background: rgba(59, 130, 246, 0.12);
-    border-color: var(--accent-blue);
-    color: var(--accent-blue);
-    box-shadow: 0 0 12px rgba(59, 130, 246, 0.15);
 }
 
 /* --- Active Filter Bar --- */

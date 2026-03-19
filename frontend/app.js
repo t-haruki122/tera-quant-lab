@@ -1171,7 +1171,6 @@ class ListSearchQueryParser {
             item.symbol || '',
             item.name || '',
             item.country || '',
-            ...(item.tags || []),
         ]
             .join(' ')
             .toLowerCase();
@@ -1347,21 +1346,16 @@ function getAllTags() {
 }
 
 function updateFilterButtonState() {
-    const btn = document.getElementById('btn-filter');
-    const label = document.getElementById('filter-btn-label');
     const filterBar = document.getElementById('active-filter-bar');
+    if (!filterBar) return;
 
     if (activeTagFilter) {
-        btn.classList.add('active');
-        label.textContent = `フィルタ: ${activeTagFilter}`;
         // アクティブフィルタバーを表示
         filterBar.classList.remove('hidden');
         const tagEl = document.getElementById('active-filter-tag');
         const color = getTagColor(activeTagFilter);
         tagEl.innerHTML = `<span class="tag-chip small" style="--tag-hue:${color}">${escapeHtml(activeTagFilter)}</span>`;
     } else {
-        btn.classList.remove('active');
-        label.textContent = 'フィルタ';
         filterBar.classList.add('hidden');
     }
 }
@@ -1631,21 +1625,22 @@ function updateAccountUI() {
     const menu = document.getElementById('account-menu');
     const menuUser = document.getElementById('account-menu-user');
     const menuGuest = document.getElementById('account-menu-guest');
+    const menuLogout = document.getElementById('account-menu-logout');
     const accountBtn = document.getElementById('account-btn');
 
     if (currentUser) {
         btnLabel.textContent = currentUser.username;
         menuUser.classList.remove('hidden');
         menuGuest.classList.add('hidden');
+        menuLogout.classList.remove('hidden');
         document.getElementById('account-menu-username').textContent = `👤 ${currentUser.username}`;
         accountBtn.classList.add('logged-in');
-        menu.classList.add('is-logged-in');
     } else {
         btnLabel.textContent = 'ログイン';
         menuUser.classList.add('hidden');
         menuGuest.classList.remove('hidden');
+        menuLogout.classList.add('hidden');
         accountBtn.classList.remove('logged-in');
-        menu.classList.remove('is-logged-in');
     }
     menu.classList.add('hidden');
 }
