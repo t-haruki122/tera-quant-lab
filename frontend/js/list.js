@@ -384,10 +384,10 @@ export function renderListTable() {
         if (item.loading) {
             const isPendingDelete = state.pendingDeleteSymbol === item.symbol;
             html += `
-                <tr class="row-loading">
+                <tr class="row-loading" data-symbol="${item.symbol}">
                     <td class="table-ticker">${item.symbol}</td>
                     <td colspan="7" style="color:var(--text-muted)">読み込み中...</td>
-                    <td><button class="btn-remove ${isPendingDelete ? 'confirm' : ''}" onclick="event.stopPropagation(); requestRemoveFromList('${item.symbol}')">${isPendingDelete ? 'OK?' : '削除'}</button></td>
+                    <td><button class="btn-remove ${isPendingDelete ? 'confirm' : ''}" type="button" data-action="remove-item" data-symbol="${item.symbol}">${isPendingDelete ? 'OK?' : '削除'}</button></td>
                 </tr>`;
             return;
         }
@@ -399,7 +399,7 @@ export function renderListTable() {
                 tagsHtml += `<span class="tag-chip small" style="--tag-hue:${color}">${escapeHtml(tag)}</span>`;
             });
         }
-        tagsHtml += `<button class="btn-tag-edit" onclick="event.stopPropagation(); openTagModal('${item.symbol}')" title="タグ編集">🏷️</button>`;
+        tagsHtml += `<button class="btn-tag-edit" type="button" data-action="open-tag-modal" data-symbol="${item.symbol}" title="タグ編集">🏷️</button>`;
 
         const memoPreview = item.memo
             ? escapeHtml(item.memo.length > 24 ? `${item.memo.slice(0, 24)}...` : item.memo)
@@ -411,16 +411,16 @@ export function renderListTable() {
         const isPendingDelete = state.pendingDeleteSymbol === item.symbol;
 
         html += `
-            <tr onclick="goToDetail('${item.symbol}')">
+            <tr data-symbol="${item.symbol}">
                 <td class="table-ticker">${item.symbol}</td>
                 <td class="table-company">${escapeHtml(item.name || '—')}</td>
                 <td class="numeric">${item.price != null ? formatCurrency(item.price, item.currency) : '—'}</td>
                 <td class="table-market-cap" title="${item.market_cap != null ? escapeAttr(formatLargeNumber(item.market_cap, item.currency)) : ''}">${marketCapCategory || '—'}</td>
                 <td class="numeric">${item.mix_index != null ? item.mix_index.toFixed(2) : '—'} ${mixBadge}</td>
                 <td class="numeric">${item.dividend_yield != null ? item.dividend_yield.toFixed(2) + '%' : '—'}</td>
-                <td class="table-tags" onclick="event.stopPropagation()">${tagsHtml}</td>
-                <td class="table-memo" onclick="event.stopPropagation()"><button class="btn-memo" onclick="event.stopPropagation(); editStockMemo('${item.symbol}')">📝</button><span class="memo-preview" title="${memoTitle}">${memoPreview}</span></td>
-                <td><button class="btn-remove ${isPendingDelete ? 'confirm' : ''}" onclick="event.stopPropagation(); requestRemoveFromList('${item.symbol}')">${isPendingDelete ? 'OK?' : '削除'}</button></td>
+                <td class="table-tags">${tagsHtml}</td>
+                <td class="table-memo"><button class="btn-memo" type="button" data-action="edit-memo" data-symbol="${item.symbol}">📝</button><span class="memo-preview" title="${memoTitle}">${memoPreview}</span></td>
+                <td><button class="btn-remove ${isPendingDelete ? 'confirm' : ''}" type="button" data-action="remove-item" data-symbol="${item.symbol}">${isPendingDelete ? 'OK?' : '削除'}</button></td>
             </tr>`;
     });
 
@@ -446,7 +446,7 @@ export function openFilterModal() {
             const color = getTagColor(tag);
             const isActive = tag === state.activeTagFilter;
             const count = state.listItems.filter(i => i.tags && i.tags.includes(tag)).length;
-            html += `<button class="filter-tag-item ${isActive ? 'active' : ''}" onclick="selectFilterTag('${escapeAttr(tag)}')" style="--tag-hue:${color}">
+            html += `<button class="filter-tag-item ${isActive ? 'active' : ''}" type="button" data-action="select-filter-tag" data-tag="${escapeAttr(tag)}" style="--tag-hue:${color}">
                 <span class="filter-tag-name">${escapeHtml(tag)}</span>
                 <span class="filter-tag-count">${count}件</span>
             </button>`;
@@ -510,7 +510,7 @@ function renderCurrentTags() {
         const color = getTagColor(tag);
         html += `<span class="tag-chip editable" style="--tag-hue:${color}">
             ${escapeHtml(tag)}
-            <button class="tag-remove-btn" onclick="removeTag('${escapeAttr(tag)}')" title="削除">✕</button>
+            <button class="tag-remove-btn" type="button" data-action="remove-tag" data-tag="${escapeAttr(tag)}" title="削除">✕</button>
         </span>`;
     });
     container.innerHTML = html;
@@ -574,22 +574,88 @@ export function setListSearchQuery(query) {
     renderListTable();
 }
 
-Object.assign(window, {
-    quickAddToList,
-    openListAddModal,
-    closeListAddModal,
-    submitListAddFromModal,
-    editStockMemo,
-    requestRemoveFromList,
-    sortTable,
-    openFilterModal,
-    closeFilterModal,
-    selectFilterTag,
-    clearTagFilter,
-    openTagModal,
-    closeTagModal,
-    addTagFromInput,
-    addPresetTag,
-    removeTag,
-    goToDetail,
-});
+export function bindListEvents() {
+    document.getElementById('list-add-btn')?.addEventListener('click', () => openListAddModal());
+    document.getElementById('list-add-modal-submit')?.addEventListener('click', submitListAddFromModal);
+    document.getElementById('active-filter-clear')?.addEventListener('click', clearTagFilter);
+
+    document.querySelectorAll('#comparison-table th.sortable[data-sort]').forEach(th => {
+        th.addEventListener('click', () => {
+            const key = th.dataset.sort;
+            if (key) sortTable(key);
+        });
+    });
+
+    const listAddOverlay = document.getElementById('list-add-modal-overlay');
+    listAddOverlay?.addEventListener('click', e => {
+        if (e.target === listAddOverlay) closeListAddModal();
+    });
+    document.getElementById('list-add-modal-close')?.addEventListener('click', closeListAddModal);
+
+    const filterOverlay = document.getElementById('filter-modal-overlay');
+    filterOverlay?.addEventListener('click', e => {
+        if (e.target === filterOverlay) closeFilterModal();
+    });
+    document.getElementById('filter-modal-close')?.addEventListener('click', closeFilterModal);
+    document.getElementById('filter-clear-btn')?.addEventListener('click', () => {
+        clearTagFilter();
+        closeFilterModal();
+    });
+
+    const tagOverlay = document.getElementById('tag-modal-overlay');
+    tagOverlay?.addEventListener('click', e => {
+        if (e.target === tagOverlay) closeTagModal();
+    });
+    document.getElementById('tag-modal-close')?.addEventListener('click', closeTagModal);
+    document.getElementById('tag-add-btn')?.addEventListener('click', addTagFromInput);
+
+    document.addEventListener('click', e => {
+        const quickAddEl = e.target.closest('[data-quick-add]');
+        if (quickAddEl) {
+            quickAddToList(quickAddEl.dataset.quickAdd);
+            return;
+        }
+
+        const presetTagBtn = e.target.closest('[data-preset-tag]');
+        if (presetTagBtn) {
+            addPresetTag(presetTagBtn.dataset.presetTag);
+            return;
+        }
+
+        const filterTagBtn = e.target.closest('.filter-tag-item[data-tag]');
+        if (filterTagBtn) {
+            selectFilterTag(filterTagBtn.dataset.tag);
+            return;
+        }
+
+        const actionBtn = e.target.closest('[data-action]');
+        if (actionBtn) {
+            const action = actionBtn.dataset.action;
+            const symbol = actionBtn.dataset.symbol;
+            const tag = actionBtn.dataset.tag;
+
+            if (action === 'remove-item' && symbol) {
+                requestRemoveFromList(symbol);
+                return;
+            }
+            if (action === 'open-tag-modal' && symbol) {
+                openTagModal(symbol);
+                return;
+            }
+            if (action === 'edit-memo' && symbol) {
+                editStockMemo(symbol);
+                return;
+            }
+            if (action === 'remove-tag' && tag) {
+                removeTag(tag);
+                return;
+            }
+        }
+
+        const row = e.target.closest('#comparison-tbody tr[data-symbol]');
+        if (row && !e.target.closest('button')) {
+            const symbol = row.dataset.symbol;
+            if (symbol) goToDetail(symbol);
+        }
+    });
+}

@@ -77,6 +77,7 @@ python -m uvicorn app.main:app --reload
 主な構成:
 
 - エントリポイント: `frontend/app.js`
+- アプリ初期化: `App` クラス（依存注入可能）
 - 共有状態: `frontend/js/state.js`
 - APIヘルパー: `frontend/js/api.js`
 - 共通ユーティリティ: `frontend/js/utils.js`
@@ -89,7 +90,7 @@ python -m uvicorn app.main:app --reload
 
 補足:
 
-- 既存のHTML inline handler（`onclick` 等）との互換のため、必要関数は各モジュールで `window` に公開しています。
+- HTMLの inline handler（`onclick` / `onchange`）は撤去済みで、モジュール内のイベント登録 (`bind...Events`) に統一しています。
 
 ## UIスクリーンショット
 

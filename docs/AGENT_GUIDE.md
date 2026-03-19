@@ -41,7 +41,7 @@
 
 #### フロントエンド主要モジュール
 
-- `app.js`: エントリポイント。初期化、ビュー切り替え、キーボードイベント登録。
+- `app.js`: エントリポイント。`App` クラスで初期化し、依存注入可能な構成。
 - `js/state.js`: 共有状態と定数。
 - `js/api.js`: `fetchAPI` とレスポンスキャッシュ。
 - `js/utils.js`: 表示フォーマット、トースト、エスケープ処理。
@@ -54,7 +54,7 @@
 
 #### 互換レイヤー
 
-既存の `onclick` などの inline handler と互換維持のため、一部関数を `Object.assign(window, {...})` で公開しています。新規実装では可能な限り `addEventListener` ベースを優先してください。
+HTMLの inline handler（`onclick` / `onchange`）は撤去済みです。イベントは各モジュールの `bind...Events` で登録されます。
 
 ---
 
@@ -85,6 +85,7 @@
 - **API通信**: `js/api.js` の `fetchAPI` を利用してください。
 - **状態更新**: 直接グローバル変数を作らず、`js/state.js` の `state` を更新してください。
 - **機能分割**: 詳細画面の財務グラフロジックは `js/financial-chart.js` に配置してください。
+- **イベント登録**: HTML属性でのイベント定義は追加せず、モジュール内で `addEventListener` を使用してください。
 
 ---
 

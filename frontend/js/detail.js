@@ -204,8 +204,8 @@ export async function loadFinancials(symbol, profile) {
                 <div class="mini-chart-header-row">
                     <div class="mini-chart-header">過去の財務推移（年次）</div>
                     <div class="metric-toggle" role="group" aria-label="財務指標の切り替え">
-                        <button class="metric-btn" id="metric-revenue" onclick="changeFinancialMetric('revenue')">売上高</button>
-                        <button class="metric-btn active" id="metric-net-income" onclick="changeFinancialMetric('net_income')">純利益</button>
+                        <button class="metric-btn" id="metric-revenue" type="button" data-financial-metric="revenue">売上高</button>
+                        <button class="metric-btn active" id="metric-net-income" type="button" data-financial-metric="net_income">純利益</button>
                     </div>
                 </div>
                 <div class="financial-history-chart-container">
@@ -267,7 +267,19 @@ export async function loadNews(symbol) {
     }
 }
 
-Object.assign(window, {
-    quickSearch,
-    searchStock,
-});
+export function bindDetailEvents() {
+    document.getElementById('search-btn')?.addEventListener('click', () => {
+        searchStock();
+    });
+
+    document.getElementById('search-retry-btn')?.addEventListener('click', () => {
+        searchStock();
+    });
+
+    document.addEventListener('click', e => {
+        const quickSearchEl = e.target.closest('[data-quick-search]');
+        if (quickSearchEl) {
+            quickSearch(quickSearchEl.dataset.quickSearch);
+        }
+    });
+}

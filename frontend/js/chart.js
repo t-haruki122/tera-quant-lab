@@ -272,7 +272,15 @@ export function changePeriod(period) {
     if (state.currentSymbol) loadChart(state.currentSymbol, period, currentCurrency);
 }
 
-Object.assign(window, {
-    updateChartVisibility,
-    changePeriod,
-});
+export function bindChartEvents() {
+    document.querySelectorAll('.period-btn[data-period]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const period = btn.dataset.period;
+            if (period) changePeriod(period);
+        });
+    });
+
+    ['toggle-sma25', 'toggle-sma50', 'toggle-sma75', 'toggle-sma200', 'toggle-rsi'].forEach(id => {
+        document.getElementById(id)?.addEventListener('change', updateChartVisibility);
+    });
+}

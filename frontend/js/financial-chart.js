@@ -224,6 +224,12 @@ export function renderDividendHistoryChart(history, currency) {
     });
 }
 
-Object.assign(window, {
-    changeFinancialMetric,
-});
+export function bindFinancialChartEvents() {
+    document.getElementById('financials-body')?.addEventListener('click', e => {
+        const metricBtn = e.target.closest('[data-financial-metric]');
+        if (!metricBtn) return;
+        const metric = metricBtn.dataset.financialMetric;
+        if (!metric) return;
+        changeFinancialMetric(metric);
+    });
+}

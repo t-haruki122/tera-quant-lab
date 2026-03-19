@@ -139,12 +139,36 @@ export function logoutUser() {
     showToast('ログアウトしました', 'info');
 }
 
-Object.assign(window, {
-    toggleAccountMenu,
-    openStatsFromAccountMenu,
-    openAuthModal,
-    closeAuthModal,
-    toggleAuthMode,
-    submitAuth,
-    logoutUser,
-});
+export function bindAuthEvents() {
+    const accountBtn = document.getElementById('account-btn');
+    const accountMenu = document.getElementById('account-menu');
+    const accountGuest = document.getElementById('account-menu-guest');
+    const accountStatsBtn = document.getElementById('account-menu-stats');
+    const accountLogoutBtn = document.getElementById('account-menu-logout');
+    const authOverlay = document.getElementById('auth-modal-overlay');
+    const authModal = authOverlay?.querySelector('.modal');
+    const authCloseBtn = document.getElementById('auth-modal-close');
+    const authSubmitBtn = document.getElementById('auth-submit-btn');
+    const authToggleLink = document.getElementById('auth-toggle-link');
+
+    accountBtn?.addEventListener('click', toggleAccountMenu);
+
+    accountGuest?.addEventListener('click', e => {
+        const btn = e.target.closest('[data-auth-mode]');
+        if (!btn) return;
+        openAuthModal(btn.dataset.authMode);
+    });
+
+    accountStatsBtn?.addEventListener('click', openStatsFromAccountMenu);
+    accountLogoutBtn?.addEventListener('click', logoutUser);
+
+    authOverlay?.addEventListener('click', e => {
+        if (e.target === authOverlay) closeAuthModal();
+    });
+    authModal?.addEventListener('click', e => e.stopPropagation());
+    authCloseBtn?.addEventListener('click', closeAuthModal);
+    authSubmitBtn?.addEventListener('click', submitAuth);
+    authToggleLink?.addEventListener('click', toggleAuthMode);
+
+    accountMenu?.addEventListener('click', e => e.stopPropagation());
+}
