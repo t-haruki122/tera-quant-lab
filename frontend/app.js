@@ -17,6 +17,7 @@ let currentFinancialMetric = 'net_income';
 let currentPeriod = '3mo';
 let currentChartHistory = [];
 let currentChartCurrency = null;
+let latestChartRequestId = 0;
 
 // Stats History
 const statsHistory = [];
@@ -297,6 +298,9 @@ async function searchStock() {
     if (!symbol) return;
 
     currentSymbol = symbol;
+    currentChartHistory = [];
+    currentChartCurrency = null;
+    clearPriceAndRsiCharts();
     showSection('loading');
     document.getElementById('loading-text').textContent = `${symbol} のデータを取得中...`;
 
@@ -775,8 +779,41 @@ function updateChartVisibility() {
     }
 }
 
+function clearPriceAndRsiCharts() {
+    if (priceChart) {
+        priceChart.destroy();
+        priceChart = null;
+    }
+    if (rsiChartInstance) {
+        rsiChartInstance.destroy();
+        rsiChartInstance = null;
+    }
+
+    const priceCanvas = document.getElementById('price-chart');
+    if (priceCanvas) {
+        const ctx = priceCanvas.getContext('2d');
+        ctx.clearRect(0, 0, priceCanvas.width, priceCanvas.height);
+    }
+
+    const rsiCanvas = document.getElementById('rsi-chart');
+    if (rsiCanvas) {
+        const ctx = rsiCanvas.getContext('2d');
+        ctx.clearRect(0, 0, rsiCanvas.width, rsiCanvas.height);
+    }
+}
+
+function setChartLoading(isLoading) {
+    const overlay = document.getElementById('chart-loading-overlay');
+    if (!overlay) return;
+    overlay.classList.toggle('hidden', !isLoading);
+}
+
 // ===== Chart =====
 async function loadChart(symbol, period, currency) {
+    const requestId = ++latestChartRequestId;
+    setChartLoading(true);
+    clearPriceAndRsiCharts();
+
     const periodMap = {
         '1mo': { months: 1 },
         '3mo': { months: 3 },
@@ -789,13 +826,12 @@ async function loadChart(symbol, period, currency) {
     const endDate = new Date();
     const startDate = new Date();
     
+    // SMA期間（25/50/75/200）を日足ベースで一貫させるため、全期間で1dを使う
     let interval = '1d';
     if (period === '10y') {
         startDate.setFullYear(startDate.getFullYear() - 10);
-        interval = '1mo'; // 10年は月次
     } else {
         startDate.setMonth(startDate.getMonth() - p.months);
-        interval = p.months > 12 ? '1wk' : '1d';
     }
 
     const startStr = startDate.toISOString().split('T')[0];
@@ -803,20 +839,30 @@ async function loadChart(symbol, period, currency) {
 
     try {
         const data = await fetchAPI(`/stock/${symbol}/history?start_date=${startStr}&end_date=${endStr}&interval=${interval}`);
+
+        // 先に発行された遅いレスポンスで現在表示を上書きしない
+        if (requestId !== latestChartRequestId || symbol !== currentSymbol) {
+            return;
+        }
+
         currentChartHistory = data.history;
         currentChartCurrency = currency;
         renderChart(data.history, currency);
     } catch (err) {
-        console.error('Chart load error:', err);
+        if (requestId === latestChartRequestId && symbol === currentSymbol) {
+            console.error('Chart load error:', err);
+        }
+    } finally {
+        if (requestId === latestChartRequestId && symbol === currentSymbol) {
+            setChartLoading(false);
+        }
     }
 }
 
 function renderChart(history, currency) {
     const ctx = document.getElementById('price-chart').getContext('2d');
-    if (priceChart) priceChart.destroy();
-
     const rsiCtx = document.getElementById('rsi-chart').getContext('2d');
-    if (rsiChartInstance) rsiChartInstance.destroy();
+    clearPriceAndRsiCharts();
 
     let closes = history.map(h => h.close);
     
