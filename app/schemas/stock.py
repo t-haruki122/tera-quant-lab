@@ -60,6 +60,19 @@ class FinancialHistoryResponse(BaseModel):
     history: list[FinancialHistoryEntry]
 
 
+class DividendHistoryEntry(BaseModel):
+    """過去配当情報の1レコード"""
+    date: str
+    dividend_per_share: float | None = None
+    dividend_yield: float | None = None
+
+
+class DividendHistoryResponse(BaseModel):
+    """過去配当情報レスポンス"""
+    symbol: str
+    history: list[DividendHistoryEntry]
+
+
 # --- ニュース ---
 
 class NewsEntry(BaseModel):

@@ -9,6 +9,7 @@ from app.schemas.stock import (
     StockHistoryResponse,
     FinancialResponse,
     FinancialHistoryResponse,
+    DividendHistoryResponse,
     NewsResponse,
     CompanyProfileResponse,
     IndicatorsResponse,
@@ -71,6 +72,21 @@ async def get_financial_history(
 ):
     """過去の財務情報を取得"""
     return await finance_service.get_financial_history(symbol, db, limit=limit)
+
+
+@router.get(
+    "/{symbol}/dividends/history",
+    response_model=DividendHistoryResponse,
+    summary="過去の配当情報を取得",
+    description="指定されたシンボルの配当履歴（1株配当・年利換算の配当利回り）を返します。",
+)
+async def get_dividend_history(
+    symbol: str,
+    limit: int = Query(20, ge=1, le=60, description="取得する配当履歴件数"),
+    db: AsyncSession = Depends(get_db),
+):
+    """過去の配当情報を取得"""
+    return await finance_service.get_dividend_history(symbol, db, limit=limit)
 
 
 @router.get(

@@ -633,6 +633,21 @@ body {
     height: 220px;
 }
 
+.dividend-history-chart-container {
+    position: relative;
+    height: 240px;
+}
+
+.mini-chart-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
 /* --- Indicator Badge --- */
 .indicator-badge {
     display: inline-flex;

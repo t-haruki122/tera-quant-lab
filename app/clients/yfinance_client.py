@@ -2,7 +2,7 @@
 
 import logging
 import yfinance as yf
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import math
 from typing import Any
 
@@ -240,6 +240,89 @@ class YFinanceClient:
         except Exception as e:
             raise ExternalAPIError(
                 f"Failed to fetch financial history for {symbol}: {str(e)}"
+            )
+
+    def get_dividend_history(self, symbol: str, limit: int = 20) -> dict[str, Any]:
+        """
+        配当履歴（年間1株配当 + 年利換算の配当利回り）を年次で取得
+
+        Returns:
+            {"symbol": str, "history": [{"date": str, "dividend_per_share": float, "dividend_yield": float | None}, ...]}
+        """
+        try:
+            logger.info(
+                "External API call: yfinance get_dividend_history symbol=%s limit=%s",
+                symbol.upper(),
+                limit,
+            )
+            ticker = yf.Ticker(symbol)
+            info = ticker.info
+
+            if not info or info.get("quoteType") is None:
+                raise SymbolNotFoundError(symbol)
+
+            all_dividends = ticker.dividends
+            if all_dividends is None or all_dividends.empty:
+                return {"symbol": symbol.upper(), "history": []}
+
+            all_dividends = all_dividends.sort_index()
+            years = sorted({int(idx.year) for idx in all_dividends.index})
+            if limit > 0:
+                years = years[-limit:]
+
+            first_year = years[0]
+            last_year = years[-1]
+            history_start = f"{first_year}-01-01"
+            history_end = f"{last_year + 1}-01-10"
+            price_hist = ticker.history(
+                start=history_start,
+                end=history_end,
+                interval="1d",
+                auto_adjust=False,
+                actions=False,
+            )
+
+            year_end_close_by_year: dict[int, float] = {}
+            if price_hist is not None and not price_hist.empty:
+                try:
+                    closes = price_hist["Close"].dropna()
+                    for year in years:
+                        year_closes = closes[closes.index.year == year]
+                        if not year_closes.empty:
+                            year_end_close_by_year[year] = float(year_closes.iloc[-1])
+                except Exception:
+                    year_end_close_by_year = {}
+
+            entries: list[dict[str, Any]] = []
+            for year in years:
+                year_dividends = all_dividends[all_dividends.index.year == year]
+                if year_dividends is None or year_dividends.empty:
+                    continue
+
+                annual_dividend_per_share = float(year_dividends.sum())
+                if math.isnan(annual_dividend_per_share):
+                    continue
+
+                close_price = year_end_close_by_year.get(year)
+
+                annual_dividend_yield = None
+                if close_price is not None and close_price > 0:
+                    annual_dividend_yield = round((annual_dividend_per_share / close_price) * 100, 2)
+
+                entries.append(
+                    {
+                        "date": str(year),
+                        "dividend_per_share": round(annual_dividend_per_share, 4),
+                        "dividend_yield": annual_dividend_yield,
+                    }
+                )
+
+            return {"symbol": symbol.upper(), "history": entries}
+        except SymbolNotFoundError:
+            raise
+        except Exception as e:
+            raise ExternalAPIError(
+                f"Failed to fetch dividend history for {symbol}: {str(e)}"
             )
 
     def get_company_profile(self, symbol: str) -> dict[str, Any]:

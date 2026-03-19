@@ -67,3 +67,10 @@ async def get_financial_history(symbol: str, db: AsyncSession, limit: int = 6) -
     del db
     stats.log_api_call()
     return _client.get_financial_history(symbol, limit=limit)
+
+
+async def get_dividend_history(symbol: str, db: AsyncSession, limit: int = 20) -> dict:
+    """過去の配当データ（1株配当・配当利回り）を取得"""
+    del db
+    stats.log_api_call()
+    return _client.get_dividend_history(symbol, limit=limit)
