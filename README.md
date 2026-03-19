@@ -70,6 +70,27 @@ python -m uvicorn app.main:app --reload
 - ReDoc: `http://localhost:8000/redoc`
 - ルート (`/`) にアクセスすると `frontend/index.html` を返します（存在する場合）
 
+## フロントエンド構成（ES Modules）
+
+フロントエンドはビルドステップなしのES Modules構成です。`index.html` では `type="module"` で `frontend/app.js` のみを読み込み、各機能モジュールを `import` で連結します。
+
+主な構成:
+
+- エントリポイント: `frontend/app.js`
+- 共有状態: `frontend/js/state.js`
+- APIヘルパー: `frontend/js/api.js`
+- 共通ユーティリティ: `frontend/js/utils.js`
+- 統計表示: `frontend/js/stats.js`
+- 詳細表示: `frontend/js/detail.js`
+- 価格チャート: `frontend/js/chart.js`
+- 財務チャート: `frontend/js/financial-chart.js`
+- リスト・タグ管理: `frontend/js/list.js`
+- 認証・アカウントUI: `frontend/js/auth.js`
+
+補足:
+
+- 既存のHTML inline handler（`onclick` 等）との互換のため、必要関数は各モジュールで `window` に公開しています。
+
 ## UIスクリーンショット
 
 ### 銘柄リスト比較

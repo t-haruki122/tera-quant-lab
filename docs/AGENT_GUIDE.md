@@ -35,8 +35,26 @@
 シンプルさとパフォーマンスを重視し、ビルドステップのないバニラな技術スタックを採用しています。
 
 - **Single Page Application (SPA)**: `index.html` の一部を JavaScript で動的に書き換えることで遷移を行います。
+- **ES Modules構成**: `index.html` は `type="module"` で `app.js` のみを読み込み、機能別モジュールを `import/export` で連携します。
 - **モダンなCSS**: 変数（`--accent-blue`など）を活用し、ダークテーマと洗練されたUIを実現しています。
-- **状態管理**: `app.js` 内のグローバルオブジェクト（`listItems`, `currentUser`など）でシンプルに管理しています。
+- **状態管理**: `js/state.js` の `state` オブジェクトにUI状態を集約し、各モジュールで共有します。
+
+#### フロントエンド主要モジュール
+
+- `app.js`: エントリポイント。初期化、ビュー切り替え、キーボードイベント登録。
+- `js/state.js`: 共有状態と定数。
+- `js/api.js`: `fetchAPI` とレスポンスキャッシュ。
+- `js/utils.js`: 表示フォーマット、トースト、エスケープ処理。
+- `js/stats.js`: `/stats` の取得とダッシュボード描画。
+- `js/detail.js`: 詳細画面の検索・プロフィール・ニュース・財務データ読み込み。
+- `js/chart.js`: 価格/RSI/SMAチャートと期間切替。
+- `js/financial-chart.js`: 財務推移・配当推移チャートの描画。
+- `js/list.js`: ウォッチリスト、タグ、フィルタ、並べ替え。
+- `js/auth.js`: 認証モーダルとアカウントメニュー。
+
+#### 互換レイヤー
+
+既存の `onclick` などの inline handler と互換維持のため、一部関数を `Object.assign(window, {...})` で公開しています。新規実装では可能な限り `addEventListener` ベースを優先してください。
 
 ---
 
@@ -64,7 +82,9 @@
 
 ### フロントエンドの修正手順
 - **スタイル**: `index.css` の CSS 変数を使用してデザインの一貫性を保ってください。
-- **API通信**: `app.js` 内の `fetchAPI` ヘルパー関数を使用して、キャッシュとローディングの状態を適切に扱ってください。
+- **API通信**: `js/api.js` の `fetchAPI` を利用してください。
+- **状態更新**: 直接グローバル変数を作らず、`js/state.js` の `state` を更新してください。
+- **機能分割**: 詳細画面の財務グラフロジックは `js/financial-chart.js` に配置してください。
 
 ---
 
