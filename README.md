@@ -15,11 +15,13 @@
 - 為替レートの取得
 - ユーザー登録/ログインとウォッチリスト管理
 - API利用統計の確認
+- Python完結型CLIによるバックテスト実行
 
 ## ドキュメント構成
 
 - フロントエンド詳細: [docs/FRONTEND.md](docs/FRONTEND.md)
 - バックエンドAPI詳細: [docs/API.md](docs/API.md)
+- バックテストCLI詳細: [docs/backtestCLI.md](docs/backtestCLI.md)
 
 ## セットアップ
 
