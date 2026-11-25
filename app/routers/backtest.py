@@ -2,19 +2,15 @@
 
 import asyncio
 import math
-import re
-from calendar import monthrange
 from collections import Counter
 from dataclasses import asdict
-from datetime import date
 from threading import Event, Lock
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import get_current_user
 from app.backtest import REGISTRY, Backtester, grid_params, history_to_df, make_strategy, run_grid, validate_params
 from app.backtest.grid import RANK_METRICS
 from app.backtest.strategies import param_schema
@@ -22,7 +18,9 @@ from app.config import get_settings
 from app.database import get_db
 from app.exceptions import json_safe
 from app.models.db_models import User
+from app.routers.dependencies import limit_backtest_requests
 from app.services import finance_service, stock_service
+from app.validation import HistoryInterval, ISODate, Symbol, shift_years
 
 router = APIRouter(prefix="/backtest", tags=["backtest"])
 _active_jobs: Counter[int] = Counter()
@@ -32,10 +30,10 @@ _jobs_lock = Lock()
 class RunRequest(BaseModel):
     model_config = ConfigDict(allow_inf_nan=False)
 
-    symbol: str
-    start_date: date
-    end_date: date
-    interval: Literal["1d", "1wk", "1mo"] = "1d"
+    symbol: Symbol
+    start_date: ISODate
+    end_date: ISODate
+    interval: HistoryInterval = "1d"
     strategy: str = "sma_cross"
     params: dict[str, Any] = Field(default_factory=dict)
     execution: Literal["next_open", "close"] = "next_open"
@@ -45,32 +43,13 @@ class RunRequest(BaseModel):
     eps_lag_days: int = Field(90, ge=0, le=730)
     risk_free: float = Field(0, ge=-0.5, le=1)
 
-    @field_validator("symbol")
-    @classmethod
-    def normalize_symbol(cls, value: str) -> str:
-        value = value.strip()
-        if not re.fullmatch(r"[A-Za-z0-9^][A-Za-z0-9.^=\-]{0,19}", value):
-            raise ValueError("symbol は英数字または ^ . = - で20文字以内にしてください")
-        return value.upper()
-
-    @field_validator("start_date", "end_date", mode="before")
-    @classmethod
-    def parse_date(cls, value):
-        if not isinstance(value, str) or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
-            raise ValueError("日付は YYYY-MM-DD 形式で指定してください")
-        return value
-
     @model_validator(mode="after")
     def validate_request(self):
         start, end = self.start_date, self.end_date
         if start > end:
             raise ValueError("start_date は end_date 以前にしてください")
         years = get_settings().backtest_max_span_years
-        last_year = start.year + years
-        if end.year > last_year or (
-            end.year == last_year and
-            end > date(last_year, start.month, min(start.day, monthrange(last_year, start.month)[1]))
-        ):
+        if end > shift_years(start, years):
             raise ValueError(f"start_date から end_date までの期間は最大 {years} 年です")
         self.params = validate_params(self.strategy, self.params)
         return self
@@ -175,10 +154,14 @@ async def _run_job(body: RunRequest, user_id: int, db: AsyncSession):
 
 
 @router.post("/run")
-async def run_backtest(body: RunRequest, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def run_backtest(
+    body: RunRequest, user: User = Depends(limit_backtest_requests), db: AsyncSession = Depends(get_db),
+):
     return await _run_job(body, user.id, db)
 
 
 @router.post("/grid")
-async def run_backtest_grid(body: GridRequest, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def run_backtest_grid(
+    body: GridRequest, user: User = Depends(limit_backtest_requests), db: AsyncSession = Depends(get_db),
+):
     return await _run_job(body, user.id, db)

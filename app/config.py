@@ -2,12 +2,14 @@
 
 import json
 from functools import lru_cache
-from typing import Annotated
+from ipaddress import IPv4Network, IPv6Network, ip_network
+from typing import Annotated, Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode
 
 DEV_SECRET_KEY = "development-only-change-this-secret-key"
+SECRET_KEY_MESSAGE = "SECRET_KEY に既定値以外の32文字以上の秘密鍵を設定してください。"
 
 
 class Settings(BaseSettings):
@@ -40,8 +42,12 @@ class Settings(BaseSettings):
     rate_limit_login_ip_window_seconds: int = Field(default=300, gt=0)
     rate_limit_register_attempts: int = Field(default=5, gt=0)
     rate_limit_register_window_seconds: int = Field(default=3600, gt=0)
+    rate_limit_data_requests: int = Field(default=600, gt=0)
+    rate_limit_data_window_seconds: int = Field(default=60, gt=0)
+    history_max_span_years: int = Field(default=20, ge=1, le=9999)
 
     cache_retention_days: int = Field(default=30, gt=0)
+    yfinance_cache_dir: str = ""
     stats_flush_seconds: float = Field(default=60, gt=0, allow_inf_nan=False)
 
     backtest_max_span_years: int = Field(default=20, ge=1, le=9999)
@@ -56,14 +62,46 @@ class Settings(BaseSettings):
     cache_ttl_news: int = 600                # 10分
 
     # Server
-    host: str = "0.0.0.0"
-    port: int = 8000
+    host: str = "127.0.0.1"
+    port: int = Field(default=8000, ge=1, le=65535)
+    log_level: Literal["critical", "error", "warning", "info", "debug", "trace"] = "info"
+    trusted_proxies: Annotated[list[IPv4Network | IPv6Network], NoDecode] = Field(default_factory=list)
+    hsts_enabled: bool = False
+    content_security_policy: str = ""
+    docs_enabled: bool = True
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def normalize_log_level(cls, value):
+        return value.strip().lower() if isinstance(value, str) else value
+
+    @field_validator("trusted_proxies", mode="before")
+    @classmethod
+    def parse_trusted_proxies(cls, value):
+        if isinstance(value, str):
+            return [ip_network(part.strip(), strict=False) for part in value.split(",") if part.strip()]
+        return value
+
+    @field_validator("content_security_policy")
+    @classmethod
+    def validate_content_security_policy(cls, value: str) -> str:
+        if any(not 32 <= ord(char) <= 126 for char in value):
+            raise ValueError("CONTENT_SECURITY_POLICY は1行のASCII文字列で指定してください")
+        return value.strip()
 
     # App
     app_name: str = "Stock Data API"
     app_version: str = "1.0.0"
+    app_env: Literal["development", "production"] = "development"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+
+    def has_weak_secret(self) -> bool:
+        return self.secret_key == DEV_SECRET_KEY or len(self.secret_key) < 32
+
+    def validate_startup(self) -> None:
+        if self.app_env == "production" and self.has_weak_secret():
+            raise RuntimeError(f"APP_ENV=production: {SECRET_KEY_MESSAGE}")
 
 
 @lru_cache

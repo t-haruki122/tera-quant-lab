@@ -24,6 +24,8 @@ os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{Path(_bootstrap.name).as_pos
 os.environ["SECRET_KEY"] = "pytest-private-secret-key-not-the-development-default-123456789"
 os.environ["RATE_LIMIT_ENABLED"] = "false"
 os.environ["CORS_ORIGINS"] = ""
+os.environ["DOCS_ENABLED"] = "true"
+os.environ["YFINANCE_CACHE_DIR"] = ""
 
 
 @pytest.fixture(scope="session", autouse=True)

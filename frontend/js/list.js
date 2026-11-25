@@ -7,68 +7,57 @@ import { fetchAPI } from './api.js';
 import { showToast, formatCurrency, formatLargeNumber, escapeHtml, escapeAttr, normalizeTagHue } from './utils.js';
 import { getMarketCapCategory, getMixIndexRating, getRatingSymbol, searchStock } from './detail.js';
 
+const RATE_LIMIT_MESSAGE = 'アクセスが集中しています。しばらくしてから再試行してください。';
+
 // ===== Default List (1:1対応) =====
 export async function loadDefaultList() {
-    if (!state.currentUser) return;
+    const requestUser = state.currentUser;
+    if (!requestUser) return;
 
     try {
         const data = await fetchAPI(`/user/${encodeURIComponent(state.currentUser.id)}/default-list`);
+        if (state.currentUser !== requestUser) return;
         state.currentListId = data.id;
 
-        // 既存リストをクリアして読み込み
-        state.listItems = [];
+        state.listItems = data.items.map(item => ({ symbol: item.symbol, loading: true, tags: item.tags || [] }));
         renderListTable();
-
-        for (const item of data.items) {
-            const entry = { symbol: item.symbol, loading: true, tags: item.tags || [] };
-            state.listItems.push(entry);
-            renderListTable();
-            loadListItemData(item.symbol, item.tags);
-        }
         document.dispatchEvent?.(new Event('watchlistchange'));
+        await Promise.all(state.listItems.map(async item => {
+            const { fields } = await fetchListItemData(item.symbol);
+            if (state.currentUser !== requestUser || !state.listItems.includes(item)) return;
+            Object.assign(item, fields, { loading: false });
+            renderListTable();
+        }));
     } catch (err) {
+        if (state.currentUser === requestUser && err?.status === 429) showToast(RATE_LIMIT_MESSAGE, 'warning');
         console.warn('Default list load failed:', err);
     }
 }
 
-async function loadListItemData(symbol, tags) {
-    const requestUser = state.currentUser;
-    try {
-        const [price, profile, indicators, memo] = await Promise.all([
-            fetchAPI(`/stock/${encodeURIComponent(symbol)}`),
-            fetchAPI(`/stock/${encodeURIComponent(symbol)}/profile`),
-            fetchAPI(`/stock/${encodeURIComponent(symbol)}/indicators`),
-            fetchStockMemo(symbol),
-        ]);
-
-        if (state.currentUser !== requestUser) return;
-
-        const idx = state.listItems.findIndex(i => i.symbol === symbol);
-        if (idx >= 0) {
-            state.listItems[idx] = {
-                symbol,
-                loading: false,
-                name: profile.name,
-                country: profile.country,
-                price: price.price,
-                currency: profile.currency,
-                market_cap: profile.market_cap,
-                mix_index: indicators.mix_index,
-                dividend_yield: indicators.dividend_yield,
-                tags: tags || [],
-                memo,
-            };
-            renderListTable();
-        }
-    } catch (err) {
-        if (state.currentUser !== requestUser) return;
-        const idx = state.listItems.findIndex(i => i.symbol === symbol);
-        if (idx >= 0) {
-            state.listItems[idx].loading = false;
-            state.listItems[idx].name = '(取得失敗)';
-            renderListTable();
-        }
-    }
+async function fetchListItemData(symbol) {
+    const results = await Promise.allSettled([
+        fetchAPI(`/stock/${encodeURIComponent(symbol)}`),
+        fetchAPI(`/stock/${encodeURIComponent(symbol)}/profile`),
+        fetchAPI(`/stock/${encodeURIComponent(symbol)}/indicators`),
+        fetchStockMemo(symbol),
+    ]);
+    const [quote, profile, indicators, memo] = results.map(result => result.value);
+    const failures = results.filter(result => result.status === 'rejected');
+    const rateLimited = failures.some(result => result.reason?.status === 429);
+    return {
+        rateLimited,
+        fields: {
+            name: profile?.name,
+            country: profile?.country,
+            price: quote?.price,
+            currency: profile?.currency,
+            market_cap: profile?.market_cap,
+            mix_index: indicators?.mix_index,
+            dividend_yield: indicators?.dividend_yield,
+            memo,
+            loadError: rateLimited ? RATE_LIMIT_MESSAGE : failures.length ? '一部のデータを取得できませんでした。' : null,
+        },
+    };
 }
 
 async function fetchStockMemo(symbol) {
@@ -197,6 +186,7 @@ async function addSymbolToList(symbol) {
         return false;
     }
 
+    const requestUser = state.currentUser;
     const item = { symbol, loading: true, tags: [] };
     state.listItems.push(item);
     renderListTable();
@@ -213,45 +203,24 @@ async function addSymbolToList(symbol) {
         }
     }
 
-    try {
-        const [price, profile, indicators, memo] = await Promise.all([
-            fetchAPI(`/stock/${encodeURIComponent(symbol)}`),
-            fetchAPI(`/stock/${encodeURIComponent(symbol)}/profile`),
-            fetchAPI(`/stock/${encodeURIComponent(symbol)}/indicators`),
-            fetchStockMemo(symbol),
-        ]);
-
-        const idx = state.listItems.findIndex(i => i.symbol === symbol);
-        if (idx >= 0) {
-            state.listItems[idx] = {
-                symbol,
-                loading: false,
-                name: profile.name,
-                country: profile.country,
-                price: price.price,
-                currency: profile.currency,
-                market_cap: profile.market_cap,
-                mix_index: indicators.mix_index,
-                dividend_yield: indicators.dividend_yield,
-                tags: state.listItems[idx].tags || [],
-                memo,
-            };
-            renderListTable();
-            return true;
-        }
-    } catch (err) {
-        state.listItems = state.listItems.filter(i => i.symbol !== symbol);
+    if (state.currentUser !== requestUser || !state.listItems.includes(item)) return false;
+    const { fields, rateLimited } = await fetchListItemData(symbol);
+    if (state.currentUser !== requestUser || !state.listItems.includes(item)) return false;
+    if (!fields.loadError || rateLimited) {
+        Object.assign(item, fields, { loading: false });
         renderListTable();
-        // サーバーからも削除
-        if (state.currentUser && state.currentListId) {
-            try {
-            await fetchAPI(`/user/${encodeURIComponent(state.currentUser.id)}/lists/${encodeURIComponent(state.currentListId)}/items/${encodeURIComponent(symbol)}`, { method: 'DELETE' });
-            } catch { /* ignore */ }
-        }
-        showToast(`${symbol} の取得に失敗しました`, 'error');
-        return false;
+        return true;
     }
 
+    state.listItems = state.listItems.filter(entry => entry !== item);
+    renderListTable();
+    // サーバーからも削除
+    if (state.currentUser && state.currentListId) {
+        try {
+            await fetchAPI(`/user/${encodeURIComponent(state.currentUser.id)}/lists/${encodeURIComponent(state.currentListId)}/items/${encodeURIComponent(symbol)}`, { method: 'DELETE' });
+        } catch { /* ignore */ }
+    }
+    showToast(`${symbol} の取得に失敗しました`, 'error');
     return false;
 }
 
@@ -332,7 +301,8 @@ function updateFilterButtonState() {
         filterBar.classList.remove('hidden');
         const tagEl = document.getElementById('active-filter-tag');
         const color = getTagColor(state.activeTagFilter);
-        tagEl.innerHTML = `<span class="tag-chip small" style="--tag-hue:${color}">${escapeHtml(state.activeTagFilter)}</span>`;
+        tagEl.innerHTML = `<span class="tag-chip small" data-tag-hue="${color}">${escapeHtml(state.activeTagFilter)}</span>`;
+        applyTagHues(tagEl);
     } else {
         filterBar.classList.add('hidden');
     }
@@ -379,7 +349,7 @@ export function renderListTable() {
 
     const tbody = document.getElementById('comparison-tbody');
     if (sorted.length === 0) {
-        tbody.innerHTML = '<tr class="row-loading"><td colspan="9" style="color:var(--text-muted)">検索条件に一致する銘柄がありません</td></tr>';
+        tbody.innerHTML = '<tr class="row-loading"><td colspan="9" class="text-muted">検索条件に一致する銘柄がありません</td></tr>';
         return;
     }
 
@@ -391,7 +361,7 @@ export function renderListTable() {
             html += `
                 <tr class="row-loading" data-symbol="${escapeHtml(item.symbol)}">
                     <td class="table-ticker">${escapeHtml(item.symbol)}</td>
-                    <td colspan="7" style="color:var(--text-muted)">読み込み中...</td>
+                    <td colspan="7" class="text-muted">読み込み中...</td>
                     <td><button class="btn-remove ${isPendingDelete ? 'confirm' : ''}" type="button" data-action="remove-item" data-symbol="${escapeHtml(item.symbol)}">${isPendingDelete ? 'OK?' : '削除'}</button></td>
                 </tr>`;
             return;
@@ -401,7 +371,7 @@ export function renderListTable() {
         if (item.tags && item.tags.length > 0) {
             item.tags.forEach(tag => {
                 const color = getTagColor(tag);
-                tagsHtml += `<span class="tag-chip small" style="--tag-hue:${color}">${escapeHtml(tag)}</span>`;
+                tagsHtml += `<span class="tag-chip small" data-tag-hue="${color}">${escapeHtml(tag)}</span>`;
             });
         }
         tagsHtml += `<button class="btn-tag-edit" type="button" data-action="open-tag-modal" data-symbol="${escapeHtml(item.symbol)}" title="タグ編集">🏷️</button>`;
@@ -414,12 +384,15 @@ export function renderListTable() {
         const mixRating = getMixIndexRating(item.mix_index);
         const mixBadge = mixRating ? `<span class="indicator-badge ${mixRating}">${getRatingSymbol(mixRating)}</span>` : '';
         const isPendingDelete = state.pendingDeleteSymbol === item.symbol;
+        const price = item.price == null ? '—' : item.currency
+            ? formatCurrency(item.price, item.currency) : item.price.toLocaleString('ja-JP');
+        const loadError = item.loadError ? `<br><small class="text-muted">${escapeHtml(item.loadError)}</small>` : '';
 
         html += `
             <tr data-symbol="${escapeHtml(item.symbol)}">
                 <td class="table-ticker">${escapeHtml(item.symbol)}</td>
-                <td class="table-company">${escapeHtml(item.name || '—')}</td>
-                <td class="numeric">${escapeHtml(item.price != null ? formatCurrency(item.price, item.currency) : '—')}</td>
+                <td class="table-company">${escapeHtml(item.name || '—')}${loadError}</td>
+                <td class="numeric">${escapeHtml(price)}</td>
                 <td class="table-market-cap" title="${item.market_cap != null ? escapeAttr(formatLargeNumber(item.market_cap, item.currency)) : ''}">${marketCapCategory || '—'}</td>
                 <td class="numeric">${item.mix_index != null ? item.mix_index.toFixed(2) : '—'} ${mixBadge}</td>
                 <td class="numeric">${item.dividend_yield != null ? item.dividend_yield.toFixed(2) + '%' : '—'}</td>
@@ -430,6 +403,7 @@ export function renderListTable() {
     });
 
     tbody.innerHTML = html;
+    applyTagHues(tbody);
 }
 
 export function goToDetail(symbol) {
@@ -451,13 +425,14 @@ export function openFilterModal() {
             const color = getTagColor(tag);
             const isActive = tag === state.activeTagFilter;
             const count = state.listItems.filter(i => i.tags && i.tags.includes(tag)).length;
-            html += `<button class="filter-tag-item ${isActive ? 'active' : ''}" type="button" data-action="select-filter-tag" data-tag="${escapeAttr(tag)}" style="--tag-hue:${color}">
+            html += `<button class="filter-tag-item ${isActive ? 'active' : ''}" type="button" data-action="select-filter-tag" data-tag="${escapeAttr(tag)}" data-tag-hue="${color}">
                 <span class="filter-tag-name">${escapeHtml(tag)}</span>
                 <span class="filter-tag-count">${count}件</span>
             </button>`;
         });
         html += '</div>';
         container.innerHTML = html;
+        applyTagHues(container);
     }
 
     document.getElementById('filter-modal-overlay').classList.remove('hidden');
@@ -513,12 +488,13 @@ function renderCurrentTags() {
     let html = '';
     item.tags.forEach(tag => {
         const color = getTagColor(tag);
-        html += `<span class="tag-chip editable" style="--tag-hue:${color}">
+        html += `<span class="tag-chip editable" data-tag-hue="${color}">
             ${escapeHtml(tag)}
             <button class="tag-remove-btn" type="button" data-action="remove-tag" data-tag="${escapeAttr(tag)}" title="削除">✕</button>
         </span>`;
     });
     container.innerHTML = html;
+    applyTagHues(container);
 }
 
 export function addTagFromInput() {
@@ -564,6 +540,12 @@ async function syncTagsToServer(symbol, tags) {
     } catch (err) {
         console.warn('Tag sync failed:', err);
     }
+}
+
+function applyTagHues(container) {
+    container.querySelectorAll('[data-tag-hue]').forEach(el => {
+        el.style.setProperty('--tag-hue', el.dataset.tagHue);
+    });
 }
 
 function getTagColor(tag) {

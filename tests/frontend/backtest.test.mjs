@@ -176,7 +176,9 @@ test('backtest displays Japanese HTTP errors and joins usable validation message
     const cases = [
         [{ ok: false, status: 500, json: async () => { throw new SyntaxError('plain text body'); } },
             'バックテストの実行に失敗しました（HTTP 500）'],
-        [response({ detail: 'サーバーの詳細' }, 500), 'サーバーの詳細'],
+        [{ ...response({ detail: 'サーバー内部でエラーが発生しました' }, 500),
+            headers: new Headers({ 'X-Request-ID': 'test-123' }) },
+        'サーバー内部でエラーが発生しました（リクエストID: test-123）'],
         [response({ detail: [{ msg: '開始日が不正です' }, null, { msg: '銘柄が不正です' }, { msg: {} }] }, 422),
             '開始日が不正です, 銘柄が不正です'],
         [response({ detail: [{ msg: '   ' }, null, {}] }, 422), 'バックテストの実行に失敗しました（HTTP 422）'],

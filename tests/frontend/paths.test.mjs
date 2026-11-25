@@ -10,7 +10,7 @@ const { editStockMemo } = await fromRepo('frontend/js/list.js');
 
 test('every dynamic API path segment is encoded in the actual frontend templates', () => {
     const files = ['frontend/app.js', ...readdirSync('frontend/js').filter(f => f.endsWith('.js')).map(f => `frontend/js/${f}`)];
-    let paths = 0;
+    const paths = new Set();
     for (const file of files) {
         const source = readFileSync(file, 'utf8');
         for (const match of source.matchAll(/`(\/(?:stock|user|forex)\/[^`]+)`/g)) {
@@ -26,11 +26,19 @@ test('every dynamic API path segment is encoded in the actual frontend templates
                     .replaceAll('${encodeURIComponent(state.currentUser.id)}', 'user%2Fid')
                     .replaceAll('${encodeURIComponent(state.currentListId)}', 'list%2Fid');
                 assert.equal(actual, expected);
+                paths.add(actual);
             }
-            paths++;
         }
     }
-    assert.ok(paths >= 20, 'audit must find the stock, history, list, memo, and tag paths');
+    const symbol = encodeURIComponent('^N225');
+    const user = '/user/user%2Fid';
+    const items = `${user}/lists/list%2Fid/items`;
+    for (const path of [
+        `/stock/${symbol}`, `/stock/${symbol}/history`, `/stock/${symbol}/profile`, `/stock/${symbol}/indicators`,
+        `${user}/default-list`, `${user}/memo/${symbol}`, items, `${items}/${symbol}/tags`,
+    ]) {
+        assert.ok(paths.has(path), `audit must cover ${path}`);
+    }
 });
 
 test('data loaders and memo writes send encoded paths through fetchAPI', async () => {

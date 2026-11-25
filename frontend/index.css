@@ -1373,6 +1373,31 @@ footer {
     padding-inline-start: var(--space-lg);
 }
 
+#backtest-grid-result {
+    min-width: 0;
+}
+
+#backtest-grid-table :is(th, td):last-child {
+    min-width: 9rem;
+}
+
+#backtest-grid-table button[data-backtest-row] {
+    white-space: nowrap;
+}
+
+.text-muted {
+    color: var(--text-muted);
+}
+
+.text-error {
+    color: var(--accent-rose);
+}
+
+.profile-site-link {
+    color: var(--accent-blue);
+    text-decoration: none;
+}
+
 #btn-detail-backtest,
 .stats-daily {
     margin-top: var(--space-md);

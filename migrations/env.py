@@ -7,7 +7,7 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.config import get_settings
-from app.database import Base
+from app.database import Base, ensure_sqlite_directory
 from app.models import db_models  # noqa: F401
 
 config = context.config
@@ -23,6 +23,7 @@ def run_migrations(connection):
 async def run_async():
     engine = create_async_engine(get_settings().database_url, poolclass=pool.NullPool)
     try:
+        ensure_sqlite_directory(engine.url)
         async with engine.connect() as connection:
             await connection.run_sync(run_migrations)
     finally:

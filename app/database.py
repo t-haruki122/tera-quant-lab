@@ -1,10 +1,13 @@
 """データベース接続・セッション管理"""
 
 import importlib
+from asyncio import timeout
 from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
+from sqlalchemy import inspect, text
+from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -30,6 +33,21 @@ class Base(DeclarativeBase):
     pass
 
 
+def ensure_sqlite_directory(url: URL) -> None:
+    if url.get_backend_name() == "sqlite" and url.database not in {None, "", ":memory:"}:
+        # Let SQLite interpret explicit file: URIs and their query options.
+        if not (url.database.startswith("file:") and url.query.get("uri") == "true"):
+            Path(url.database).parent.mkdir(parents=True, exist_ok=True)
+
+
+async def check_health() -> str | None:
+    async with timeout(1), engine.connect() as conn:
+        await conn.execute(text("SELECT 1"))
+        if await conn.run_sync(lambda sync_conn: inspect(sync_conn).has_table("alembic_version")):
+            return await conn.scalar(text("SELECT version_num FROM alembic_version"))
+        return None
+
+
 async def init_db():
     """マイグレーション適用と期限切れキャッシュの削除。"""
     # Register models even when init_db is called without importing the routers.
@@ -40,6 +58,7 @@ async def init_db():
         config.attributes["connection"] = connection
         command.upgrade(config, "head")
 
+    ensure_sqlite_directory(engine.url)
     async with engine.begin() as conn:
         await conn.run_sync(upgrade)
 

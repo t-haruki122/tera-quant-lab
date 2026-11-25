@@ -40,12 +40,13 @@ def test_route_templates_and_live_response_fields(fresh_stats, client, monkeypat
     assert client.get("/user/1/lists/25").status_code == 401
     assert client.get("/unknown/112").status_code == 404
     assert client.get("/").status_code == 200
+    assert client.get("/health").status_code == 200
 
     fresh_stats.log_cache_hit()
     fresh_stats.log_cache_hit()
     fresh_stats.log_api_call()
     current = client.get("/stats").json()
-    assert current["server_requests"] == current["today"]["hits"] == 6
+    assert current["server_requests"] == current["today"]["hits"] == 5
     assert current["server_errors"] == current["today"]["errors"] == 2
     assert current["total_requests"] == 3
     assert current["hit_rate_percent"] == 66.7 and current["cache_hit_rate"] == 2 / 3
@@ -53,7 +54,7 @@ def test_route_templates_and_live_response_fields(fresh_stats, client, monkeypat
     assert len(current["last_7_days"]) == 7 and current["last_7_days"][-1] == current["today"]
     assert current["last_7_days"][0]["date"] == "2026-11-20"
     assert {row["endpoint"]: row["count"] for row in current["top_endpoints"]} == {
-        "/": 1, "/stock/{symbol}/history": 2, "/user/{user_id}/lists/{list_id}": 1, "unmatched": 1, "/stats": 1,
+        "/stock/{symbol}/history": 2, "/user/{user_id}/lists/{list_id}": 1, "unmatched": 1, "/stats": 1,
     }
 
 

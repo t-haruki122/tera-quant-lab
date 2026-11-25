@@ -49,7 +49,7 @@ def test_public_registry_and_protected_jobs(client, services):
     ({"end_date": "2024-02-30"}, "date"),
     ({"end_date": "2023-12-31"}, "start_date は end_date 以前"),
     ({"start_date": "2000-01-01"}, "最大 20 年"),
-    ({"interval": "1h"}, "'1d', '1wk' or '1mo'"),
+    ({"interval": "1h"}, "1d、1wk、1mo のいずれか"),
     ({"symbol": "bad/path"}, "symbol"),
     ({"strategy": "missing"}, "Unknown strategy"),
     ({"params": {"unspecified": 1}}, "Unknown params"),

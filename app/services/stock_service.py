@@ -13,6 +13,7 @@ from app.models.db_models import StockPrice
 from app.singleflight import coalesce, fetch
 from app.stats import stats
 from app.timeutil import to_db, utcnow
+from app.validation import shift_years
 
 settings = get_settings()
 _client = YFinanceClient()
@@ -221,6 +222,14 @@ async def get_history(
 
         if fetch_start_date:
             stmt = stmt.where(StockPrice.timestamp >= datetime.strptime(fetch_start_date, "%Y-%m-%d"))
+        else:
+            # A cache warmed by longer requests can contain more data than the provider default.
+            anchor = end_day or utcnow().date()
+            years = get_settings().history_max_span_years
+            earliest = shift_years(anchor, -years)
+            if shift_years(earliest, years) < anchor:
+                earliest += timedelta(days=1)
+            stmt = stmt.where(StockPrice.timestamp >= datetime.combine(earliest, datetime.min.time()))
         if end_day is not None:
             stmt = stmt.where(StockPrice.timestamp <= datetime.combine(end_day, datetime.min.time()))
 

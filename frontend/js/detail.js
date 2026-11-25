@@ -101,7 +101,7 @@ export function renderProfile(profile) {
     if (profile.website) {
         const url = safeHttpUrl(profile.website);
         const website = url
-            ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent-blue);text-decoration:none;">${escapeHtml(new URL(url).hostname)}</a>`
+            ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="profile-site-link">${escapeHtml(new URL(url).hostname)}</a>`
             : escapeHtml(profile.website);
         html += `<div class="data-row"><span class="data-label">ウェブサイト</span><span class="data-value">${website}</span></div>`;
     }
@@ -110,7 +110,7 @@ export function renderProfile(profile) {
         html += `<div class="company-summary">${escapeHtml(profile.summary)}</div>`;
     }
 
-    body.innerHTML = html || '<p style="color:var(--text-muted)">データなし</p>';
+    body.innerHTML = html || '<p class="text-muted">データなし</p>';
 }
 
 export function getMixIndexRating(value) {
@@ -223,7 +223,7 @@ export async function loadFinancials(symbol, profile) {
                     <p class="mini-chart-empty hidden" id="dividend-history-empty">配当履歴データがありません</p>
                 </div>
             </div>`;
-        body.innerHTML = html || '<p style="color:var(--text-muted)">データなし</p>';
+        body.innerHTML = html || '<p class="text-muted">データなし</p>';
         state.currentFinancialHistory = historyData?.history || [];
         state.currentFinancialMetric = 'net_income';
         renderFinancialHistoryChart(state.currentFinancialHistory, state.currentFinancialMetric);
@@ -237,7 +237,7 @@ export async function loadFinancials(symbol, profile) {
             state.dividendChartInstance.destroy();
             state.dividendChartInstance = null;
         }
-        body.innerHTML = `<p style="color:var(--accent-rose)">取得失敗: ${escapeHtml(err.message)}</p>`;
+        body.innerHTML = `<p class="text-error">取得失敗: ${escapeHtml(err.message)}</p>`;
     }
 }
 
@@ -249,7 +249,7 @@ export async function loadNews(symbol) {
     try {
         const data = await fetchAPI(`/stock/${encodeURIComponent(symbol)}/news`);
         if (!data.news || data.news.length === 0) {
-            body.innerHTML = '<p style="color:var(--text-muted)">ニュースが見つかりませんでした</p>';
+            body.innerHTML = '<p class="text-muted">ニュースが見つかりませんでした</p>';
             return;
         }
         let html = '<div class="news-list">';
@@ -271,7 +271,7 @@ export async function loadNews(symbol) {
         html += '</div>';
         body.innerHTML = html;
     } catch (err) {
-        body.innerHTML = `<p style="color:var(--accent-rose)">取得失敗: ${escapeHtml(err.message)}</p>`;
+        body.innerHTML = `<p class="text-error">取得失敗: ${escapeHtml(err.message)}</p>`;
     }
 }
 

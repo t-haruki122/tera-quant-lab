@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.database import get_db
 from app.models.db_models import User
+from app.validation import SQLiteID
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -28,17 +29,11 @@ def create_access_token(user_id: int) -> str:
     )
 
 
-async def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
-    db: AsyncSession = Depends(get_db),
-) -> User:
-    unauthorized = HTTPException(
-        status_code=401,
-        detail="有効な認証トークンが必要です",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+async def find_authenticated_user(
+    credentials: HTTPAuthorizationCredentials | None, db: AsyncSession,
+) -> User | None:
     if credentials is None:
-        raise unauthorized
+        return None
     try:
         payload = jwt.decode(
             credentials.credentials,
@@ -48,20 +43,34 @@ async def get_current_user(
         )
         subject = payload["sub"]
         if not isinstance(subject, str) or not subject.isascii() or not subject.isdecimal():
-            raise unauthorized
+            return None
         user_id = int(subject)
         if not 0 < user_id <= 2**63 - 1:
-            raise unauthorized
+            return None
     except (jwt.InvalidTokenError, ValueError, TypeError, OverflowError):
-        raise unauthorized from None
-    user = await db.get(User, user_id)
+        return None
+    return await db.get(User, user_id)
+
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    return require_authenticated_user(await find_authenticated_user(credentials, db))
+
+
+def require_authenticated_user(user: User | None) -> User:
     if user is None:
-        raise unauthorized
+        raise HTTPException(
+            status_code=401,
+            detail="有効な認証トークンが必要です",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return user
 
 
 async def require_user_owner(
-    user_id: int, current_user: User = Depends(get_current_user)
+    user_id: SQLiteID, current_user: User = Depends(get_current_user)
 ) -> User:
     if user_id != current_user.id:
         raise HTTPException(status_code=403, detail="他のユーザーのデータにはアクセスできません")

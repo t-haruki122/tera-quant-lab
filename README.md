@@ -22,6 +22,7 @@
 - フロントエンド詳細: [docs/FRONTEND.md](docs/FRONTEND.md)
 - バックエンドAPI詳細: [docs/API.md](docs/API.md)
 - バックテストCLI詳細: [docs/backtestCLI.md](docs/backtestCLI.md)
+- LXC・systemd・Docker での運用: [docs/DEPLOY.md](docs/DEPLOY.md)
 
 ## セットアップ
 
@@ -37,12 +38,16 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 # 仮想環境 (.venv) の作成と依存パッケージ・開発ツールのインストール
 uv sync
 
-# サーバー起動
-uv run uvicorn app.main:app --reload --reload-dir app
+# サーバー起動（既定は 127.0.0.1:8000、1ワーカー）
+uv run python -m app
+
+# 自動リロードを使う場合
+uv run uvicorn app.main:app --reload --reload-dir app --workers 1 --no-proxy-headers
 ```
 
 `uv run` はプロジェクト直下の `.venv` を自動で使うため、仮想環境の有効化（activate）は不要です。
 `uv sync` は pytest・ruff などの開発ツールもインストールします。
+従来の `uv run uvicorn app.main:app --reload --reload-dir app` でも開発できます。上の例では転送ヘッダーの検証をアプリの `TRUSTED_PROXIES` に任せています。
 
 ```bash
 uv run pytest
@@ -53,7 +58,6 @@ node --test "tests/frontend/**/*.test.mjs"
 
 フロントエンドの `.js` は ES Modules です。Node.js 22.17 以降は構文を自動検出できるため、
 `package.json` や追加ローダーなしで上記コマンドを実行できます。
-`tests/frontend/index.js` がディレクトリ指定の実行入口になり、`.test.mjs` を読み込みます。
 テストのDOM shimはブラウザー向けの描画文字列を検証します。
 
 pip を使う場合も `pip install -r requirements.txt` で導入できます。
@@ -61,15 +65,15 @@ pip を使う場合も `pip install -r requirements.txt` で導入できます�
 
 設定は `.env.example` を参考に `.env` で指定します。フロントエンドはAPIと同一オリジンで配信されるため、`CORS_ORIGINS` は既定で空欄（CORSミドルウェアなし）です。
 別オリジンのフロントエンドを使う場合だけ `CORS_ORIGINS=http://a.example, http://b.example` のように許可先を指定してください。JSON配列も使え、前後の空白と空要素は除去します。
-認証はBearerヘッダーを使い、Cookie等のCORS資格情報は許可しません。許可メソッドはGET/POST/PUT/DELETE/OPTIONS、指定可能なヘッダーはAuthorizationとContent-Typeです。`*` と資格情報の併用は拒否します。
+認証はBearerヘッダーを使い、Cookie等のCORS資格情報は許可しません。許可メソッドはGET/POST/PUT/DELETE/OPTIONSで、Authorization、Content-Type、X-Request-IDを送信できます。`*` と資格情報の併用は拒否します。
 
-ログイン・登録のレート制限は既定で有効です。`RATE_LIMIT_*` 設定と429応答の詳細は [APIガイド](docs/API.md) を参照してください。
+ログイン・登録とデータ取得のレート制限は既定で有効です。`RATE_LIMIT_*` 設定と429応答の詳細は [APIガイド](docs/API.md) を参照してください。
 
 ## アクセス先
 
 - アプリ: `http://localhost:8000/`
-- Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
+- ヘルスチェック: `http://localhost:8000/health`
+- OpenAPI 定義: `http://localhost:8000/openapi.json`
 
 ## 画面イメージ
 

@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from app.validation import Symbol
+
 # --- ユーザー ---
 
 class UserRegisterRequest(BaseModel):
@@ -40,7 +42,7 @@ class ListUpdateRequest(BaseModel):
 
 class ListItemAddRequest(BaseModel):
     """リストアイテム追加リクエスト"""
-    symbol: str
+    symbol: Symbol
     tags: list[str] = []
 
 

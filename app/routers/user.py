@@ -26,6 +26,7 @@ from app.schemas.user import (
     UserResponse,
 )
 from app.services import user_service
+from app.validation import SQLiteID, Symbol
 
 router = APIRouter(prefix="/user", tags=["user"])
 
@@ -42,7 +43,7 @@ async def register(req: UserRegisterRequest, request: Request, db: AsyncSession 
     """ユーザー登録"""
     settings = get_settings()
     if settings.rate_limit_enabled:
-        limiter.register(client_ip(request), settings)
+        limiter.register(client_ip(request, settings), settings)
     if not req.username or len(req.username) < 2:
         raise HTTPException(status_code=400, detail="ユーザー名は2文字以上にしてください")
     if not req.password or len(req.password) < 8:
@@ -64,7 +65,7 @@ async def register(req: UserRegisterRequest, request: Request, db: AsyncSession 
 async def login(req: UserLoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """ログイン"""
     settings = get_settings()
-    ip = client_ip(request)
+    ip = client_ip(request, settings)
     if settings.rate_limit_enabled:
         limiter.begin_login(ip, req.username, settings)
     try:
@@ -85,7 +86,7 @@ async def login(req: UserLoginRequest, request: Request, db: AsyncSession = Depe
     summary="デフォルトリストを取得",
     description="ユーザーのデフォルト銘柄リストを取得します（なければ自動作成）。",
 )
-async def get_default_list(user_id: int, db: AsyncSession = Depends(get_db)):
+async def get_default_list(user_id: SQLiteID, db: AsyncSession = Depends(get_db)):
     """デフォルトリストを取得"""
     default_list = await user_service.get_or_create_default_list(user_id, db)
     try:
@@ -102,7 +103,7 @@ async def get_default_list(user_id: int, db: AsyncSession = Depends(get_db)):
     response_model=ListsResponse,
     summary="リスト一覧を取得",
 )
-async def get_lists(user_id: int, db: AsyncSession = Depends(get_db)):
+async def get_lists(user_id: SQLiteID, db: AsyncSession = Depends(get_db)):
     """ユーザーのリスト一覧"""
     lists = await user_service.get_user_lists(user_id, db)
     return ListsResponse(
@@ -124,7 +125,7 @@ async def get_lists(user_id: int, db: AsyncSession = Depends(get_db)):
     response_model=ListResponse,
     summary="リスト作成",
 )
-async def create_list(user_id: int, req: ListCreateRequest, db: AsyncSession = Depends(get_db)):
+async def create_list(user_id: SQLiteID, req: ListCreateRequest, db: AsyncSession = Depends(get_db)):
     """新しいリストを作成"""
     if not req.name:
         raise HTTPException(status_code=400, detail="リスト名を入力してください")
@@ -144,7 +145,7 @@ async def create_list(user_id: int, req: ListCreateRequest, db: AsyncSession = D
     response_model=ListDetailResponse,
     summary="リスト詳細を取得",
 )
-async def get_list_detail(user_id: int, list_id: int, db: AsyncSession = Depends(get_db)):
+async def get_list_detail(user_id: SQLiteID, list_id: SQLiteID, db: AsyncSession = Depends(get_db)):
     """リスト詳細（アイテム含む）"""
     try:
         return await user_service.get_list_detail(user_id, list_id, db)
@@ -159,7 +160,7 @@ async def get_list_detail(user_id: int, list_id: int, db: AsyncSession = Depends
     summary="リスト名を更新",
 )
 async def update_list(
-    user_id: int, list_id: int, req: ListUpdateRequest, db: AsyncSession = Depends(get_db)
+    user_id: SQLiteID, list_id: SQLiteID, req: ListUpdateRequest, db: AsyncSession = Depends(get_db)
 ):
     """リスト名を変更"""
     try:
@@ -180,7 +181,7 @@ async def update_list(
     response_model=MessageResponse,
     summary="リストを削除",
 )
-async def delete_list(user_id: int, list_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_list(user_id: SQLiteID, list_id: SQLiteID, db: AsyncSession = Depends(get_db)):
     """リストを削除"""
     try:
         await user_service.delete_list(user_id, list_id, db)
@@ -198,7 +199,7 @@ async def delete_list(user_id: int, list_id: int, db: AsyncSession = Depends(get
     summary="リストにアイテムを追加",
 )
 async def add_item(
-    user_id: int, list_id: int, req: ListItemAddRequest, db: AsyncSession = Depends(get_db)
+    user_id: SQLiteID, list_id: SQLiteID, req: ListItemAddRequest, db: AsyncSession = Depends(get_db)
 ):
     """リストに銘柄を追加"""
     try:
@@ -218,7 +219,7 @@ async def add_item(
     summary="リストからアイテムを削除",
 )
 async def remove_item(
-    user_id: int, list_id: int, symbol: str, db: AsyncSession = Depends(get_db)
+    user_id: SQLiteID, list_id: SQLiteID, symbol: Symbol, db: AsyncSession = Depends(get_db)
 ):
     """リストから銘柄を削除"""
     try:
@@ -235,7 +236,7 @@ async def remove_item(
     summary="アイテムのタグを更新",
 )
 async def update_tags(
-    user_id: int, list_id: int, symbol: str,
+    user_id: SQLiteID, list_id: SQLiteID, symbol: Symbol,
     req: TagUpdateRequest, db: AsyncSession = Depends(get_db),
 ):
     """銘柄のタグを更新"""
@@ -256,12 +257,12 @@ async def update_tags(
     response_model=StockMemoResponse,
     summary="銘柄メモを取得",
 )
-async def get_memo(user_id: int, symbol: str, db: AsyncSession = Depends(get_db)):
+async def get_memo(user_id: SQLiteID, symbol: Symbol, db: AsyncSession = Depends(get_db)):
     """銘柄メモを取得"""
     memo = await user_service.get_stock_memo(user_id, symbol, db)
     if not memo:
         return StockMemoResponse(
-            symbol=symbol.upper(),
+            symbol=symbol,
             memo=None,
             updated_at=None,
         )
@@ -279,8 +280,8 @@ async def get_memo(user_id: int, symbol: str, db: AsyncSession = Depends(get_db)
     summary="銘柄メモを保存",
 )
 async def save_memo(
-    user_id: int,
-    symbol: str,
+    user_id: SQLiteID,
+    symbol: Symbol,
     req: StockMemoRequest,
     db: AsyncSession = Depends(get_db)
 ):

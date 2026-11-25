@@ -35,7 +35,11 @@ export async function fetchAPI(endpoint, options = {}, errorMessage = 'リクエ
         const message = Array.isArray(detail)
             ? detail.map(item => item?.msg).filter(msg => typeof msg === 'string' && msg.trim()).join(', ')
             : typeof detail === 'string' && detail.trim();
-        throw new Error(message || `${errorMessage}（HTTP ${res.status}）`);
+        const requestId = res.status >= 500 ? res.headers?.get('X-Request-ID') : null;
+        const requestIdSuffix = requestId ? `（リクエストID: ${requestId}）` : '';
+        throw Object.assign(new Error((message || `${errorMessage}（HTTP ${res.status}）`) + requestIdSuffix), {
+            status: res.status,
+        });
     }
 
     const data = await res.json();

@@ -11,6 +11,12 @@ const response = (data, status = 200) => ({ ok: status < 400, status, json: asyn
 let handler;
 globalThis.fetch = async (url, options) => url === '/stats' ? response({}, 503) : handler(url, options);
 
+test('frontend HTML and templates use stylesheet classes or CSSOM for styles', () => {
+    for (const file of ['frontend/index.html', 'frontend/js/detail.js', 'frontend/js/list.js']) {
+        assert.doesNotMatch(readFileSync(resolve(file), 'utf8'), /\sstyle\s*=/i, file);
+    }
+});
+
 
 
 function resetBrowser() {
@@ -184,7 +190,7 @@ test('escaped markup and safe links', async t => {
         && normalizeTagHue(Infinity) === 210);
     const hueMarkup = ['active-filter-tag', 'filter-tags-container', 'tag-current-tags']
         .map(id => document.getElementById(id).innerHTML).join('');
-    const hues = [...hueMarkup.matchAll(/--tag-hue:([^";]+)/g)].map(match => match[1]);
+    const hues = [...hueMarkup.matchAll(/data-tag-hue="([^"]+)"/g)].map(match => match[1]);
     await check('all rendered tag style values are finite numbers in 0..360', hues.length >= 3
         && hues.every(hue => /^\d+(?:\.\d+)?$/.test(hue) && Number(hue) >= 0 && Number(hue) <= 360));
     await check('safeHttpUrl rejects non-HTTP and malformed URLs',
