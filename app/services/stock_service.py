@@ -1,9 +1,10 @@
 """株価サービス - キャッシュ付き株価データ取得"""
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+from weakref import WeakKeyDictionary
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.cache import upsert_cache
 from app.clients.yfinance_client import YFinanceClient
@@ -11,10 +12,13 @@ from app.config import get_settings
 from app.models.db_models import StockPrice
 from app.singleflight import coalesce, fetch
 from app.stats import stats
-from app.timeutil import to_db
+from app.timeutil import to_db, utcnow
 
 settings = get_settings()
 _client = YFinanceClient()
+# A bar cannot represent a holiday or an unfinished trading day. Remember the
+# furthest end date fetched for each symbol in the same database cache.
+_history_coverage: WeakKeyDictionary[AsyncEngine, dict[str, tuple[date, datetime]]] = WeakKeyDictionary()
 
 
 def _calculate_sma(closes: list[float], period: int) -> list[float | None]:
@@ -172,6 +176,8 @@ async def get_history(
     start_date: str | None = None,
     end_date: str | None = None,
     interval: str = "1d",
+    *,
+    warmup_days: int = 0,
 ) -> dict:
     """
     過去の株価データを取得（キャッシュ優先・指標計算付き）
@@ -182,33 +188,41 @@ async def get_history(
 
     # 指標計算用に取得期間を過去へ拡張する
     fetch_start_date = start_date
+    return_start_date = start_date
     if start_date:
         start_dt_req = datetime.strptime(start_date, "%Y-%m-%d")
         # Requested bar frequency determines the SMA_200 warmup, even though
         # weekly/monthly prices are fetched and cached as daily bars.
         # Bound the extension to 18 years; actual provider coverage can be shorter.
         lookback_days = {"1d": 365, "1wk": 365 * 5, "1mo": 366 * 18}.get(requested_interval, 365 * 3)
-        fetch_start_dt = max(datetime(1900, 1, 1), start_dt_req - timedelta(days=lookback_days))
-        fetch_start_date = fetch_start_dt.strftime("%Y-%m-%d")
+        available_days = (start_dt_req - min(start_dt_req, datetime(1900, 1, 1))).days
+        fetch_start_dt = start_dt_req - timedelta(days=min(available_days, max(warmup_days, lookback_days)))
+        fetch_start_date = fetch_start_dt.date().isoformat()
+        return_start_date = (start_dt_req - timedelta(days=min(available_days, warmup_days))).date().isoformat()
 
     records = []
+    fetch_end_date = end_date
 
     # 日次データ(1d)をソースとして使う場合はDBキャッシュを利用する
     if source_interval == "1d":
-        cutoff = to_db() - timedelta(seconds=settings.cache_ttl_history)
+        ttl = timedelta(seconds=settings.cache_ttl_history)
+        cutoff = to_db() - ttl
+        coverage = _history_coverage.setdefault(db.bind, {})
+        end_day = min(datetime.strptime(end_date, "%Y-%m-%d").date(), utcnow().date()) if end_date else None
+        if end_day is not None:
+            fetch_end_date = end_day.isoformat()
         stmt = (
             select(StockPrice)
             .where(StockPrice.symbol == symbol.upper())
             .where(StockPrice.cached_at >= cutoff)
-            .where(StockPrice.open.isnot(None))
             .where(StockPrice.interval == "1d")
             .order_by(StockPrice.timestamp.asc())
         )
 
         if fetch_start_date:
             stmt = stmt.where(StockPrice.timestamp >= datetime.strptime(fetch_start_date, "%Y-%m-%d"))
-        if end_date:
-            stmt = stmt.where(StockPrice.timestamp <= datetime.strptime(end_date, "%Y-%m-%d"))
+        if end_day is not None:
+            stmt = stmt.where(StockPrice.timestamp <= datetime.combine(end_day, datetime.min.time()))
 
         result = await db.execute(stmt)
         cached_records = result.scalars().all()
@@ -221,6 +235,9 @@ async def get_history(
             is_cache_valid = True
             if fetch_start_dt_obj and (first_record_date - fetch_start_dt_obj).days > 7:
                 is_cache_valid = False
+            if warmup_days and end_day is not None and cached_records[-1].timestamp.date() < end_day:
+                covered_end, covered_at = coverage.get(symbol, (date.min, datetime.min))
+                is_cache_valid = is_cache_valid and covered_at >= cutoff and covered_end >= end_day
 
             if is_cache_valid:
                 stats.log_cache_hit()
@@ -239,7 +256,7 @@ async def get_history(
     # キャッシュがない場合は外部APIから取得
     if not records:
         stats.log_api_call()
-        records = await fetch(_client.get_history, symbol, fetch_start_date, end_date, source_interval)
+        records = await fetch(_client.get_history, symbol, fetch_start_date, fetch_end_date, source_interval)
 
         # 取得したデータをDBにキャッシュする（日次ソースのみ）
         if source_interval == "1d":
@@ -258,6 +275,13 @@ async def get_history(
                 )
                 await upsert_cache(db, StockPrice, values)
             await db.commit()
+            if end_day is not None and records:
+                # Re-read after commit so a concurrent, shorter fetch cannot
+                # replace a fresh watermark from a longer request.
+                covered_end, covered_at = coverage.get(symbol, (date.min, datetime.min))
+                now = to_db()
+                if end_day >= covered_end or covered_at < now - ttl:
+                    coverage[symbol] = (end_day, now)
 
     # 1wk/1moは日次データから再集計する
     if requested_interval in {"1wk", "1mo"}:
@@ -280,8 +304,8 @@ async def get_history(
             rec["rsi_14"] = round(rsi_14[i], 2) if rsi_14[i] is not None else None
 
     # 要求されたオリジナル期間でフィルタリング
-    if start_date:
-        records = [r for r in records if r["date"] >= start_date]
+    if return_start_date:
+        records = [r for r in records if r["date"] >= return_start_date]
     if end_date:
         records = [r for r in records if r["date"] <= end_date]
 

@@ -54,6 +54,7 @@ export function updateAccountUI() {
         accountBtn.classList.remove('logged-in');
     }
     menu.classList.add('hidden');
+    document.dispatchEvent?.(new Event('accountchange'));
 }
 
 // ===== Auth Modal =====

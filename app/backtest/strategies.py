@@ -92,6 +92,38 @@ REGISTRY = {
 for _schema in REGISTRY.values():
     _schema["max_per"] = (float, None)
 
+PARAM_DESCRIPTIONS = {
+    "short_window": "短期移動平均のバー数",
+    "long_window": "長期移動平均のバー数",
+    "period": "指標の計算に使用するバー数",
+    "lower": "RSIの買い閾値",
+    "upper": "RSIの売り閾値",
+    "window": "ボリンジャーバンドの計算に使用するバー数",
+    "std_dev": "バンド幅の標準偏差倍率",
+    "exit": "売り判定に使うバンド",
+    "threshold": "買い判定の変化率（0.05 = 5%）",
+    "exit_threshold": "売り判定の変化率（0.05 = 5%）",
+    "max_per": "買いを許可するPERの上限（空欄で無効）",
+}
+POSITIVE_PARAMS = {"short_window", "long_window", "period", "window", "std_dev", "max_per"}
+EXIT_CHOICES = ("middle", "upper")
+
+
+def param_schema(name):
+    result = []
+    for key, (kind, default) in REGISTRY[name].items():
+        field = dict(name=key, type=kind.__name__, default=default, description=PARAM_DESCRIPTIONS[key])
+        if key in POSITIVE_PARAMS:
+            field.update(min=1 if kind is int else 0)
+            if kind is float:
+                field["exclusive_min"] = True
+        elif key in ("lower", "upper"):
+            field.update(min=0, max=100)
+        elif key == "exit":
+            field["choices"] = EXIT_CHOICES
+        result.append(field)
+    return result
+
 
 def param_help(name):
     return ", ".join(f"{key}: {kind.__name__} (default={default})" for key, (kind, default) in REGISTRY[name].items())
@@ -117,14 +149,14 @@ def validate_params(name, params=None):
             if kind in (int, float) and number(value) is None:
                 raise ValueError(f"{key} must be finite")
             values[key] = value
-        for key in ("short_window", "long_window", "period", "window", "std_dev", "max_per"):
+        for key in sorted(POSITIVE_PARAMS & values.keys()):
             if key in values and values[key] is not None and values[key] <= 0:
                 raise ValueError(f"{key} must be positive")
         if name == "sma_cross" and values["short_window"] >= values["long_window"]:
             raise ValueError("short_window must be smaller than long_window")
         if name == "rsi_reversion" and not 0 <= values["lower"] < values["upper"] <= 100:
             raise ValueError("require 0 <= lower < upper <= 100")
-        if name == "bollinger" and values["exit"] not in ("middle", "upper"):
+        if name == "bollinger" and values["exit"] not in EXIT_CHOICES:
             raise ValueError("exit must be middle|upper")
         if name == "momentum" and values["exit_threshold"] > values["threshold"]:
             raise ValueError("exit_threshold must be <= threshold")

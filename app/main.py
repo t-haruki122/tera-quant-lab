@@ -1,8 +1,9 @@
 """Stock Data API - メインアプリケーション"""
 
+import asyncio
 import logging
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -10,10 +11,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app import database
 from app.config import DEV_SECRET_KEY, get_settings
 from app.database import init_db
 from app.exceptions import register_exception_handlers
-from app.routers import forex, stats, stock, user
+from app.routers import backtest, forex, stats, stock, user
 from app.stats import stats as app_stats
 
 
@@ -57,10 +59,17 @@ async def lifespan(app: FastAPI):
             "Set a strong, private SECRET_KEY before deploying; tokens can otherwise be forged."
         )
     await init_db()
+    flush_task = asyncio.create_task(app_stats.flush_periodically(settings.stats_flush_seconds))
     logger.info("Application startup completed")
-    yield
-    # 終了時: クリーンアップ（必要に応じて追加）
-    logger.info("Application shutdown completed")
+    try:
+        yield
+    finally:
+        flush_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await flush_task
+        await app_stats.flush()
+        await database.engine.dispose()
+        logger.info("Application shutdown completed")
 
 
 app = FastAPI(
@@ -89,14 +98,14 @@ configure_cors(app, settings.cors_origins)
 @app.middleware("http")
 async def stats_middleware(request: Request, call_next):
     """リクエストの統計情報を記録するミドルウェア"""
-    start_time = time.time()
+    start_time = time.perf_counter()
     response = await call_next(request)
-    process_time = time.time() - start_time
-    
+    process_time = time.perf_counter() - start_time
+
     path = request.url.path
-    # 静的ファイル配信やルートへのアクセスはAPI統計から除外
-    if not path.startswith("/static") and path != "/":
-        app_stats.log_request(path, process_time, response.status_code)
+    if not isinstance(request.scope.get("endpoint"), StaticFiles):
+        endpoint = getattr(request.scope.get("route"), "path", "unmatched")
+        app_stats.log_request(endpoint, process_time, response.status_code)
 
     logger.info(
         "HTTP %s %s -> %s (%.2f ms)",
@@ -105,7 +114,7 @@ async def stats_middleware(request: Request, call_next):
         response.status_code,
         process_time * 1000,
     )
-        
+
     return response
 
 # ルーター登録
@@ -113,6 +122,7 @@ app.include_router(stock.router)
 app.include_router(user.router)
 app.include_router(stats.router)
 app.include_router(forex.router)
+app.include_router(backtest.router)
 
 # 例外ハンドラー登録
 register_exception_handlers(app)

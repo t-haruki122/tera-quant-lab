@@ -15,6 +15,7 @@
 | ニュース | 銘柄関連ニュースの取得 | `GET /stock/{symbol}/news` |
 | 為替 | 通貨ペアの現在レート取得 | `GET /forex/{pair}` |
 | ユーザー機能 | ユーザー登録/ログイン、銘柄リスト管理、タグ管理 | `POST /user/register`、`POST /user/login`、`/user/{user_id}/lists...` |
+| バックテスト | 戦略一覧、単一実行、グリッド探索 | `GET /backtest/strategies`、`POST /backtest/run`、`POST /backtest/grid` |
 | 運用 | API利用統計の取得 | `GET /stats` |
 
 ## 主な機能詳細
@@ -112,6 +113,135 @@ JWTの署名方式はHS256、有効期間は既定で1440分（24時間）です
 
 - 利用統計: `GET /stats` で API 呼び出し回数やキャッシュヒット情報を取得
 - SQLite を使ったキャッシュで外部APIアクセスを最適化
+
+`GET /stats` は認証不要です。従来の `api_calls`、`cache_hits`、`total_requests`、`hit_rate_percent`、`server_requests`、`server_errors`、`error_rate_percent`、`avg_response_time_ms`、`top_endpoints`、`uptime_seconds` に加え、次の項目を返します。
+
+| フィールド | 内容 |
+|---|---|
+| `today` | UTC当日の `date`、`hits`、`errors`（HTTP 400以上）、`total_ms`（総応答時間） |
+| `last_7_days` | 当日を含む7日分の日次集計。UTC日付の昇順で、アクセスのない日も0で埋めます |
+| `cache_hit_rate` | 既存カウンターから算出した `cache_hits / (cache_hits + api_calls)`（0～1）。取得実績が0件の場合は `null` |
+
+日次集計は保存済みの値と今回のプロセスで未保存の増分を合算します。集計を返す `GET /stats` 自体は次回の集計から反映されます。`/static/` の配信リクエストは集計から除外します。その他のアクセス先は `/stock/{symbol}/history` などのルートテンプレートで集計され、テンプレートのないURLは `unmatched` にまとめられます。増分は `STATS_FLUSH_SECONDS`（既定60秒）ごとと正常終了時に保存し、90日より古い日次行を削除します。
+
+`GET /stats` のレスポンス例（追加項目）です。
+
+```json
+{
+  "today": {"date": "2026-01-07", "hits": 8, "errors": 1, "total_ms": 160.5},
+  "last_7_days": [
+    {"date": "2026-01-01", "hits": 0, "errors": 0, "total_ms": 0},
+    {"date": "2026-01-02", "hits": 0, "errors": 0, "total_ms": 0},
+    {"date": "2026-01-03", "hits": 0, "errors": 0, "total_ms": 0},
+    {"date": "2026-01-04", "hits": 0, "errors": 0, "total_ms": 0},
+    {"date": "2026-01-05", "hits": 0, "errors": 0, "total_ms": 0},
+    {"date": "2026-01-06", "hits": 3, "errors": 0, "total_ms": 18.4},
+    {"date": "2026-01-07", "hits": 8, "errors": 1, "total_ms": 160.5}
+  ],
+  "cache_hit_rate": 0.75
+}
+```
+
+### 5. Webバックテスト
+
+#### 戦略一覧
+
+`GET /backtest/strategies` は認証不要です。`strategies` に戦略名と各パラメータの `name`、`type`（`int`、`float`、`str`）、`default`、`description` を返します。制約のあるパラメータには `min`、`max`、`choices` が付きます。`exclusive_min: true` の場合は下限を含みません。`rank_metrics` はグリッド探索の順位に指定できる指標です。
+
+```json
+{
+  "strategies": [
+    {"name": "sma_cross", "params": [
+      {"name": "short_window", "type": "int", "default": 20, "description": "短期移動平均のバー数", "min": 1},
+      {"name": "long_window", "type": "int", "default": 60, "description": "長期移動平均のバー数", "min": 1},
+      {"name": "max_per", "type": "float", "default": null, "description": "買いを許可するPERの上限（空欄で無効）", "min": 0, "exclusive_min": true}
+    ]}
+  ],
+  "rank_metrics": ["return_pct", "sharpe"]
+}
+```
+
+#### 単一実行
+
+`POST /backtest/run` には `Authorization: Bearer <JWT>` が必要です。
+
+| フィールド | 指定内容 | 既定値 |
+|---|---|---|
+| `symbol` | 銘柄。1～20文字の英数字および `^`、`.`、`=`、`-`。先頭は英数字または `^`。大文字に正規化 | 必須 |
+| `start_date`、`end_date` | `YYYY-MM-DD`。両端を含み、開始日は終了日以前 | 必須 |
+| `interval` | `1d`、`1wk`、`1mo` | `1d` |
+| `strategy`、`params` | 戦略名とパラメータのオブジェクト。省略したパラメータには戦略の既定値を適用 | `sma_cross`、`{}` |
+| `execution` | 翌バー始値 `next_open` または当バー終値 `close` | `next_open` |
+| `fee_rate` | 手数料率、0～0.1 | 0 |
+| `slippage_bps` | スリッページ、0～1000 bps | 0 |
+| `initial_capital` | 初期資金、0より大きい数値 | 1000000 |
+| `eps_lag_days` | EPSの利用可能日までの遅延、0～730日の整数 | 90 |
+| `risk_free` | 年率無リスク金利、-0.5～1 | 0 |
+
+```json
+{
+  "symbol": "AAPL", "start_date": "2025-01-01", "end_date": "2025-12-31",
+  "interval": "1d", "strategy": "sma_cross", "params": {"short_window": 10, "long_window": 50},
+  "execution": "next_open", "fee_rate": 0.001, "slippage_bps": 5, "initial_capital": 100000
+}
+```
+
+開始日前の株価は指標計算に使います。売買、資産推移、買い持ちの比較は指定期間内で計算します。`max_per` を有効にしたときだけ財務履歴を取得し、利用可能なEPSがないバーでは買いを見送ります。
+
+レスポンスには戦略と買い持ちの指標、同じ日付で比較できる資産推移、約定履歴、警告が含まれます。累積リターン、CAGR、最大ドローダウン、勝率、保有期間の割合などの単位はパーセントです。`total_trades` は決済回数です。未定義の指標、無限大、NaNはJSONの `null` で返します。
+
+```json
+{
+  "metrics": {"symbol": "AAPL", "return_pct": 8.2, "sharpe": 0.92, "profit_factor": null, "total_trades": 2},
+  "benchmark_metrics": {"symbol": "AAPL", "return_pct": 5.1, "sharpe": 0.7, "total_trades": 0},
+  "equity_curve": [{"date": "2025-01-02", "equity": 100000, "benchmark_equity": 100000}],
+  "trades": [{
+    "symbol": "AAPL", "date": "2025-02-04", "signal_date": "2025-02-03", "side": "BUY",
+    "price": 220.11, "shares": 100, "fee": 22.011, "slippage": 11, "open_fallback": false,
+    "pnl": null, "cash_after": 77966.989
+  }],
+  "warnings": []
+}
+```
+
+Web画面の取引CSVは全セルを二重引用符で囲み、セル内の二重引用符を重ねてエスケープします。`=`、`+`、`-`、`@` で始まる値（前に空白がある場合を含む）には、表計算ソフトでの数式評価を抑止するため、セル内の先頭にタブを付けます。負数のセルも対象です。
+
+#### グリッド探索
+
+`POST /backtest/grid` にもBearerトークンが必要です。単一実行の項目に `grid`（パラメータ名から候補値配列へのオブジェクト）と `rank_by`（既定 `sharpe`）を追加します。全候補の直積を評価し、同じ株価と必要に応じた財務履歴を一度ずつ取得します。
+
+```json
+{
+  "symbol": "AAPL", "start_date": "2025-01-01", "end_date": "2025-12-31",
+  "strategy": "sma_cross", "params": {"long_window": 50},
+  "grid": {"short_window": [10, 20]}, "rank_by": "return_pct"
+}
+```
+
+```json
+{
+  "rank_by": "return_pct",
+  "results": [
+    {"rank": 1, "params": {"short_window": 10, "long_window": 50, "max_per": null}, "metrics": {"return_pct": 8.2, "sharpe": 0.92}},
+    {"rank": 2, "params": {"short_window": 20, "long_window": 50, "max_per": null}, "metrics": {"return_pct": 4.1, "sharpe": 0.48}}
+  ]
+}
+```
+
+上のレスポンス例は指標などを抜粋しています。グリッドの各行には順位、解決済みのパラメータ、戦略の指標が含まれます。
+
+| 環境変数 | 既定値 | 動作 |
+|---|---:|---|
+| `BACKTEST_MAX_SPAN_YEARS` | 20 | 開始日からの最大期間（暦年） |
+| `BACKTEST_GRID_MAX_COMBOS` | 100 | グリッドの組み合わせ上限（設定可能範囲1～500） |
+| `BACKTEST_TIMEOUT_SECONDS` | 30 | データ取得と計算を合わせた実行上限（秒） |
+| `BACKTEST_MAX_CONCURRENT_PER_USER` | 1 | 1プロセス内でのユーザーごとの同時実行上限。単一実行とグリッドで共有します |
+
+認証エラーはHTTP `401`、入力や組み合わせ上限の違反は `422`（`detail` に検証エラー）、同時実行上限は `429`（`Retry-After` 付き）、時間超過は `504` です。
+
+```json
+{"detail": "バックテストが制限時間を超えました。期間や条件を見直してください。"}
+```
 
 ## APIドキュメントUI
 

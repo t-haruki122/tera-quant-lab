@@ -28,8 +28,8 @@ def test_fresh_startup_and_second_upgrade_are_idempotent(async_db):
         assert not logger.disabled
         async with engine.connect() as connection:
             tables = await connection.run_sync(lambda conn: inspect(conn).get_table_names())
-            assert set(tables) == set(LegacyBase.metadata.tables) | {"alembic_version"}
-            assert await connection.scalar(text("SELECT version_num FROM alembic_version")) == "0002"
+            assert set(tables) == set(LegacyBase.metadata.tables) | {"alembic_version", "api_stats_daily"}
+            assert await connection.scalar(text("SELECT version_num FROM alembic_version")) == "0003"
         await engine.dispose()
 
     asyncio.run(scenario())
@@ -84,4 +84,25 @@ def test_upgrade_legacy_duplicates_normalization_constraints_and_user_data(setti
         assert not inspect(connection).get_unique_constraints("stock_prices")
         assert connection.scalar(text("SELECT count(*) FROM users")) == 1
         upgrade(connection)
+    engine.dispose()
+
+
+def test_upgrade_0002_with_data_and_downgrade_0003(settings):
+    engine = create_engine(settings.database_url.replace("+aiosqlite", ""))
+    with engine.begin() as connection:
+        upgrade(connection, "0002")
+        connection.execute(LegacyBase.metadata.tables["users"].insert().values(
+            username="preserved", password_hash="hash", created_at=to_db(),
+        ))
+        before = connection.execute(text("SELECT * FROM users")).all()
+        upgrade(connection)
+        inspector = inspect(connection)
+        assert inspector.get_pk_constraint("api_stats_daily")["constrained_columns"] == ["date", "endpoint"]
+        assert connection.execute(text("SELECT * FROM users")).all() == before
+        config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+        config.attributes["connection"] = connection
+        command.downgrade(config, "0002")
+        assert "api_stats_daily" not in inspect(connection).get_table_names()
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0002"
+        assert connection.execute(text("SELECT * FROM users")).all() == before
     engine.dispose()

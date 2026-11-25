@@ -10,6 +10,7 @@ import { loadDefaultList, submitListAddFromModal, addTagFromInput, setListSearch
 import { searchStock, bindDetailEvents } from './js/detail.js';
 import { bindChartEvents } from './js/chart.js';
 import { bindFinancialChartEvents } from './js/financial-chart.js';
+import { bindBacktestEvents, openBacktest, refreshBacktestSession, updateBacktestSymbols } from './js/backtest.js';
 
 let activeApp = null;
 
@@ -30,34 +31,28 @@ export class App {
         this.bindDetailEvents = deps.bindDetailEvents ?? bindDetailEvents;
         this.bindChartEvents = deps.bindChartEvents ?? bindChartEvents;
         this.bindFinancialChartEvents = deps.bindFinancialChartEvents ?? bindFinancialChartEvents;
+        this.bindBacktestEvents = deps.bindBacktestEvents ?? bindBacktestEvents;
+        this.openBacktest = deps.openBacktest ?? openBacktest;
 
         this.document = deps.documentRef ?? document;
         this.storage = deps.storage ?? localStorage;
         this.setIntervalFn = deps.setIntervalFn ?? window.setInterval.bind(window);
-        this.statsPollingMs = deps.statsPollingMs ?? 5000;
+        this.clearIntervalFn = deps.clearIntervalFn ?? window.clearInterval.bind(window);
+        this.statsPollingMs = deps.statsPollingMs ?? 10_000;
 
-        this.boundSwitchView = this.switchView.bind(this);
+        this.currentView = 'list';
         this.statsTimerId = null;
     }
 
-    switchView(view) {
+    switchView(view, symbol) {
+        this.currentView = ['detail', 'stats', 'backtest'].includes(view) ? view : 'list';
         this.document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-        const listBtn = this.document.getElementById('btn-list-view');
-        if (listBtn) listBtn.classList.remove('active');
-
-        if (view === 'detail') {
-            this.document.getElementById('detail-view')?.classList.add('active');
-            return;
+        this.document.getElementById(`${this.currentView}-view`)?.classList.add('active');
+        for (const name of ['list', 'backtest']) {
+            this.document.getElementById(`btn-${name}-view`)?.classList.toggle('active', this.currentView === name);
         }
-
-        if (view === 'stats') {
-            this.document.getElementById('stats-view')?.classList.add('active');
-            this.fetchStats();
-            return;
-        }
-
-        this.document.getElementById('list-view')?.classList.add('active');
-        if (listBtn) listBtn.classList.add('active');
+        this.syncStatsPolling();
+        if (this.currentView === 'backtest') this.openBacktest(symbol);
     }
 
     async fetchExchangeRate() {
@@ -92,12 +87,22 @@ export class App {
 
         this.document.getElementById('logo-home-btn')?.addEventListener('click', () => this.switchView('list'));
         this.document.getElementById('btn-list-view')?.addEventListener('click', () => this.switchView('list'));
+        this.document.getElementById('btn-backtest-view')?.addEventListener('click', () => this.switchView('backtest'));
+        this.document.getElementById('btn-detail-backtest')?.addEventListener('click', () => this.switchView('backtest', this.state.currentSymbol));
+        this.document.addEventListener('visibilitychange', () => this.syncStatsPolling());
+        this.document.addEventListener('accountchange', () => {
+            if (this.currentView === 'backtest' || !this.state.currentUser) refreshBacktestSession();
+        });
+        this.document.addEventListener('watchlistchange', () => {
+            if (this.currentView === 'backtest') updateBacktestSymbols();
+        });
 
         this.bindAuthEvents();
         this.bindListEvents();
         this.bindDetailEvents();
         this.bindChartEvents();
         this.bindFinancialChartEvents();
+        this.bindBacktestEvents();
     }
 
     async restoreUserSession() {
@@ -113,16 +118,23 @@ export class App {
         }
     }
 
-    startStatsPolling() {
-        this.fetchStats();
-        this.statsTimerId = this.setIntervalFn(this.fetchStats, this.statsPollingMs);
+    syncStatsPolling() {
+        const visible = this.currentView === 'stats' && !this.document.hidden;
+        if (visible && this.statsTimerId === null) {
+            this.fetchStats();
+            this.statsTimerId = this.setIntervalFn(() => {
+                if (this.currentView === 'stats' && !this.document.hidden) this.fetchStats();
+            }, this.statsPollingMs);
+        } else if (!visible && this.statsTimerId !== null) {
+            this.clearIntervalFn(this.statsTimerId);
+            this.statsTimerId = null;
+        }
     }
 
     async init() {
         this.bindCoreEvents();
         await this.restoreUserSession();
         await this.fetchExchangeRate();
-        this.startStatsPolling();
     }
 }
 

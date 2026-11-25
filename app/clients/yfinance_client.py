@@ -2,7 +2,7 @@
 
 import logging
 import math
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import yfinance as yf
@@ -16,6 +16,14 @@ if hasattr(yf, "config"):
     yf.config.debug.hide_exceptions = False
 
 logger = logging.getLogger("app.external.yfinance")
+
+
+def _finite_history_value(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
 
 
 class YFinanceClient:
@@ -113,7 +121,10 @@ class YFinanceClient:
         if start_date:
             kwargs["start"] = start_date
         if end_date:
-            kwargs["end"] = end_date
+            # The stock service uses an inclusive end date. Yahoo's end is exclusive.
+            last_day = date.fromisoformat(end_date)
+            if last_day < date.max:
+                kwargs["end"] = (last_day + timedelta(days=1)).isoformat()
         if not start_date and not end_date:
             kwargs["period"] = "1mo"
         hist = ticker.history(**kwargs)
@@ -121,13 +132,18 @@ class YFinanceClient:
             raise SymbolNotFoundError(symbol)
         records = []
         for idx, row in hist.iterrows():
+            close = _finite_history_value(row["Close"])
+            if close is None:
+                # Yahoo can return a partial current-day row with volume but no prices.
+                continue
+            open_price, high, low, volume = (_finite_history_value(row[key]) for key in ("Open", "High", "Low", "Volume"))
             record = {
                 "date": idx.strftime("%Y-%m-%d"),
-                "open": round(float(row["Open"]), 2) if row["Open"] else None,
-                "high": round(float(row["High"]), 2) if row["High"] else None,
-                "low": round(float(row["Low"]), 2) if row["Low"] else None,
-                "close": round(float(row["Close"]), 2),
-                "volume": int(row["Volume"]) if row["Volume"] else None,
+                "open": round(open_price, 2) if open_price else None,
+                "high": round(high, 2) if high else None,
+                "low": round(low, 2) if low else None,
+                "close": round(close, 2),
+                "volume": int(row["Volume"]) if volume else None,
             }
             records.append(record)
         return records

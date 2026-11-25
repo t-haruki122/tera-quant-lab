@@ -1,15 +1,18 @@
 import asyncio
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pandas as pd
 import pytest
+from sqlalchemy import select
 
 from app import database
 from app.clients import yfinance_client
+from app.models.db_models import StockPrice
 from app.schemas.stock import FinancialHistoryResponse
 from app.services import stock_service
+from app.timeutil import utcnow
 
 
 @pytest.mark.parametrize("interval,lookback", [("1wk", 365 * 5), ("1mo", 366 * 18)])
@@ -91,6 +94,114 @@ def test_different_history_interval_keys_do_not_coalesce(monkeypatch, async_db):
 
         await asyncio.gather(request("1wk"), request("1mo"), request("1wk", "2024-01-02"))
         assert len(calls) == len(set(calls)) == 3
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_strategy_warmup_uses_cached_history_and_fetches_a_longer_end_date(monkeypatch, async_db):
+    engine, sessions = async_db
+
+    def external(symbol, start, end, interval):
+        return [{"date": day.date().isoformat(), "open": 10, "high": 12, "low": 9, "close": 11, "volume": 100}
+                for day in pd.date_range(start, end, freq="D")]
+
+    fake = Mock(side_effect=external)
+    monkeypatch.setattr(stock_service._client, "get_history", fake)
+
+    async def scenario():
+        await database.init_db()
+        async with sessions() as session:
+            start = "2024-01-03"
+            original = await stock_service.get_history("X", session, start, "2024-01-04")
+            assert original["history"][0]["date"] == start
+            warm = await stock_service.get_history("X", session, start, "2024-01-04", warmup_days=7)
+            fake.assert_called_once()
+            assert warm["history"][0]["date"] == "2023-12-27"
+            longer = await stock_service.get_history("X", session, start, "2024-01-05", warmup_days=7)
+            assert longer["history"][-1]["date"] == "2024-01-05"
+            assert fake.call_count == 2
+            assert await stock_service.get_history("X", session, start, "2024-01-05", warmup_days=7) == longer
+            assert fake.call_count == 2
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_history_skips_partial_today_row_and_caches_valid_closes(client, monkeypatch):
+    today = utcnow().date()
+    first_day, last_day = today - timedelta(days=3), today - timedelta(days=1)
+    nan = float("nan")
+    provider_rows = pd.DataFrame(
+        [[10, 12, 9, 11.123, 100], [10, 12, 9, None, 100], [nan, nan, nan, 12.5, nan],
+         [nan, nan, nan, nan, 19_094_000]],
+        columns=["Open", "High", "Low", "Close", "Volume"],
+        index=pd.date_range(first_day, today),
+        dtype=object,
+    )
+    history = Mock(return_value=provider_rows)
+    monkeypatch.setattr(yfinance_client.yf, "Ticker", lambda symbol: SimpleNamespace(history=history))
+
+    path = f"/stock/7203.T/history?end_date={today}"
+    response = client.get(path)
+    assert response.status_code == 200
+    bars = response.json()["history"]
+    assert [(bar["date"], bar["close"]) for bar in bars] == [(str(first_day), 11.12), (str(last_day), 12.5)]
+    assert all(bars[-1][key] is None for key in ("open", "high", "low", "volume"))
+    assert client.get(path).json() == response.json()
+    history.assert_called_once_with(interval="1d", end=(today + timedelta(days=1)).isoformat())
+
+    async def cached_prices():
+        async with database.AsyncSessionLocal() as session:
+            rows = await session.scalars(select(StockPrice).order_by(StockPrice.timestamp))
+            return [(row.timestamp.date(), row.open, row.high, row.low, row.close) for row in rows]
+
+    assert client.portal.call(cached_prices) == [
+        (first_day, 10, 12, 9, 11.12), (last_day, None, None, None, 12.5),
+    ]
+
+
+def test_backtest_cache_covers_holidays_and_clamps_future_dates(monkeypatch, async_db):
+    engine, sessions = async_db
+    now = datetime(2025, 1, 5, tzinfo=UTC)
+    monkeypatch.setattr(stock_service, "utcnow", lambda: now)
+    holidays = {"2024-12-31", "2025-01-01"}
+
+    def external(symbol, start, end, interval):
+        days = (day.date().isoformat() for day in pd.date_range(start, end, freq="B"))
+        return [dict(date=day, open=10, high=12, low=9, close=11, volume=100)
+                for day in days if day not in holidays]
+
+    fake = Mock(side_effect=external)
+    monkeypatch.setattr(stock_service._client, "get_history", fake)
+
+    async def scenario():
+        nonlocal now
+        await database.init_db()
+        async with sessions() as session:
+            async def request(end):
+                return await stock_service.get_history("7203.t", session, "2024-12-20", end, warmup_days=7)
+
+            holiday = await request("2024-12-31")
+            assert holiday["history"][-1]["date"] == "2024-12-30"
+            assert await request("2024-12-31") == holiday
+            fake.assert_called_once()
+
+            later = await request("2025-01-02")
+            assert later["history"][-1]["date"] == "2025-01-02"
+            assert fake.call_count == 2
+
+            weekend = await request("2025-01-31")
+            assert weekend["history"][-1]["date"] == "2025-01-03"
+            assert fake.call_args.args[2] == "2025-01-05"
+            assert await request("2025-01-31") == weekend
+            assert fake.call_count == 3
+
+            now += timedelta(days=1)
+            monday = await request("2025-01-31")
+            assert monday["history"][-1]["date"] == "2025-01-06"
+            assert fake.call_count == 4
+
         await engine.dispose()
 
     asyncio.run(scenario())

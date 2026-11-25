@@ -3,10 +3,9 @@
  */
 
 import { API_BASE, CACHE_TTL, cache, state } from './state.js';
-import { fetchStats } from './stats.js';
 import { logoutUser, openAuthModal } from './auth.js';
 
-export async function fetchAPI(endpoint, options = {}) {
+export async function fetchAPI(endpoint, options = {}, errorMessage = 'リクエストに失敗しました') {
     const requestUser = state.currentUser;
     const cacheKey = (requestUser?.access_token || '') + endpoint + JSON.stringify(options);
 
@@ -32,11 +31,11 @@ export async function fetchAPI(endpoint, options = {}) {
             logoutUser();
             openAuthModal('login');
         }
-        const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
-        const detail = Array.isArray(err.detail)
-            ? err.detail.map(item => item.msg).join(', ')
-            : err.detail;
-        throw new Error(detail || `HTTP ${res.status}`);
+        const { detail } = (await res.json().catch(() => null)) ?? {};
+        const message = Array.isArray(detail)
+            ? detail.map(item => item?.msg).filter(msg => typeof msg === 'string' && msg.trim()).join(', ')
+            : typeof detail === 'string' && detail.trim();
+        throw new Error(message || `${errorMessage}（HTTP ${res.status}）`);
     }
 
     const data = await res.json();
@@ -50,6 +49,5 @@ export async function fetchAPI(endpoint, options = {}) {
         cache.set(cacheKey, { data, timestamp: Date.now() });
     }
 
-    fetchStats();
     return data;
 }

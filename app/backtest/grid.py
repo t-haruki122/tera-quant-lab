@@ -9,6 +9,7 @@ from .metrics import BacktestMetrics
 from .strategies import make_strategy, validate_params
 
 RANK_METRICS = {f.name for f in fields(BacktestMetrics)} - {"symbol"}
+MAX_GRID_COMBOS = 500
 LOWER_IS_BETTER = {"annualised_volatility", "max_drawdown", "max_drawdown_duration", "open_fallbacks",
                    "missing_eps_bars", "benchmark_max_drawdown", "benchmark_open_fallbacks"}
 
@@ -19,12 +20,12 @@ class GridResult:
     result: BacktestResult
 
 
-def grid_params(strategy, base_params, grid):
+def grid_params(strategy, base_params, grid, *, max_combos=MAX_GRID_COMBOS):
     if any(not values for values in grid.values()):
         raise ValueError("Grid values must not be empty")
     count = prod(len(values) for values in grid.values())
-    if count > 500:
-        raise ValueError(f"Grid has {count} combinations; maximum is 500")
+    if count > max_combos:
+        raise ValueError(f"Grid has {count} combinations; maximum is {max_combos}")
     return [validate_params(strategy, {**base_params, **dict(zip(grid, values, strict=True))})
             for values in product(*grid.values())]
 

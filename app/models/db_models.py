@@ -1,12 +1,23 @@
 """SQLAlchemy データベースモデル"""
 
+from datetime import date as UTCDate
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from app.database import Base
 from app.timeutil import to_db
+
+
+class ApiStatsDaily(Base):
+    __tablename__ = "api_stats_daily"
+
+    date: Mapped[UTCDate] = mapped_column(Date, primary_key=True)
+    endpoint: Mapped[str] = mapped_column(String, primary_key=True)
+    hits: Mapped[int] = mapped_column(Integer)
+    errors: Mapped[int] = mapped_column(Integer)
+    total_ms: Mapped[float] = mapped_column(Float)
 
 
 class SymbolMixin:

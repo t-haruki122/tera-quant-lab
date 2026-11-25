@@ -25,6 +25,7 @@ export async function loadDefaultList() {
             renderListTable();
             loadListItemData(item.symbol, item.tags);
         }
+        document.dispatchEvent?.(new Event('watchlistchange'));
     } catch (err) {
         console.warn('Default list load failed:', err);
     }

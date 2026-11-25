@@ -18,6 +18,7 @@ class BacktestResult:
     metrics: BacktestMetrics
     warnings: list[str] = field(default_factory=list)
     benchmark_curve: pd.DataFrame = field(default_factory=pd.DataFrame)
+    benchmark_metrics: BacktestMetrics | None = None
 
 
 def history_to_df(payload):
@@ -59,7 +60,12 @@ class Backtester:
             raise ValueError("close must be finite and positive")
         if price_df["date"].duplicated().any() or not price_df["date"].is_monotonic_increasing:
             raise ValueError("price bars must have unique, increasing dates")
-        df = self.strategy.prepare(price_df.reset_index(drop=True), context or {})
+        context = context or {}
+        df = self.strategy.prepare(price_df.reset_index(drop=True), context)
+        if (start_date := context.get("start_date")) is not None:
+            df = df.loc[df["date"] >= start_date].reset_index(drop=True)
+            if df.empty:
+                raise ValueError(f"No price data in the requested period for {symbol}")
         curve, trades, fallbacks = self._simulate(symbol, df, progress_callback, cancel_check)
         benchmark = df.copy()
         benchmark["signal"] = 0
@@ -68,6 +74,7 @@ class Backtester:
         metrics = self._calculate_metrics(symbol, curve, trades)
         bench_metrics = self._calculate_metrics(symbol, bench_curve, bench_trades)
         metrics.open_fallbacks = fallbacks
+        bench_metrics.open_fallbacks = bench_fallbacks
         metrics.benchmark_open_fallbacks = bench_fallbacks
         metrics.benchmark_return_pct = bench_metrics.return_pct
         metrics.benchmark_cagr = bench_metrics.cagr
@@ -78,7 +85,7 @@ class Backtester:
             warnings.append(f"Historical EPS unavailable on {metrics.missing_eps_bars}/{len(df)} bars; PER blocks entries on those bars.")
         if fallbacks or bench_fallbacks:
             warnings.append(f"Missing/invalid open: close fallback on {fallbacks} strategy fills, {bench_fallbacks} benchmark fills.")
-        return BacktestResult(symbol, curve, trades, metrics, warnings, bench_curve)
+        return BacktestResult(symbol, curve, trades, metrics, warnings, bench_curve, bench_metrics)
 
     def _simulate(self, symbol, df, progress_callback, cancel_check):
         cash, shares, position_cost = float(self.initial_capital), 0, 0.0

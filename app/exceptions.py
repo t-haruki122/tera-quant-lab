@@ -1,6 +1,10 @@
 """カスタム例外・グローバルエラーハンドラー"""
 
+import math
+
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 
@@ -33,8 +37,22 @@ class UpstreamUnavailableError(ExternalAPIError):
     """Network failures and timeouts (503)."""
 
 
+def json_safe(value):
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [json_safe(item) for item in value]
+    return value
+
+
 def register_exception_handlers(app: FastAPI):
     """FastAPIに例外ハンドラーを登録"""
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error_handler(request: Request, exc: RequestValidationError):
+        return JSONResponse(status_code=422, content={"detail": json_safe(jsonable_encoder(exc.errors()))})
 
     @app.exception_handler(SymbolNotFoundError)
     async def symbol_not_found_handler(request: Request, exc: SymbolNotFoundError):

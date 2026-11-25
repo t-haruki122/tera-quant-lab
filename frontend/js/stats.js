@@ -4,7 +4,11 @@
 
 import { API_BASE, HISTORY_MAX_LEN, state, statsHistory } from './state.js';
 
+let fetching = false;
+
 export async function fetchStats() {
+    if (fetching) return;
+    fetching = true;
     try {
         const res = await fetch(`${API_BASE}/stats`);
         if (!res.ok) return;
@@ -36,6 +40,8 @@ export async function fetchStats() {
 
     } catch {
         // ignore errors for stats fetching
+    } finally {
+        fetching = false;
     }
 }
 
@@ -52,6 +58,21 @@ export function updateStatsDashboard(data) {
 
     document.getElementById('dash-errors').textContent = data.server_errors || 0;
     document.getElementById('dash-error-rate').textContent = ` (${(data.error_rate_percent || 0).toFixed(1)}%)`;
+    document.getElementById('dash-cache-hit-rate').textContent = Number.isFinite(data.cache_hit_rate)
+        ? `${(data.cache_hit_rate * 100).toFixed(1)}%` : '—';
+
+    const daily = document.getElementById('dash-daily-totals');
+    daily.textContent = '';
+    for (const day of data.last_7_days ?? []) {
+        const row = document.createElement('tr');
+        const avg = day.hits ? `${(day.total_ms / day.hits).toFixed(1)} ms` : '—';
+        for (const value of [day.date, day.hits, day.errors, avg]) {
+            const cell = document.createElement('td');
+            cell.textContent = value;
+            row.appendChild(cell);
+        }
+        daily.appendChild(row);
+    }
 
     // Charts
     updateCharts(data);

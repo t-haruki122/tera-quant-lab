@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     rate_limit_register_window_seconds: int = Field(default=3600, gt=0)
 
     cache_retention_days: int = Field(default=30, gt=0)
+    stats_flush_seconds: float = Field(default=60, gt=0, allow_inf_nan=False)
+
+    backtest_max_span_years: int = Field(default=20, ge=1, le=9999)
+    backtest_grid_max_combos: int = Field(default=100, ge=1, le=500)
+    backtest_timeout_seconds: float = Field(default=30, gt=0, allow_inf_nan=False)
+    backtest_max_concurrent_per_user: int = Field(default=1, gt=0)
 
     # Cache TTL (seconds)
     cache_ttl_current_price: int = 60        # 1分
