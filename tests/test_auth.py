@@ -25,6 +25,13 @@ USER_ROUTES = [
     ("PUT", "/lists/{list_id}/items/AAPL/tags", {"tags": ["private"]}),
     ("GET", "/memo/AAPL", None),
     ("PUT", "/memo/AAPL", {"memo": "private"}),
+    ("POST", "/password", {"current_password": "password123", "new_password": "new-password"}),
+    ("POST", "/logout-all", None),
+    ("DELETE", "", {"current_password": "password123"}),
+    ("GET", "/lists/{list_id}/summary", None),
+    ("GET", "/lists/{list_id}/export.csv", None),
+    ("GET", "/export", None),
+    ("POST", "/import", {}),
 ]
 
 
@@ -43,6 +50,7 @@ def test_register_login_and_token(client, users):
     assert alice["token_type"] == "bearer"
     claims = jwt.decode(alice["access_token"], os.environ["SECRET_KEY"], algorithms=["HS256"])
     assert claims["sub"] == str(alice["id"])
+    assert claims["ver"] == 0
     assert claims["exp"] > claims["iat"]
     login = client.post("/user/login", json={"username": "alice", "password": "password123"})
     assert login.status_code == 200

@@ -50,9 +50,15 @@
 
 - ユーザー登録: `POST /user/register`
 - ログイン: `POST /user/login`
+- パスワード変更 `POST /user/{user_id}/password`
+- 全セッションの失効 `POST /user/{user_id}/logout-all`
+- アカウント削除 `DELETE /user/{user_id}`
+- JSONバックアップ `GET /user/{user_id}/export`、`POST /user/{user_id}/import`
 - デフォルトリスト取得: `GET /user/{user_id}/default-list`
 - リスト一覧/作成: `GET/POST /user/{user_id}/lists`
 - リスト詳細/更新/削除: `GET/PUT/DELETE /user/{user_id}/lists/{list_id}`
+- ウォッチリスト概要 `GET /user/{user_id}/lists/{list_id}/summary`
+- リストのCSV出力 `GET /user/{user_id}/lists/{list_id}/export.csv`
 - 銘柄追加: `POST /user/{user_id}/lists/{list_id}/items`
 - 銘柄削除: `DELETE /user/{user_id}/lists/{list_id}/items/{symbol}`
 - タグ更新: `PUT /user/{user_id}/lists/{list_id}/items/{symbol}/tags`
@@ -83,12 +89,94 @@ curl http://localhost:8000/user/1/lists \
 ```
 
 JWTの署名方式はHS256、有効期間は既定で1440分（24時間）です。期限切れ後は再ログインしてください。
+JWT の `ver` がアカウントのトークンバージョンと一致する間だけ認証できます。従来の `ver` がないトークンはバージョン 0 として扱います。失効したトークンも `WWW-Authenticate: Bearer` ヘッダー付きの `401` を返します。
 `.env` の `SECRET_KEY` には、運用前に十分長いランダムな秘密値を必ず設定してください（例: `uv run python -c "import secrets; print(secrets.token_urlsafe(48))"`）。
 開発用の既定値のまま起動するとWARNINGが出ます。有効期間は `ACCESS_TOKEN_EXPIRE_MINUTES` で変更できます。
 パスワードはArgon2で保存し、旧SHA-256形式のパスワードはログイン成功時に自動移行します。
 
 フロントエンドはユーザー情報とトークンをlocalStorageに保存して送信します。トークンを送信したリクエストの `401` 時は保存情報とキャッシュを消去してログイン画面を表示します。未ログイン時の認証失敗では入力内容を保持してエラーを表示します。
 ログイン・ログアウト時にもGETキャッシュを消去します。
+
+#### アカウント管理
+
+以下の操作は所有者の Bearer トークンが必要です。認証失敗は `401`、別のユーザーへのアクセスは `403` です。
+
+| リクエスト | JSON 本文の例 | 成功時 |
+|---|---|---|
+| `POST /user/1/password` | `{"current_password":"old-password","new_password":"new-password"}` | `200`。ログインと同じ形式で新しいトークンを返し、変更前のトークンをすべて失効させます。 |
+| `POST /user/1/logout-all` | なし | `204`。操作に使用したトークンを含め、すべてのトークンを失効させます。 |
+| `DELETE /user/1` | `{"current_password":"current-password"}` | `204`。ユーザー、リスト、銘柄、タグ、メモをまとめて削除します。 |
+
+パスワードの不一致や新しいパスワードの文字数不足は日本語の `detail` を含む `400`、必須項目の欠落や型違いは `422` です。現在のパスワードを検証する操作はログインと同じ失敗回数・IP 試行回数の制限を使い、上限到達時に `429` を返します。
+
+#### リストの管理と概要
+
+`POST /user/1/lists` と `PUT /user/1/lists/2` は `{"name":"配当株"}` を受け取り、`200` で `id`、`name`、`created_at`、`updated_at` を返します。名前の前後の空白を除き、1〜50文字を受け付けます。範囲外は `400`、同じユーザーの別のリストと名前が一致する場合は `409` です。
+
+`GET /user/1/lists` は `lists` と `default_list_id` を返します。デフォルトは最も早く作成されたリストです。デフォルトリスト（最後の1件を含む）を `DELETE /user/1/lists/2` で削除しようとすると `400` です。ほかのリストを削除すると `200` と `{"message":"リストを削除しました"}` を返します。対象が見つからない場合は `404` です。
+
+`GET /user/1/lists/2/summary` はウォッチリスト表示用のデータを `200` でまとめて返します。
+
+```json
+{
+  "id": 2,
+  "name": "配当株",
+  "created_at": "2026-11-25T00:00:00",
+  "updated_at": "2026-11-25T00:00:00",
+  "items": [{
+    "symbol": "7203.T", "tags": ["自動車"], "name": "Toyota", "country": "Japan",
+    "sector": "Consumer Cyclical", "price": 2450, "currency": "JPY", "market_cap": 35000000000000,
+    "mix_index": 9.6, "dividend_yield": 2.3, "per": 8, "pbr": 1.2, "memo": "決算を確認", "error": null
+  }, {
+    "symbol": "UNKNOWN", "tags": [], "name": null, "country": null, "sector": null,
+    "price": null, "currency": null, "market_cap": null, "mix_index": null, "dividend_yield": null,
+    "per": null, "pbr": null, "memo": null, "error": "銘柄データを取得できませんでした。"
+  }]
+}
+```
+
+取得できた項目と、銘柄ごとの日本語エラーを同じ行で返します。メモがない場合の `memo` は `null` です。空リストの `items` は `[]` になります。リストが見つからない場合は `404`、データ取得枠を超えた場合は `429` です。銘柄数にかかわらず枠の消費は1回です。`WATCHLIST_SUMMARY_CONCURRENCY` で1リクエスト内に並行取得する銘柄数を指定します（既定値 `8`、正の整数）。
+
+#### JSONバックアップとCSV出力
+
+`GET /user/1/export` は `200` と `Content-Disposition: attachment; filename="watchlists-2026-11-25.json"` を返します。ファイル名の日付は UTC です。JSON はリストと銘柄、タグ、メモを含みます。
+
+```json
+{
+  "version": 1,
+  "exported_at": "2026-11-25T12:00:00Z",
+  "username": "taro",
+  "lists": [{
+    "name": "配当株",
+    "items": [{"symbol": "7203.T", "tags": ["自動車"], "added_at": "2026-11-25T08:00:00Z"}]
+  }],
+  "memos": [{"symbol": "7203.T", "memo": "決算を確認", "updated_at": "2026-11-25T09:00:00Z"}]
+}
+```
+
+追加日時を記録する前から存在した銘柄の `added_at` は `null` です。銘柄メモはリストに入っていない銘柄も含めます。
+
+`POST /user/1/import?mode=merge` の本文には、エクスポートした JSON をそのまま指定できます。データはURLのアカウントに取り込みます。本文の `username` はバックアップ元の記録です。
+
+- `merge`（既定）は未登録のリスト・銘柄・タグ・メモを追加します。同じリスト名の内容を統合し、既存の空でないメモを保持します。既存メモが空（空白のみを含む）の場合、取り込むメモが空でなければ更新します。
+- `replace` はアカウントのリストとメモをすべて置き換えます。どちらのモードも1回のトランザクションで確定します。
+- 銘柄の表記を正規化します。有効な銘柄形式やリスト名の条件を満たさない項目は理由付きでスキップします。
+
+```json
+{
+  "imported": {"lists": 1, "items": 1, "tags": 1, "memos": 1},
+  "skipped": [{"entry": "配当株 / A/B", "reason": "symbol は英数字または ^ . = - で20文字以内にしてください"}]
+}
+```
+
+上記は `200` の応答例です。`USER_IMPORT_MAX_BYTES`（既定値 `1048576`、正の整数）を超える本文は `413` です。JSON の構文、必須項目、型、バージョン、モードが正しくない場合や、定義外の項目がある場合は `422` です。
+
+`GET /user/1/lists/2/export.csv` は `200` と `Content-Disposition: attachment; filename="watchlist-2-2026-11-25.csv"` を返します。UTF-8 BOM付きで、列は `symbol,name,tags,memo` の順です。企業名はキャッシュにあれば出力します。表計算ソフトで数式として解釈される値には、引用符の内側にタブを付けます。リストが見つからない場合は `404` です。
+
+```csv
+"symbol","name","tags","memo"
+"7203.T","Toyota","自動車, 高配当","決算を確認"
+```
 
 #### ログイン・登録のレート制限
 
@@ -108,12 +196,12 @@ JWTの署名方式はHS256、有効期間は既定で1440分（24時間）です
 | `RATE_LIMIT_LOGIN_IP_WINDOW_SECONDS` | `300` | IP試行を数える期間（秒） |
 | `RATE_LIMIT_REGISTER_ATTEMPTS` | `5` | IPごとの登録試行上限 |
 | `RATE_LIMIT_REGISTER_WINDOW_SECONDS` | `3600` | 登録試行を数える期間（秒） |
-| `RATE_LIMIT_DATA_REQUESTS` | `600` | 株価・分析・為替・バックテストの共通リクエスト上限 |
+| `RATE_LIMIT_DATA_REQUESTS` | `600` | 株価・分析・為替・ウォッチリスト概要・バックテストの共通リクエスト上限 |
 | `RATE_LIMIT_DATA_WINDOW_SECONDS` | `60` | データリクエストを数える期間（秒） |
 
 回数・期間は正の整数を指定してください。データ取得ルートと `POST /backtest/run`、`POST /backtest/grid` は、有効なトークンがあればユーザー ID、なければ接続元 IP で同じ枠を使用します。キャッシュから応答した場合も枠を消費します。プロキシ経由で接続元 IP を判定するには `TRUSTED_PROXIES` を設定してください。接続元が取得できない場合は共通の `unknown` キーを使います。 [デプロイ手順](DEPLOY.md)
 
-既定の60秒あたり600リクエストは、通常のウォッチリスト表示を想定した乱用防止の上限です。利用量の割り当てには使いません。ウォッチリストは銘柄ごとに株価・企業情報・指標を取得し、HTTP `429` のときも取得済みの項目を表示します。
+既定の60秒あたり600リクエストは乱用防止の上限です。ウォッチリストの再取得時に HTTP `429` が返った場合は、表示中の項目を保持します。
 状態はロックで保護したプロセス内メモリに保持し、リクエストと認証完了時に期限切れの時刻・空キーを削除します。再起動でリセットされ、複数ワーカー間では共有されません。並行して検証中のログインはまだ失敗に数えず、IP試行上限が同時実行数も制限します。
 
 ### 4. 統計・キャッシュ

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test from 'node:test';
 import { elements, storage, fromRepo } from './helpers/dom-shim.mjs';
@@ -12,12 +12,19 @@ let handler;
 globalThis.fetch = async (url, options) => url === '/stats' ? response({}, 503) : handler(url, options);
 
 test('frontend HTML and templates use stylesheet classes or CSSOM for styles', () => {
-    for (const file of ['frontend/index.html', 'frontend/js/detail.js', 'frontend/js/list.js']) {
+    for (const file of ['frontend/index.html', 'frontend/js/detail.js', 'frontend/js/list.js',
+                        'frontend/js/account.js', 'frontend/js/action-modal.js']) {
         assert.doesNotMatch(readFileSync(resolve(file), 'utf8'), /\sstyle\s*=/i, file);
     }
 });
 
-
+test('frontend sources contain no native prompt, confirm or alert calls', () => {
+    for (const file of readdirSync('frontend', { recursive: true, withFileTypes: true })) {
+        if (!file.isFile() || !/\.(?:html|js|mjs|css)$/i.test(file.name)) continue;
+        const path = resolve(file.parentPath, file.name);
+        assert.doesNotMatch(readFileSync(path, 'utf8'), /\b(?:prompt|confirm|alert)\s*\(|\[\s*['"](?:prompt|confirm|alert)['"]\s*\]\s*\(/, path);
+    }
+});
 
 function resetBrowser() {
     elements.clear();
@@ -97,7 +104,8 @@ test('authentication and session isolation', async t => {
     cache.set('old-user', {});
     handler = url => {
         if (url === '/user/login') return response({ id: 2, username: 'bob', access_token: 'bob-token', token_type: 'bearer' });
-        if (url === '/user/2/default-list') return response({ id: 20, items: [] });
+        if (url === '/user/2/lists') return response({ lists: [{ id: 20, name: 'マイリスト' }], default_list_id: 20 });
+        if (url === '/user/2/lists/20/summary') return response({ items: [] });
         throw new Error(`Unexpected URL: ${url}`);
     };
     await submitAuth();
@@ -222,13 +230,15 @@ test('escaped markup and safe links', async t => {
     await check('username uses textContent', document.getElementById('account-btn-label').textContent === payload
         && document.getElementById('account-menu-username').textContent === `👤 ${payload}`);
     cache.clear();
-    handler = () => response({ id: 90, name: payload, items: [] });
+    handler = url => response(url.endsWith('/lists')
+        ? { lists: [{ id: 90, name: payload }], default_list_id: 90 } : { items: [] });
     await loadDefaultList();
-    await check('API list name is never interpolated into markup (default-list UI does not display names)',
+    await safeMarkup('watchlist selector escapes an API list name', document.getElementById('watchlist-select').innerHTML);
+    await check('raw list name cannot appear in markup',
         state.currentListId === 90 && [...elements.values()].every(el => !el.innerHTML.includes(payload)));
     // Audit all other JS modules too: their API values are textContent, input value,
     // Chart.js canvas data or fetch parameters; there are no additional HTML sinks.
-    for (const file of ['frontend/app.js', 'frontend/js/auth.js', 'frontend/js/api.js', 'frontend/js/chart.js',
+    for (const file of ['frontend/app.js', 'frontend/js/auth.js', 'frontend/js/account.js', 'frontend/js/api.js', 'frontend/js/chart.js',
                         'frontend/js/financial-chart.js', 'frontend/js/stats.js', 'frontend/js/state.js']) {
         await check(`${file} has no HTML string sinks or inline event attributes`,
             !/innerHTML|insertAdjacentHTML|outerHTML|onclick\s*=/.test(readFileSync(resolve(file), 'utf8')));

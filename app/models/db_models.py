@@ -125,10 +125,12 @@ class Indicator(SymbolMixin, Base):
 class User(Base):
     """ユーザー"""
     __tablename__ = "users"
+    __table_args__ = {"sqlite_autoincrement": True}
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    token_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=to_db, nullable=False
     )
@@ -160,6 +162,7 @@ class UserListItem(SymbolMixin, Base):
     list_id: Mapped[int] = mapped_column(Integer, ForeignKey("user_lists.id", ondelete="CASCADE"), nullable=False)
     symbol: Mapped[str] = mapped_column(String(20), nullable=False)
     tags: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON文字列 例: '["テック","高配当"]'
+    added_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class StockMemo(SymbolMixin, Base):

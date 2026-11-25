@@ -6,10 +6,12 @@ import { API_BASE, CACHE_TTL, cache, state } from './state.js';
 import { logoutUser, openAuthModal } from './auth.js';
 
 export async function fetchAPI(endpoint, options = {}, errorMessage = 'リクエストに失敗しました') {
-    const requestUser = state.currentUser;
+    const { anonymous = false, responseType, ...requestOptions } = options;
+    const requestUser = anonymous ? null : state.currentUser;
     const cacheKey = (requestUser?.access_token || '') + endpoint + JSON.stringify(options);
+    const useCache = (!options.method || options.method === 'GET') && options.cache !== 'no-store' && !responseType;
 
-    if (!options.method || options.method === 'GET') {
+    if (useCache) {
         const cached = cache.get(cacheKey);
         if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
             return cached.data;
@@ -22,7 +24,7 @@ export async function fetchAPI(endpoint, options = {}, errorMessage = 'リクエ
         headers.set('Authorization', `Bearer ${requestUser.access_token}`);
     }
     const res = await fetch(`${API_BASE}${endpoint}`, {
-        ...options,
+        ...requestOptions,
         headers,
     });
 
@@ -42,16 +44,26 @@ export async function fetchAPI(endpoint, options = {}, errorMessage = 'リクエ
         });
     }
 
-    const data = await res.json();
+    const data = res.status === 204 ? null : await (responseType === 'blob' ? res.blob() : res.json());
 
     // Ignore responses from a session that ended while the request was in flight.
-    if (state.currentUser !== requestUser) {
+    if (!anonymous && state.currentUser !== requestUser) {
         throw new Error('ログイン状態が変更されました');
     }
 
-    if (!options.method || options.method === 'GET') {
+    if (useCache) {
         cache.set(cacheKey, { data, timestamp: Date.now() });
     }
 
     return data;
+}
+
+export async function downloadAPI(endpoint, filename) {
+    const blob = await fetchAPI(endpoint, { responseType: 'blob', cache: 'no-store' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

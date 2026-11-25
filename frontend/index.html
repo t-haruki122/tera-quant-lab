@@ -57,6 +57,7 @@
                         <button class="account-menu-item" type="button" data-auth-mode="register">新規登録</button>
                     </div>
                     <button class="account-menu-item" id="account-menu-stats" type="button">システム統計</button>
+                    <button class="account-menu-item hidden" id="account-menu-settings" type="button">アカウント設定</button>
                     <button class="account-menu-item danger hidden" id="account-menu-logout" type="button">ログアウト</button>
                 </div>
             </div>
@@ -86,6 +87,136 @@
                     <a href="#" id="auth-toggle-link">新規登録</a>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay hidden" id="account-settings-overlay">
+        <div class="modal account-settings" role="dialog" aria-modal="true" aria-labelledby="account-settings-title">
+            <div class="modal-header">
+                <h3 id="account-settings-title">アカウント設定</h3>
+                <button class="modal-close" id="account-settings-close" type="button" aria-label="閉じる">✕</button>
+            </div>
+            <div class="modal-body">
+                <fieldset class="account-settings-fields" id="account-settings-fields" aria-labelledby="account-settings-title">
+                    <form class="account-settings-section" id="account-password-form">
+                        <h4>パスワード変更</h4>
+                        <div class="form-group">
+                            <label for="account-current-password">現在のパスワード</label>
+                            <input id="account-current-password" type="password" autocomplete="current-password" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="account-new-password">新しいパスワード（8文字以上）</label>
+                            <input id="account-new-password" type="password" autocomplete="new-password" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="account-confirm-password">新しいパスワードを再入力</label>
+                            <input id="account-confirm-password" type="password" autocomplete="new-password" required>
+                        </div>
+                        <p class="auth-error hidden" id="account-password-error" role="alert"></p>
+                        <p class="hidden" id="account-password-status" role="status"></p>
+                        <button class="btn-primary" type="submit">パスワードを変更</button>
+                    </form>
+                    <section class="account-settings-section">
+                        <h4>ログイン中の端末</h4>
+                        <p class="text-muted">このブラウザーを含むすべての端末で再ログインが必要になります。</p>
+                        <p class="auth-error hidden" id="account-logout-error" role="alert"></p>
+                        <button class="account-action" id="account-logout-all" type="button">他の端末からログアウト</button>
+                    </section>
+                    <section class="account-settings-section">
+                        <h4>ウォッチリストとメモ</h4>
+                        <button class="account-action" id="account-export" type="button">JSONをエクスポート</button>
+                        <form id="account-import-form" novalidate>
+                            <div class="form-group">
+                                <label for="account-import-file">インポートするJSONファイル</label>
+                                <input id="account-import-file" type="file" accept=".json,application/json" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="account-import-mode">取り込み方法</label>
+                                <select id="account-import-mode" class="account-action">
+                                    <option value="merge">既存データに追加</option>
+                                    <option value="replace">すべて置き換え</option>
+                                </select>
+                            </div>
+                            <button class="account-action" id="account-import-submit" type="submit">インポート</button>
+                        </form>
+                        <p class="auth-error hidden" id="account-data-error" role="alert"></p>
+                        <p class="account-import-result hidden" id="account-import-result" role="status"></p>
+                    </section>
+                    <form class="account-settings-section" id="account-delete-form">
+                        <h4>アカウント削除</h4>
+                        <p class="text-muted">すべてのリスト、タグ、メモが削除されます。</p>
+                        <div class="form-group">
+                            <label for="account-delete-username">確認のためユーザー名を入力</label>
+                            <input id="account-delete-username" type="text" autocomplete="off" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="account-delete-password">現在のパスワード</label>
+                            <input id="account-delete-password" type="password" autocomplete="current-password" required>
+                        </div>
+                        <p class="auth-error hidden" id="account-delete-error" role="alert"></p>
+                        <button class="account-action account-action-danger" type="submit">アカウントを削除</button>
+                    </form>
+                </fieldset>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay hidden" id="import-replace-overlay">
+        <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="import-replace-title" aria-describedby="import-replace-message">
+            <div class="modal-header">
+                <h3 id="import-replace-title">リストとメモの置き換え</h3>
+                <button class="modal-close" id="import-replace-close" type="button" aria-label="閉じる">✕</button>
+            </div>
+            <form class="modal-body" id="import-replace-form">
+                <p class="modal-message" id="import-replace-message" tabindex="-1">現在のすべてのリストとメモを置き換えますか？</p>
+                <p class="auth-error hidden" id="import-replace-error" role="alert"></p>
+                <div class="modal-actions">
+                    <button class="account-action" id="import-replace-cancel" type="button">キャンセル</button>
+                    <button class="account-action account-action-danger" id="import-replace-submit" type="submit">置き換える</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay hidden" id="watchlist-action-overlay">
+        <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="watchlist-action-title" aria-describedby="watchlist-action-message">
+            <div class="modal-header">
+                <h3 id="watchlist-action-title">リストの管理</h3>
+                <button class="modal-close" id="watchlist-action-close" type="button" aria-label="閉じる">✕</button>
+            </div>
+            <form class="modal-body" id="watchlist-action-form">
+                <div class="form-group" id="watchlist-action-fields">
+                    <label for="watchlist-action-name">リスト名（1〜50文字）</label>
+                    <input id="watchlist-action-name" type="text" autocomplete="off" aria-required="true" aria-describedby="watchlist-action-error">
+                </div>
+                <p class="modal-message hidden" id="watchlist-action-message" tabindex="-1"></p>
+                <p class="auth-error hidden" id="watchlist-action-error" role="alert"></p>
+                <div class="modal-actions">
+                    <button class="account-action" id="watchlist-action-cancel" type="button">キャンセル</button>
+                    <button class="account-action" id="watchlist-action-submit" type="submit">作成</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay hidden" id="memo-edit-overlay">
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="memo-edit-title">
+            <div class="modal-header">
+                <h3 id="memo-edit-title">銘柄メモを編集</h3>
+                <button class="modal-close" id="memo-edit-close" type="button" aria-label="閉じる">✕</button>
+            </div>
+            <form class="modal-body" id="memo-edit-form">
+                <div class="form-group">
+                    <label for="memo-edit-input">メモ</label>
+                    <textarea id="memo-edit-input" rows="4" aria-describedby="memo-edit-hint memo-edit-error"></textarea>
+                    <p class="modal-hint" id="memo-edit-hint">Enterで保存、Shift＋Enterで改行</p>
+                </div>
+                <p class="auth-error hidden" id="memo-edit-error" role="alert"></p>
+                <div class="modal-actions">
+                    <button class="account-action" id="memo-edit-cancel" type="button">キャンセル</button>
+                    <button class="account-action" id="memo-edit-submit" type="submit">保存</button>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -308,6 +439,15 @@
             </div>
             <p class="list-description">このページを幹として複数の銘柄を管理し、行クリックで各銘柄の詳細ページへ移動できます。列ヘッダーをクリックすると並び替えできます。</p>
             <p class="list-search-hint">検索: スペースでAND、|でOR、#テック のようにタグ検索</p>
+            <div class="watchlist-manager hidden" id="watchlist-manager">
+                <label for="watchlist-select">ウォッチリスト</label>
+                <select class="account-action" id="watchlist-select"></select>
+                <button class="account-action" id="watchlist-create" type="button">新規作成</button>
+                <button class="account-action" id="watchlist-rename" type="button" disabled>名前を変更</button>
+                <button class="account-action account-action-danger" id="watchlist-delete" type="button" disabled>リストを削除</button>
+                <button class="account-action" id="watchlist-csv" type="button" disabled>CSVをエクスポート</button>
+            </div>
+            <p class="auth-error hidden" id="watchlist-error" role="alert"></p>
 
             <!-- アクティブフィルタ表示 -->
             <div class="active-filter-bar hidden" id="active-filter-bar">

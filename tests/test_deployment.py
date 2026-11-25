@@ -149,7 +149,7 @@ def test_health_healthy_and_degraded(client, settings, monkeypatch):
     healthy = client.get("/health")
     assert healthy.status_code == 200
     assert healthy.json() == {"status": "ok", "version": settings.app_version,
-                              "uptime_seconds": healthy.json()["uptime_seconds"], "database": "ok", "migration": "0003"}
+                              "uptime_seconds": healthy.json()["uptime_seconds"], "database": "ok", "migration": "0004"}
     assert isinstance(healthy.json()["uptime_seconds"], int) and healthy.json()["uptime_seconds"] >= 0
     monkeypatch.setattr(database, "check_health", AsyncMock(side_effect=TimeoutError("database details")))
     degraded = client.get("/health")
@@ -189,7 +189,7 @@ def test_secret_key_startup_guard(app_env, secret_key, settings, async_db, monke
 
     async def start():
         async with main.lifespan(main.app):
-            assert await database.check_health() == "0003"
+            assert await database.check_health() == "0004"
 
     if app_env == "production":
         with pytest.raises(RuntimeError, match=r"APP_ENV=production: SECRET_KEY .*32文字"):
@@ -207,7 +207,7 @@ def test_production_wildcard_cors_warning(settings, async_db, monkeypatch, caplo
 
     async def start():
         async with main.lifespan(main.app):
-            assert await database.check_health() == "0003"
+            assert await database.check_health() == "0004"
 
     asyncio.run(start())
     assert 'CORS_ORIGINS に "*"' in caplog.text
@@ -226,7 +226,7 @@ def test_db_directory_created_at_startup(tmp_path, monkeypatch, absolute):
     async def start():
         try:
             await database.init_db()
-            assert await database.check_health() == "0003"
+            assert await database.check_health() == "0004"
         finally:
             await engine.dispose()
 

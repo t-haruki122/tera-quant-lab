@@ -6,8 +6,8 @@ import { state } from './js/state.js';
 import { fetchAPI } from './js/api.js';
 import { fetchStats } from './js/stats.js';
 import { updateAccountUI, submitAuth, bindAuthEvents } from './js/auth.js';
-import { loadDefaultList, submitListAddFromModal, addTagFromInput, setListSearchQuery, bindListEvents } from './js/list.js';
-import { searchStock, bindDetailEvents } from './js/detail.js';
+import { loadDefaultList, submitListAddFromModal, addTagFromInput, setListSearchQuery, bindListEvents, renderListTable } from './js/list.js';
+import { searchStock, bindDetailEvents, refreshDetailPrices } from './js/detail.js';
 import { bindChartEvents } from './js/chart.js';
 import { bindFinancialChartEvents } from './js/financial-chart.js';
 import { bindBacktestEvents, openBacktest, refreshBacktestSession, updateBacktestSymbols } from './js/backtest.js';
@@ -53,12 +53,17 @@ export class App {
         }
         this.syncStatsPolling();
         if (this.currentView === 'backtest') this.openBacktest(symbol);
+        if (this.currentView === 'detail') refreshDetailPrices();
     }
 
     async fetchExchangeRate() {
         try {
-            const res = await this.fetchAPI('/forex/usdjpy', { method: 'GET' });
-            this.state.exchangeRateUSDJPY = res.rate;
+            const { rate } = await this.fetchAPI('/forex/usdjpy', { anonymous: true });
+            if (Number.isFinite(rate) && rate > 0 && rate !== this.state.exchangeRateUSDJPY) {
+                this.state.exchangeRateUSDJPY = rate;
+                renderListTable();
+                if (this.currentView === 'detail') refreshDetailPrices();
+            }
         } catch (err) {
             console.warn('Failed to fetch exchange rate:', err);
         }
@@ -106,10 +111,9 @@ export class App {
     }
 
     async restoreUserSession() {
-        const saved = this.storage.getItem('stockAnalyzerUser');
-        if (!saved) return;
-
         try {
+            const saved = this.storage.getItem('stockAnalyzerUser');
+            if (!saved) return;
             this.state.currentUser = JSON.parse(saved);
             this.updateAccountUI();
             await this.loadDefaultList();
@@ -133,8 +137,7 @@ export class App {
 
     async init() {
         this.bindCoreEvents();
-        await this.restoreUserSession();
-        await this.fetchExchangeRate();
+        await Promise.all([this.restoreUserSession(), this.fetchExchangeRate()]);
     }
 }
 

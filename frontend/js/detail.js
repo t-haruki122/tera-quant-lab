@@ -5,8 +5,10 @@
 import { state } from './state.js';
 import { fetchAPI } from './api.js';
 import { formatCurrency, formatLargeNumber, formatTimestamp, formatNewsDate, escapeHtml, safeHttpUrl } from './utils.js';
-import { loadChart, clearPriceAndRsiCharts } from './chart.js';
+import { loadChart, clearPriceAndRsiCharts, updateChartVisibility } from './chart.js';
 import { renderFinancialHistoryChart, renderDividendHistoryChart } from './financial-chart.js';
+
+let displayedQuote = null;
 
 // ===== Search =====
 export function quickSearch(symbol) {
@@ -20,6 +22,7 @@ export async function searchStock() {
     if (!symbol) return;
 
     state.currentSymbol = symbol;
+    displayedQuote = null;
     state.currentChartHistory = [];
     state.currentChartCurrency = null;
     clearPriceAndRsiCharts();
@@ -74,8 +77,21 @@ export function renderStockHeader(price, profile) {
     document.getElementById('stock-meta').textContent = meta.join(' • ');
 
     const currency = profile.currency || 'USD';
-    document.getElementById('price-display').textContent = formatCurrency(price.price, currency);
+    displayedQuote = { price: price.price, currency };
+    renderQuotePrice();
     document.getElementById('price-timestamp').textContent = `最終更新: ${formatTimestamp(price.timestamp)}`;
+}
+
+function renderQuotePrice() {
+    document.getElementById('price-display').textContent = formatCurrency(displayedQuote.price, displayedQuote.currency);
+    displayedQuote.renderedRate = state.exchangeRateUSDJPY;
+}
+
+export function refreshDetailPrices() {
+    if (!displayedQuote || displayedQuote.renderedRate === state.exchangeRateUSDJPY ||
+        document.getElementById('stock-detail').classList.contains('hidden')) return;
+    renderQuotePrice();
+    updateChartVisibility();
 }
 
 // ===== Render: Profile =====

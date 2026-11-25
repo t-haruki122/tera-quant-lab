@@ -19,7 +19,7 @@ const element = () => {
     const classes = new Set(['hidden']);
     return {
         ...events(),
-        value: '', textContent: '', innerHTML: '', disabled: false,
+        value: '', textContent: '', innerHTML: '', disabled: false, isConnected: true,
         classList: {
             add: name => classes.add(name), remove: name => classes.delete(name),
             contains: name => classes.has(name),
@@ -30,9 +30,13 @@ const element = () => {
             },
         },
         children: [],
-        appendChild(child) { this.children.push(child); }, focus() {}, querySelector: () => element(),
+        appendChild(child) { this.children.push(child); },
+        focus() { document.activeElement = this; },
+        closest(selector) { return selector === 'button' && this.tagName === 'BUTTON' ? this : null; },
+        querySelector: () => element(),
         querySelectorAll: () => [],
-        click() { this.dispatchEvent(new Event('click')); },
+        click() { if (!this.disabled) this.dispatchEvent(new Event('click')); },
+        requestSubmit() { this.dispatchEvent(new Event('submit', { cancelable: true })); },
     };
 };
 export const elements = new Map();
@@ -55,3 +59,12 @@ globalThis.localStorage = {
 globalThis.setTimeout = () => 0;
 globalThis.window = globalThis;
 export const fromRepo = path => import(pathToFileURL(resolve(path)).href);
+
+export function pressKey(overlay, target, key, options = {}) {
+    const event = new Event('keydown', { cancelable: true });
+    for (const [name, value] of Object.entries({ target, key, ...options })) {
+        Object.defineProperty(event, name, { value });
+    }
+    overlay.dispatchEvent(event);
+    return event;
+}

@@ -34,6 +34,8 @@ export const state = {
 
     currentUser: null,
     currentListId: null,
+    watchlists: [],
+    defaultListId: null,
 
     pendingDeleteSymbol: null,
     pendingDeleteTimer: null,

@@ -825,6 +825,78 @@ body {
     margin-bottom: var(--space-xl);
 }
 
+.watchlist-manager {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+#watchlist-select {
+    min-width: 10rem;
+    max-width: 100%;
+}
+
+.account-action {
+    padding: 6px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font: inherit;
+}
+
+button.account-action:not(:disabled) {
+    cursor: pointer;
+}
+
+button.account-action:not(:disabled):hover {
+    border-color: var(--text-accent);
+}
+
+.account-action:disabled {
+    opacity: 0.5;
+}
+
+.account-action-danger {
+    color: var(--accent-rose);
+}
+
+.account-settings {
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.account-settings-fields {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+}
+
+.account-settings-section + .account-settings-section {
+    border-top: 1px solid var(--border-color);
+    margin-top: 16px;
+    padding-top: 16px;
+}
+
+.account-settings-section h4,
+.account-settings-section p,
+#account-import-form {
+    margin: 0 0 8px;
+}
+
+#account-import-form {
+    margin-top: 12px;
+}
+
+.account-import-result {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    padding-top: 8px;
+}
+
 .list-header-row {
     display: flex;
     align-items: center;
@@ -1250,6 +1322,7 @@ footer {
     font-size: 1.1rem;
     font-weight: 600;
     color: var(--text-primary);
+    overflow-wrap: anywhere;
 }
 
 .modal-close {
@@ -1276,6 +1349,23 @@ footer {
     padding: var(--space-lg);
 }
 
+.modal-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--space-sm);
+}
+
+.modal-message {
+    margin-bottom: var(--space-md);
+    overflow-wrap: anywhere;
+}
+
+.modal-hint {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
 /* --- Form --- */
 .form-group {
     margin-bottom: var(--space-md);
@@ -1290,7 +1380,8 @@ footer {
 }
 
 .form-group input,
-.form-group select {
+.form-group select,
+.form-group textarea {
     width: 100%;
     padding: var(--space-sm) var(--space-md);
     background: var(--bg-input);
@@ -1304,9 +1395,14 @@ footer {
 }
 
 .form-group input:focus,
-.form-group select:focus {
+.form-group select:focus,
+.form-group textarea:focus {
     border-color: var(--accent-blue);
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.form-group textarea {
+    resize: vertical;
 }
 
 .form-group input::placeholder {

@@ -3,9 +3,10 @@
  */
 
 import { state, cache } from './state.js';
+import { bindAccountSettingsEvents, closeAccountSettings } from './account.js';
 import { fetchAPI } from './api.js';
 import { showToast } from './utils.js';
-import { loadDefaultList, renderListTable } from './list.js';
+import { loadDefaultList, resetListSession } from './list.js';
 
 // ===== Account Management =====
 export function toggleAccountMenu() {
@@ -37,6 +38,7 @@ export function updateAccountUI() {
     const menuUser = document.getElementById('account-menu-user');
     const menuGuest = document.getElementById('account-menu-guest');
     const menuLogout = document.getElementById('account-menu-logout');
+    const menuSettings = document.getElementById('account-menu-settings');
     const accountBtn = document.getElementById('account-btn');
 
     if (state.currentUser) {
@@ -54,6 +56,7 @@ export function updateAccountUI() {
         accountBtn.classList.remove('logged-in');
     }
     menu.classList.add('hidden');
+    menuSettings.classList.toggle('hidden', !state.currentUser);
     document.dispatchEvent?.(new Event('accountchange'));
 }
 
@@ -118,18 +121,11 @@ export async function submitAuth() {
             body: JSON.stringify({ username, password }),
         });
 
-        cache.clear();
-        state.currentListId = null;
-        state.listItems = [];
-        state.activeTagFilter = null;
-        state.currentUser = user;
-        localStorage.setItem('stockAnalyzerUser', JSON.stringify(user));
-        updateAccountUI();
-        renderListTable();
+        storeUserSession(user);
+        resetListSession();
         closeAuthModal();
         showToast(state.authMode === 'login' ? 'ログインしました' : 'アカウントを作成しました', 'success');
 
-        // ログイン/登録直後にデフォルトリストを読み込み
         await loadDefaultList();
     } catch (err) {
         errorEl.textContent = err.message;
@@ -140,19 +136,25 @@ export async function submitAuth() {
     }
 }
 
+export function storeUserSession(user) {
+    cache.clear();
+    state.currentUser = user;
+    try { localStorage.setItem('stockAnalyzerUser', JSON.stringify(user)); } catch { /* storage unavailable */ }
+    updateAccountUI();
+}
+
 export function logoutUser() {
     cache.clear();
     state.currentUser = null;
-    state.currentListId = null;
-    state.listItems = [];
-    state.activeTagFilter = null;
-    localStorage.removeItem('stockAnalyzerUser');
+    try { localStorage.removeItem('stockAnalyzerUser'); } catch { /* storage unavailable */ }
+    resetListSession();
+    closeAccountSettings();
     updateAccountUI();
-    renderListTable();
     showToast('ログアウトしました', 'info');
 }
 
 export function bindAuthEvents() {
+    bindAccountSettingsEvents();
     const accountBtn = document.getElementById('account-btn');
     const accountMenu = document.getElementById('account-menu');
     const accountGuest = document.getElementById('account-menu-guest');

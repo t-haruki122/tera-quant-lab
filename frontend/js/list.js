@@ -3,45 +3,184 @@
  */
 
 import { state } from './state.js';
-import { fetchAPI } from './api.js';
+import { downloadAPI, fetchAPI } from './api.js';
+import { createActionModal } from './action-modal.js';
 import { showToast, formatCurrency, formatLargeNumber, escapeHtml, escapeAttr, normalizeTagHue } from './utils.js';
 import { getMarketCapCategory, getMixIndexRating, getRatingSymbol, searchStock } from './detail.js';
 
 const RATE_LIMIT_MESSAGE = 'アクセスが集中しています。しばらくしてから再試行してください。';
 
-// ===== Default List (1:1対応) =====
-export async function loadDefaultList() {
+let summaryRequest = 0;
+const watchlistModal = createActionModal('watchlist-action');
+const memoModal = createActionModal('memo-edit');
+
+function listRoot(user = state.currentUser) {
+    return `/user/${encodeURIComponent(user.id)}/lists`;
+}
+
+function selectionKey(user) {
+    return `stockAnalyzerWatchlist:${user.id}`;
+}
+
+function savedListId(user) {
+    try { return localStorage.getItem(selectionKey(user)); } catch { return null; }
+}
+
+function setListError(message = '') {
+    const error = document.getElementById('watchlist-error');
+    error.textContent = message;
+    error.classList.toggle('hidden', !message);
+}
+
+export function renderWatchlistSelector() {
+    const select = document.getElementById('watchlist-select');
+    select.innerHTML = state.watchlists.map(list =>
+        `<option value="${escapeAttr(list.id)}">${escapeHtml(list.name)}</option>`
+    ).join('');
+    select.value = state.currentListId ?? '';
+    document.getElementById('watchlist-manager').classList.toggle('hidden', !state.currentUser);
+    document.getElementById('watchlist-rename').disabled = !state.currentListId;
+    document.getElementById('watchlist-delete').disabled = !state.currentListId || state.defaultListId === state.currentListId;
+    document.getElementById('watchlist-csv').disabled = !state.currentListId;
+}
+
+function clearListRows() {
+    clearTimeout(state.pendingDeleteTimer);
+    state.pendingDeleteTimer = null;
+    state.pendingDeleteSymbol = null;
+    state.activeTagFilter = null;
+    state.listItems = [];
+    closeTagModal();
+    renderListTable();
+    document.dispatchEvent?.(new Event('watchlistchange'));
+}
+
+export function resetListSession() {
+    watchlistModal.close();
+    memoModal.close();
+    summaryRequest++;
+    state.currentListId = null;
+    state.defaultListId = null;
+    state.watchlists = [];
+    clearListRows();
+    renderWatchlistSelector();
+    setListError();
+}
+
+export async function loadDefaultList(preferredId) {
     const requestUser = state.currentUser;
     if (!requestUser) return;
 
     try {
-        const data = await fetchAPI(`/user/${encodeURIComponent(state.currentUser.id)}/default-list`);
+        const data = await fetchAPI(listRoot(requestUser), { cache: 'no-store' });
         if (state.currentUser !== requestUser) return;
-        state.currentListId = data.id;
-
-        state.listItems = data.items.map(item => ({ symbol: item.symbol, loading: true, tags: item.tags || [] }));
-        renderListTable();
-        document.dispatchEvent?.(new Event('watchlistchange'));
-        await Promise.all(state.listItems.map(async item => {
-            const { fields } = await fetchListItemData(item.symbol);
-            if (state.currentUser !== requestUser || !state.listItems.includes(item)) return;
-            Object.assign(item, fields, { loading: false });
-            renderListTable();
-        }));
+        state.watchlists = data.lists;
+        state.defaultListId = data.default_list_id;
+        if (!data.lists.length) {
+            const fallback = await fetchAPI(`/user/${encodeURIComponent(requestUser.id)}/default-list`, { cache: 'no-store' });
+            if (state.currentUser !== requestUser) return;
+            state.watchlists = [fallback];
+            state.defaultListId = fallback.id;
+        }
+        const wanted = preferredId ?? savedListId(requestUser);
+        const selected = state.watchlists.find(list => String(list.id) === String(wanted));
+        const fallbackId = state.defaultListId ?? state.watchlists[0].id;
+        await selectWatchlist(selected?.id ?? fallbackId);
     } catch (err) {
-        if (state.currentUser === requestUser && err?.status === 429) showToast(RATE_LIMIT_MESSAGE, 'warning');
-        console.warn('Default list load failed:', err);
+        if (state.currentUser === requestUser) {
+            renderWatchlistSelector();
+            setListError(err.message);
+        }
     }
 }
 
-async function fetchListItemData(symbol) {
+export async function selectWatchlist(id) {
+    const user = state.currentUser;
+    if (!user || !state.watchlists.some(list => list.id === id)) return;
+    const request = ++summaryRequest;
+    if (id !== state.currentListId) clearListRows();
+    state.currentListId = id;
+    try { localStorage.setItem(selectionKey(user), String(id)); } catch { /* storage unavailable */ }
+    renderWatchlistSelector();
+    setListError();
+
+    try {
+        const data = await fetchAPI(`${listRoot(user)}/${encodeURIComponent(id)}/summary`, { cache: 'no-store' });
+        if (state.currentUser !== user || summaryRequest !== request) return;
+        state.listItems = data.items.map(item => ({ ...item, loadError: item.error ?? null }));
+        renderListTable();
+        document.dispatchEvent?.(new Event('watchlistchange'));
+    } catch (err) {
+        if (state.currentUser === user && summaryRequest === request) {
+            setListError(err.status === 429 ? RATE_LIMIT_MESSAGE : err.message);
+        }
+    }
+}
+
+function editWatchlist(action, opener) {
+    const user = state.currentUser;
+    if (!user) return;
+    const list = state.watchlists.find(entry => entry.id === state.currentListId);
+    if (!list && action !== 'create') return;
+    if (action === 'delete' && list.id === state.defaultListId) return;
+
+    const root = listRoot(user);
+    const endpoint = action === 'create' ? root : `${root}/${encodeURIComponent(list.id)}`;
+    setListError();
+    const deleting = action === 'delete';
+    const title = { create: 'リストを新規作成', rename: 'リスト名を変更', delete: 'リストを削除' }[action];
+    const input = document.getElementById('watchlist-action-name');
+    const message = document.getElementById('watchlist-action-message');
+    const submit = document.getElementById('watchlist-action-submit');
+    document.getElementById('watchlist-action-title').textContent = title;
+    document.getElementById('watchlist-action-fields').classList.toggle('hidden', deleting);
+    input.value = action === 'rename' ? list.name : '';
+    message.textContent = deleting ? `「${list.name}」を削除しますか？` : '';
+    message.classList.toggle('hidden', !deleting);
+    submit.textContent = { create: '作成', rename: '保存', delete: '削除' }[action];
+    submit.classList.toggle('account-action-danger', deleting);
+
+    watchlistModal.open({
+        focus: deleting ? message : input,
+        opener,
+        fallbackFocus: document.getElementById('watchlist-select'),
+        async onSubmit() {
+            if (state.currentUser !== user) return;
+            if (deleting) {
+                await fetchAPI(endpoint, { method: 'DELETE' });
+                await loadDefaultList(state.defaultListId);
+                return;
+            }
+            const name = input.value.trim();
+            if (!name || [...name].length > 50) throw new Error('リスト名は1〜50文字で入力してください');
+            const saved = await fetchAPI(endpoint, {
+                method: action === 'create' ? 'POST' : 'PUT', body: JSON.stringify({ name }),
+            });
+            await loadDefaultList(saved.id);
+        },
+    });
+}
+
+async function downloadWatchlist() {
+    const user = state.currentUser;
+    const id = state.currentListId;
+    if (!user || !id) return;
+    setListError();
+    try {
+        await downloadAPI(`${listRoot(user)}/${encodeURIComponent(id)}/export.csv`,
+            `watchlist-${id}-${new Date().toISOString().slice(0, 10)}.csv`);
+    } catch (err) {
+        if (state.currentUser === user) setListError(err.message);
+    }
+}
+
+async function fetchGuestItemData(symbol) {
     const results = await Promise.allSettled([
         fetchAPI(`/stock/${encodeURIComponent(symbol)}`),
         fetchAPI(`/stock/${encodeURIComponent(symbol)}/profile`),
         fetchAPI(`/stock/${encodeURIComponent(symbol)}/indicators`),
-        fetchStockMemo(symbol),
     ]);
-    const [quote, profile, indicators, memo] = results.map(result => result.value);
+    const [quote, profile, indicators] = results.map(result => result.value);
     const failures = results.filter(result => result.status === 'rejected');
     const rateLimited = failures.some(result => result.reason?.status === 429);
     return {
@@ -54,49 +193,39 @@ async function fetchListItemData(symbol) {
             market_cap: profile?.market_cap,
             mix_index: indicators?.mix_index,
             dividend_yield: indicators?.dividend_yield,
-            memo,
             loadError: rateLimited ? RATE_LIMIT_MESSAGE : failures.length ? '一部のデータを取得できませんでした。' : null,
         },
     };
 }
 
-async function fetchStockMemo(symbol) {
-    if (!state.currentUser) return null;
-    try {
-        const data = await fetchAPI(`/user/${encodeURIComponent(state.currentUser.id)}/memo/${encodeURIComponent(symbol)}`);
-        return data.memo || null;
-    } catch (err) {
-        console.warn('Memo fetch failed:', err);
-        return null;
-    }
-}
-
-export async function editStockMemo(symbol) {
-    if (!state.currentUser) {
+export function editStockMemo(symbol, opener) {
+    const user = state.currentUser;
+    if (!user) {
         showToast('メモ機能はログインが必要です', 'warning');
         return;
     }
 
-    const item = state.listItems.find(i => i.symbol === symbol);
-    const currentMemo = item?.memo || '';
-    const input = window.prompt(`${symbol} のメモを入力`, currentMemo);
-    if (input === null) return;
-
-    const memo = input.trim() === '' ? null : input.trim();
-
-    try {
-        const saved = await fetchAPI(`/user/${encodeURIComponent(state.currentUser.id)}/memo/${encodeURIComponent(symbol)}`, {
-            method: 'PUT',
-            body: JSON.stringify({ memo }),
-        });
-        if (item) {
-            item.memo = saved.memo || null;
-            renderListTable();
-        }
-        showToast('メモを保存しました', 'success');
-    } catch (err) {
-        showToast(`メモ保存に失敗しました: ${err.message}`, 'error');
-    }
+    const input = document.getElementById('memo-edit-input');
+    input.value = state.listItems.find(item => item.symbol === symbol)?.memo ?? '';
+    document.getElementById('memo-edit-title').textContent = `${symbol} のメモを編集`;
+    memoModal.open({
+        focus: input,
+        opener,
+        fallbackFocus: document.getElementById('list-add-btn'),
+        async onSubmit() {
+            if (state.currentUser !== user) return;
+            const saved = await fetchAPI(`/user/${encodeURIComponent(user.id)}/memo/${encodeURIComponent(symbol)}`, {
+                method: 'PUT',
+                body: JSON.stringify({ memo: input.value.trim() || null }),
+            });
+            const item = state.listItems.find(entry => entry.symbol === symbol);
+            if (item) {
+                item.memo = saved.memo || null;
+                renderListTable();
+            }
+            showToast('メモを保存しました', 'success');
+        },
+    });
 }
 
 // ===== List View =====
@@ -187,24 +316,26 @@ async function addSymbolToList(symbol) {
     }
 
     const requestUser = state.currentUser;
+    if (requestUser) {
+        if (!state.currentListId) await loadDefaultList();
+        const id = state.currentListId;
+        if (!id || state.currentUser !== requestUser) return false;
+        try {
+            await fetchAPI(`${listRoot(requestUser)}/${encodeURIComponent(id)}/items`, {
+                method: 'POST', body: JSON.stringify({ symbol, tags: [] }),
+            });
+            if (state.currentUser === requestUser && state.currentListId === id) await selectWatchlist(id);
+            return true;
+        } catch (err) {
+            if (state.currentUser === requestUser) showToast(err.message, 'error');
+            return false;
+        }
+    }
     const item = { symbol, loading: true, tags: [] };
     state.listItems.push(item);
     renderListTable();
 
-    // サーバーにも追加（ログイン中のみ）
-    if (state.currentUser && state.currentListId) {
-        try {
-            await fetchAPI(`/user/${encodeURIComponent(state.currentUser.id)}/lists/${encodeURIComponent(state.currentListId)}/items`, {
-                method: 'POST',
-                body: JSON.stringify({ symbol, tags: [] }),
-            });
-        } catch (err) {
-            console.warn('Server add failed:', err);
-        }
-    }
-
-    if (state.currentUser !== requestUser || !state.listItems.includes(item)) return false;
-    const { fields, rateLimited } = await fetchListItemData(symbol);
+    const { fields, rateLimited } = await fetchGuestItemData(symbol);
     if (state.currentUser !== requestUser || !state.listItems.includes(item)) return false;
     if (!fields.loadError || rateLimited) {
         Object.assign(item, fields, { loading: false });
@@ -214,12 +345,6 @@ async function addSymbolToList(symbol) {
 
     state.listItems = state.listItems.filter(entry => entry !== item);
     renderListTable();
-    // サーバーからも削除
-    if (state.currentUser && state.currentListId) {
-        try {
-            await fetchAPI(`/user/${encodeURIComponent(state.currentUser.id)}/lists/${encodeURIComponent(state.currentListId)}/items/${encodeURIComponent(symbol)}`, { method: 'DELETE' });
-        } catch { /* ignore */ }
-    }
     showToast(`${symbol} の取得に失敗しました`, 'error');
     return false;
 }
@@ -563,6 +688,17 @@ export function setListSearchQuery(query) {
 }
 
 export function bindListEvents() {
+    watchlistModal.bind();
+    memoModal.bind();
+    document.getElementById('watchlist-select')?.addEventListener('change', e => {
+        const list = state.watchlists.find(entry => String(entry.id) === e.target.value);
+        if (list) selectWatchlist(list.id);
+    });
+    for (const action of ['create', 'rename', 'delete']) {
+        const button = document.getElementById(`watchlist-${action}`);
+        button?.addEventListener('click', () => editWatchlist(action, button));
+    }
+    document.getElementById('watchlist-csv')?.addEventListener('click', downloadWatchlist);
     document.getElementById('list-add-btn')?.addEventListener('click', () => openListAddModal());
     document.getElementById('list-add-modal-submit')?.addEventListener('click', submitListAddFromModal);
     document.getElementById('active-filter-clear')?.addEventListener('click', clearTagFilter);
@@ -631,7 +767,7 @@ export function bindListEvents() {
                 return;
             }
             if (action === 'edit-memo' && symbol) {
-                editStockMemo(symbol);
+                editStockMemo(symbol, actionBtn);
                 return;
             }
             if (action === 'remove-tag' && tag) {

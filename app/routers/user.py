@@ -1,34 +1,67 @@
 """ユーザー・リスト・タグ APIルーター"""
 
 import json
+from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import create_access_token, require_user_owner
+from app.auth import create_access_token, require_authenticated_user, require_user_owner
 from app.config import get_settings
 from app.database import get_db
+from app.models.db_models import User
 from app.rate_limit import client_ip, limiter
 from app.schemas.user import (
+    ChangePasswordRequest,
+    ConfirmPasswordRequest,
+    ImportResult,
     ListCreateRequest,
     ListDetailResponse,
     ListItemAddRequest,
     ListItemResponse,
     ListResponse,
     ListsResponse,
+    ListSummaryResponse,
     ListUpdateRequest,
     MessageResponse,
     StockMemoRequest,
     StockMemoResponse,
     TagUpdateRequest,
+    UserBackup,
     UserLoginRequest,
     UserRegisterRequest,
     UserResponse,
 )
-from app.services import user_service
+from app.services import user_backup_service, user_service, watchlist_service
+from app.timeutil import utcnow
 from app.validation import SQLiteID, Symbol
 
 router = APIRouter(prefix="/user", tags=["user"])
+
+
+def user_response(user: User, version: int | None = None) -> UserResponse:
+    token = create_access_token(user.id, user.token_version if version is None else version)
+    return UserResponse(id=user.id, username=user.username, access_token=token)
+
+
+def check_password_policy(password: str) -> None:
+    try:
+        user_service.validate_password(password)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+async def check_current_password(user: User, password: str, request: Request) -> None:
+    settings = get_settings()
+    ip = client_ip(request, settings)
+    if settings.rate_limit_enabled:
+        limiter.begin_login(ip, user.username, settings)
+    valid = await user_service.verify_current_password(user, password)
+    if settings.rate_limit_enabled:
+        limiter.finish_login(ip, user.username, settings, success=valid)
+    if not valid:
+        raise HTTPException(400, "現在のパスワードが正しくありません")
 
 
 # ========== ユーザー認証 ==========
@@ -46,12 +79,11 @@ async def register(req: UserRegisterRequest, request: Request, db: AsyncSession 
         limiter.register(client_ip(request, settings), settings)
     if not req.username or len(req.username) < 2:
         raise HTTPException(status_code=400, detail="ユーザー名は2文字以上にしてください")
-    if not req.password or len(req.password) < 8:
-        raise HTTPException(status_code=400, detail="パスワードは8文字以上にしてください")
+    check_password_policy(req.password)
 
     try:
         user = await user_service.register_user(req.username, req.password, db)
-        return UserResponse(id=user.id, username=user.username, access_token=create_access_token(user.id))
+        return user_response(user)
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
 
@@ -76,7 +108,69 @@ async def login(req: UserLoginRequest, request: Request, db: AsyncSession = Depe
         raise HTTPException(status_code=401, detail=str(e)) from e
     if settings.rate_limit_enabled:
         limiter.finish_login(ip, req.username, settings, success=True)
-    return UserResponse(id=user.id, username=user.username, access_token=create_access_token(user.id))
+    return user_response(user)
+
+
+@router.post("/{user_id}/password", response_model=UserResponse, summary="パスワードを変更")
+async def change_password(
+    req: ChangePasswordRequest, request: Request, user: User = Depends(require_user_owner),
+    db: AsyncSession = Depends(get_db),
+):
+    check_password_policy(req.new_password)
+    await check_current_password(user, req.current_password, request)
+    version = await user_service.change_password(user, req.new_password, db)
+    if version is None:
+        require_authenticated_user(None)
+    return user_response(user, version)
+
+
+@router.post("/{user_id}/logout-all", status_code=204, summary="すべての端末からログアウト")
+async def logout_all(user: User = Depends(require_user_owner), db: AsyncSession = Depends(get_db)):
+    if await user_service.invalidate_tokens(user, db) is None:
+        require_authenticated_user(None)
+    await db.commit()
+
+
+@router.delete("/{user_id}", status_code=204, summary="アカウントを削除")
+async def delete_account(
+    req: ConfirmPasswordRequest, request: Request, user: User = Depends(require_user_owner),
+    db: AsyncSession = Depends(get_db),
+):
+    await check_current_password(user, req.current_password, request)
+    if not await user_service.delete_account(user, db):
+        require_authenticated_user(None)
+
+
+@router.get("/{user_id}/export", response_model=UserBackup, summary="アカウントデータをJSONで出力")
+async def export_account(
+    response: Response, user: User = Depends(require_user_owner), db: AsyncSession = Depends(get_db),
+):
+    response.headers["Content-Disposition"] = f'attachment; filename="watchlists-{utcnow().date()}.json"'
+    return await user_backup_service.export_backup(user, db)
+
+
+@router.post("/{user_id}/import", response_model=ImportResult, summary="アカウントデータをJSONから取り込む")
+async def import_account(
+    request: Request, mode: Literal["merge", "replace"] = "merge",
+    user: User = Depends(require_user_owner), db: AsyncSession = Depends(get_db),
+):
+    maximum = get_settings().user_import_max_bytes
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > maximum:
+            raise HTTPException(413, f"インポートファイルは {maximum} バイト以内にしてください")
+        body.extend(chunk)
+    try:
+        backup = UserBackup.model_validate_json(body)
+    except ValidationError as e:
+        errors = [
+            {"type": error["type"], "loc": ["body", *error["loc"]], "msg": "バックアップの形式が正しくありません"}
+            for error in e.errors(include_input=False)
+        ]
+        raise HTTPException(422, errors) from e
+    if backup.version != user_backup_service.BACKUP_VERSION:
+        raise HTTPException(422, "対応していないバックアップのバージョンです")
+    return await user_backup_service.import_backup(user.id, backup, mode, db)
 
 
 @router.get(
@@ -115,7 +209,8 @@ async def get_lists(user_id: SQLiteID, db: AsyncSession = Depends(get_db)):
                 updated_at=lst.updated_at.isoformat(),
             )
             for lst in lists
-        ]
+        ],
+        default_list_id=min(lists, key=lambda lst: (lst.created_at, lst.id)).id if lists else None,
     )
 
 
@@ -127,10 +222,12 @@ async def get_lists(user_id: SQLiteID, db: AsyncSession = Depends(get_db)):
 )
 async def create_list(user_id: SQLiteID, req: ListCreateRequest, db: AsyncSession = Depends(get_db)):
     """新しいリストを作成"""
-    if not req.name:
-        raise HTTPException(status_code=400, detail="リスト名を入力してください")
-
-    lst = await user_service.create_list(user_id, req.name, db)
+    try:
+        lst = await user_service.create_list(user_id, req.name, db)
+    except user_service.DuplicateListName as e:
+        raise HTTPException(409, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
     return ListResponse(
         id=lst.id,
         name=lst.name,
@@ -153,6 +250,30 @@ async def get_list_detail(user_id: SQLiteID, list_id: SQLiteID, db: AsyncSession
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
+@router.get("/{user_id}/lists/{list_id}/summary", response_model=ListSummaryResponse, summary="銘柄リストの概要を取得")
+async def list_summary(
+    list_id: SQLiteID, request: Request, user: User = Depends(require_user_owner), db: AsyncSession = Depends(get_db),
+):
+    settings = get_settings()
+    limiter.data(request, settings, user_id=user.id)
+    try:
+        return await watchlist_service.get_list_summary(user.id, list_id, db, settings.watchlist_summary_concurrency)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+
+
+@router.get("/{user_id}/lists/{list_id}/export.csv", summary="銘柄リストをCSVで出力")
+async def list_csv(list_id: SQLiteID, user: User = Depends(require_user_owner), db: AsyncSession = Depends(get_db)):
+    try:
+        content = await user_backup_service.export_list_csv(user.id, list_id, db)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+    return Response(
+        content, media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="watchlist-{list_id}-{utcnow().date()}.csv"'},
+    )
+
+
 @router.put(
     "/{user_id}/lists/{list_id}",
     dependencies=[Depends(require_user_owner)],
@@ -164,13 +285,19 @@ async def update_list(
 ):
     """リスト名を変更"""
     try:
-        lst = await user_service.update_list(user_id, list_id, req.name, db)
+        name = user_service.normalize_list_name(req.name)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    try:
+        lst = await user_service.update_list(user_id, list_id, name, db)
         return ListResponse(
             id=lst.id,
             name=lst.name,
             created_at=lst.created_at.isoformat(),
             updated_at=lst.updated_at.isoformat(),
         )
+    except user_service.DuplicateListName as e:
+        raise HTTPException(409, str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
@@ -186,6 +313,8 @@ async def delete_list(user_id: SQLiteID, list_id: SQLiteID, db: AsyncSession = D
     try:
         await user_service.delete_list(user_id, list_id, db)
         return MessageResponse(message="リストを削除しました")
+    except user_service.ProtectedList as e:
+        raise HTTPException(400, str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 

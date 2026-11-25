@@ -29,7 +29,10 @@ def test_fresh_startup_and_second_upgrade_are_idempotent(async_db):
         async with engine.connect() as connection:
             tables = await connection.run_sync(lambda conn: inspect(conn).get_table_names())
             assert set(tables) == set(LegacyBase.metadata.tables) | {"alembic_version", "api_stats_daily"}
-            assert await connection.scalar(text("SELECT version_num FROM alembic_version")) == "0003"
+            assert await connection.scalar(text("SELECT version_num FROM alembic_version")) == "0004"
+            columns = await connection.run_sync(lambda conn: inspect(conn).get_columns("users"))
+            token_version = next(column for column in columns if column["name"] == "token_version")
+            assert not token_version["nullable"]
         await engine.dispose()
 
     asyncio.run(scenario())
@@ -64,7 +67,7 @@ def test_upgrade_legacy_duplicates_normalization_constraints_and_user_data(setti
         for table, row in user_tables.items():
             connection.execute(LegacyBase.metadata.tables[table].insert().values(**row))
         before = {table: connection.execute(text(f"SELECT * FROM {table}")).all() for table in user_tables}
-        upgrade(connection)
+        upgrade(connection, "0003")
         assert any(index["name"] == "ix_stock_prices_symbol" for index in inspect(connection).get_indexes("stock_prices"))
         revision = importlib.import_module("migrations.versions.0002_cache_integrity")
         for table, keys in revision.KEYS.items():
@@ -75,7 +78,7 @@ def test_upgrade_legacy_duplicates_normalization_constraints_and_user_data(setti
         assert before == after
         snapshot = connection.connection.driver_connection.iterdump()
         snapshot = list(snapshot)
-        upgrade(connection)
+        upgrade(connection, "0003")
         assert list(connection.connection.driver_connection.iterdump()) == snapshot
         # Dropping constraints must work and preserve surviving data.
         config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
@@ -83,7 +86,7 @@ def test_upgrade_legacy_duplicates_normalization_constraints_and_user_data(setti
         command.downgrade(config, "0001")
         assert not inspect(connection).get_unique_constraints("stock_prices")
         assert connection.scalar(text("SELECT count(*) FROM users")) == 1
-        upgrade(connection)
+        upgrade(connection, "0003")
     engine.dispose()
 
 
@@ -95,7 +98,7 @@ def test_upgrade_0002_with_data_and_downgrade_0003(settings):
             username="preserved", password_hash="hash", created_at=to_db(),
         ))
         before = connection.execute(text("SELECT * FROM users")).all()
-        upgrade(connection)
+        upgrade(connection, "0003")
         inspector = inspect(connection)
         assert inspector.get_pk_constraint("api_stats_daily")["constrained_columns"] == ["date", "endpoint"]
         assert connection.execute(text("SELECT * FROM users")).all() == before
@@ -106,3 +109,41 @@ def test_upgrade_0002_with_data_and_downgrade_0003(settings):
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0002"
         assert connection.execute(text("SELECT * FROM users")).all() == before
     engine.dispose()
+
+
+def test_upgrade_0003_and_downgrade_0004_keep_users_and_watchlists(settings):
+    engine = create_engine(settings.database_url.replace("+aiosqlite", ""))
+    now = to_db()
+    with engine.begin() as connection:
+        upgrade(connection, "0003")
+        rows = {
+            "users": dict(id=10, username="existing", password_hash="hash", created_at=now),
+            "user_lists": dict(id=20, user_id=10, name="保有銘柄", created_at=now, updated_at=now),
+            "user_list_items": dict(id=30, list_id=20, symbol="AAPL", tags='["長期"]'),
+            "stock_memos": dict(id=40, user_id=10, symbol="AAPL", memo="preserved", updated_at=now),
+        }
+        for name, row in rows.items():
+            connection.execute(LegacyBase.metadata.tables[name].insert().values(**row))
+
+        def snapshot():
+            return {name: connection.execute(select_legacy_columns(name)).all() for name in rows}
+
+        before = snapshot()
+        upgrade(connection)
+        assert connection.scalar(text("SELECT token_version FROM users WHERE id=10")) == 0
+        assert connection.scalar(text("SELECT added_at FROM user_list_items WHERE id=30")) is None
+        assert snapshot() == before
+        assert connection.execute(text("PRAGMA foreign_key_check")).all() == []
+        assert connection.execute(text("SELECT seq FROM sqlite_sequence WHERE name='users'")).scalar() == 10
+        config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+        config.attributes["connection"] = connection
+        command.downgrade(config, "0003")
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0003"
+        for table, removed in (("users", "token_version"), ("user_list_items", "added_at")):
+            assert removed not in {column["name"] for column in inspect(connection).get_columns(table)}
+        assert snapshot() == before
+    engine.dispose()
+
+
+def select_legacy_columns(table):
+    return LegacyBase.metadata.tables[table].select()

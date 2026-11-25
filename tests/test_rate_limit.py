@@ -31,7 +31,7 @@ def test_sixth_failed_login(client, enabled, monkeypatch):
 
 
 def test_success_resets_username_but_not_ip(client, enabled, monkeypatch):
-    user = SimpleNamespace(id=1, username="alice")
+    user = SimpleNamespace(id=1, username="alice", token_version=0)
     login = AsyncMock(side_effect=[ValueError("failed")] * 4 + [user] + [ValueError("failed")] * 5)
     monkeypatch.setattr("app.routers.user.user_service.login_user", login)
     statuses = [client.post("/user/login", json=BODY).status_code for _ in range(11)]
@@ -40,7 +40,7 @@ def test_success_resets_username_but_not_ip(client, enabled, monkeypatch):
 
 @pytest.mark.parametrize("success", [False, True])
 def test_ip_cap_across_usernames(client, enabled, monkeypatch, success):
-    login = AsyncMock(return_value=SimpleNamespace(id=1, username="alice")) if success else AsyncMock(
+    login = AsyncMock(return_value=SimpleNamespace(id=1, username="alice", token_version=0)) if success else AsyncMock(
         side_effect=ValueError("failed"))
     monkeypatch.setattr("app.routers.user.user_service.login_user", login)
     statuses = [client.post("/user/login", json={**BODY, "username": f"user-{i}"}).status_code for i in range(21)]
@@ -49,7 +49,7 @@ def test_ip_cap_across_usernames(client, enabled, monkeypatch, success):
 
 
 def test_register_cap(client, enabled, monkeypatch):
-    register = AsyncMock(return_value=SimpleNamespace(id=1, username="alice"))
+    register = AsyncMock(return_value=SimpleNamespace(id=1, username="alice", token_version=0))
     monkeypatch.setattr("app.routers.user.user_service.register_user", register)
     responses = [client.post("/user/register", json={**BODY, "password": "password123"}) for _ in range(6)]
     assert [r.status_code for r in responses] == [200] * 5 + [429]
@@ -62,7 +62,7 @@ def test_disabled_flag(client, settings, monkeypatch):
     assert not settings.rate_limit_enabled
     monkeypatch.setattr("app.routers.user.user_service.login_user", AsyncMock(side_effect=ValueError("failed")))
     monkeypatch.setattr("app.routers.user.user_service.register_user",
-                        AsyncMock(return_value=SimpleNamespace(id=1, username="alice")))
+                        AsyncMock(return_value=SimpleNamespace(id=1, username="alice", token_version=0)))
     assert [client.post("/user/login", json=BODY).status_code for _ in range(25)] == [401] * 25
     assert [client.post("/user/register", json=BODY).status_code for _ in range(7)] == [200] * 7
 

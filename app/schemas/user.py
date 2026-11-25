@@ -1,8 +1,9 @@
 """ユーザー・リスト・タグ関連のPydanticスキーマ"""
 
+from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, StrictInt
 
 from app.validation import Symbol
 
@@ -18,6 +19,14 @@ class UserLoginRequest(BaseModel):
     """ログインリクエスト"""
     username: str
     password: str
+
+
+class ConfirmPasswordRequest(BaseModel):
+    current_password: str
+
+
+class ChangePasswordRequest(ConfirmPasswordRequest):
+    new_password: str
 
 
 class UserResponse(BaseModel):
@@ -77,6 +86,7 @@ class ListDetailResponse(BaseModel):
 class ListsResponse(BaseModel):
     """リスト一覧レスポンス"""
     lists: list[ListResponse]
+    default_list_id: int | None = None
 
 
 class MessageResponse(BaseModel):
@@ -94,3 +104,68 @@ class StockMemoResponse(BaseModel):
     symbol: str
     memo: str | None = None
     updated_at: str | None = None
+
+
+class ListSummaryItem(ListItemResponse):
+    name: str | None = None
+    country: str | None = None
+    sector: str | None = None
+    price: float | None = None
+    currency: str | None = None
+    market_cap: int | float | None = None
+    mix_index: float | None = None
+    dividend_yield: float | None = None
+    per: float | None = None
+    pbr: float | None = None
+    memo: str | None = None
+    error: str | None = None
+
+
+class ListSummaryResponse(ListResponse):
+    items: list[ListSummaryItem]
+
+
+class BackupModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class BackupItem(BackupModel):
+    symbol: str
+    tags: list[str]
+    added_at: datetime | None
+
+
+class BackupList(BackupModel):
+    name: str
+    items: list[BackupItem]
+
+
+class BackupMemo(BackupModel):
+    symbol: str
+    memo: str | None
+    updated_at: datetime
+
+
+class UserBackup(BackupModel):
+    version: StrictInt
+    exported_at: datetime
+    username: str
+    lists: list[BackupList]
+    memos: list[BackupMemo]
+
+
+class ImportCounts(BaseModel):
+    lists: int = 0
+    items: int = 0
+    tags: int = 0
+    memos: int = 0
+
+
+class SkippedEntry(BaseModel):
+    entry: str
+    reason: str
+
+
+class ImportResult(BaseModel):
+    imported: ImportCounts
+    skipped: list[SkippedEntry]

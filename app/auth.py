@@ -15,12 +15,13 @@ from app.validation import SQLiteID
 bearer = HTTPBearer(auto_error=False)
 
 
-def create_access_token(user_id: int) -> str:
+def create_access_token(user_id: int, token_version: int = 0) -> str:
     settings = get_settings()
     now = datetime.now(UTC)
     return jwt.encode(
         {
             "sub": str(user_id),
+            "ver": token_version,
             "iat": now,
             "exp": now + timedelta(minutes=settings.access_token_expire_minutes),
         },
@@ -45,11 +46,13 @@ async def find_authenticated_user(
         if not isinstance(subject, str) or not subject.isascii() or not subject.isdecimal():
             return None
         user_id = int(subject)
-        if not 0 < user_id <= 2**63 - 1:
+        version = payload.get("ver", 0)
+        if not 0 < user_id <= 2**63 - 1 or type(version) is not int:
             return None
     except (jwt.InvalidTokenError, ValueError, TypeError, OverflowError):
         return None
-    return await db.get(User, user_id)
+    user = await db.get(User, user_id)
+    return user if user is not None and user.token_version == version else None
 
 
 async def get_current_user(

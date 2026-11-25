@@ -6,7 +6,7 @@ import { elements, fromRepo } from './helpers/dom-shim.mjs';
 const { state, cache } = await fromRepo('frontend/js/state.js');
 const { loadNews, loadFinancials } = await fromRepo('frontend/js/detail.js');
 const { loadChart } = await fromRepo('frontend/js/chart.js');
-const { editStockMemo } = await fromRepo('frontend/js/list.js');
+const { bindListEvents, editStockMemo } = await fromRepo('frontend/js/list.js');
 
 test('every dynamic API path segment is encoded in the actual frontend templates', () => {
     const files = ['frontend/app.js', ...readdirSync('frontend/js').filter(f => f.endsWith('.js')).map(f => `frontend/js/${f}`)];
@@ -21,8 +21,11 @@ test('every dynamic API path segment is encoded in the actual frontend templates
             }
             for (const symbol of ['^N225', 'BRK.B', '7203.T', 'A/B?# %']) {
                 const userState = { currentUser: { id: 'user/id' }, currentListId: 'list/id' };
-                const actual = Function('symbol', 'state', `return \`${path}\`;`)(symbol, userState);
+                const actual = Function('symbol', 'state', 'user', 'requestUser', `return \`${path}\`;`)(
+                    symbol, userState, userState.currentUser, userState.currentUser);
                 const expected = path.replaceAll('${encodeURIComponent(symbol)}', encodeURIComponent(symbol))
+                    .replaceAll('${encodeURIComponent(user.id)}', 'user%2Fid')
+                    .replaceAll('${encodeURIComponent(requestUser.id)}', 'user%2Fid')
                     .replaceAll('${encodeURIComponent(state.currentUser.id)}', 'user%2Fid')
                     .replaceAll('${encodeURIComponent(state.currentListId)}', 'list%2Fid');
                 assert.equal(actual, expected);
@@ -35,7 +38,7 @@ test('every dynamic API path segment is encoded in the actual frontend templates
     const items = `${user}/lists/list%2Fid/items`;
     for (const path of [
         `/stock/${symbol}`, `/stock/${symbol}/history`, `/stock/${symbol}/profile`, `/stock/${symbol}/indicators`,
-        `${user}/default-list`, `${user}/memo/${symbol}`, items, `${items}/${symbol}/tags`,
+        `${user}/default-list`, `${user}/memo/${symbol}`, `${items}/${symbol}/tags`,
     ]) {
         assert.ok(paths.has(path), `audit must cover ${path}`);
     }
@@ -47,7 +50,7 @@ test('data loaders and memo writes send encoded paths through fetchAPI', async (
         if (url !== '/stats') sent.push([url, options.method || 'GET']);
         return { ok: true, status: 200, json: async () => ({ news: [], history: [], memo: 'saved' }) };
     };
-    globalThis.prompt = () => 'saved';
+    bindListEvents();
     state.currentUser = { id: 7, access_token: 'test' };
     state.currentListId = 8;
     state.listItems = [];
@@ -63,7 +66,10 @@ test('data loaders and memo writes send encoded paths through fetchAPI', async (
         await loadNews(symbol);
         await loadFinancials(symbol, {});
         await loadChart(symbol, '1mo', 'USD');
-        await editStockMemo(symbol);
+        editStockMemo(symbol);
+        document.getElementById('memo-edit-input').value = 'saved';
+        document.getElementById('memo-edit-form').requestSubmit();
+        await new Promise(resolve => setImmediate(resolve));
         const encoded = encodeURIComponent(symbol);
         assert.deepEqual(sent.map(([url]) => url.split('?')[0]), [
             `/stock/${encoded}/news`, `/stock/${encoded}/financials`,

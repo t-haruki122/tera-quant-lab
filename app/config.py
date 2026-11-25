@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     # Authentication: override SECRET_KEY for every deployed instance.
     secret_key: str = Field(default=DEV_SECRET_KEY, min_length=1)
     access_token_expire_minutes: int = Field(default=1440, gt=0)
+    user_import_max_bytes: int = Field(default=1_048_576, gt=0)
+    watchlist_summary_concurrency: int = Field(default=8, gt=0)
 
     # Same-origin frontend needs no CORS. Cookies are never enabled.
     cors_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)
