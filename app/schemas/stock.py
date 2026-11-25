@@ -49,6 +49,9 @@ class FinancialResponse(BaseModel):
 class FinancialHistoryEntry(BaseModel):
     """過去財務情報の1レコード"""
     period: str
+    period_end: str | None = None
+    eps: float | None = None
+    shares: float | None = None
     revenue: int | None = None
     net_income: int | None = None
 

@@ -40,10 +40,11 @@ def sleep(monkeypatch):
 def test_sma_crossover_trades_fees_and_mark_to_market():
     prices = [3, 2, 1, 2, 3, 4, 3, 2, 1, 2, 3, 4]
     df = pd.DataFrame({"date": [f"2024-01-{i:02d}" for i in range(1, 13)], "close": prices})
-    result = cli.Backtester(cli.SmaCrossPerStrategy(2, 3), 1000, fee_rate=0.01).run("TEST", df)
+    result = cli.Backtester(cli.SmaCrossPerStrategy(2, 3), 1000, fee_rate=0.01, execution="close").run("TEST", df)
     # Buy 330*3 + 9.90 fee => cash 0.10; sell 330*2 - 6.60 fee
     # => 653.50; buy 215*3 + 6.45 fee => 2.05 cash; hold 215 at 4.
-    assert result.trades == [
+    assert [{k: round(v, 4) if isinstance(v, float) else v for k, v in t.items()
+             if k not in ('signal_date', 'slippage', 'open_fallback')} for t in result.trades] == [
         dict(symbol="TEST", date="2024-01-05", side="BUY", price=3, shares=330, fee=9.9, pnl=None, cash_after=0.1),
         dict(symbol="TEST", date="2024-01-08", side="SELL", price=2, shares=330, fee=6.6, pnl=-346.5, cash_after=653.5),
         dict(symbol="TEST", date="2024-01-11", side="BUY", price=3, shares=215, fee=6.45, pnl=None, cash_after=2.05),
@@ -64,10 +65,10 @@ def test_empty_history_insufficient_data_and_per_filter():
         backtester.run("X", pd.DataFrame())
     short = pd.DataFrame({"date": ["2024-01-01"], "close": [10]})
     assert backtester.run("X", short).metrics.final_asset == 1000
-    df = pd.DataFrame({"date": list("abcdef"), "close": [3, 2, 1, 2, 3, 4]})
+    df = pd.DataFrame({"date": [f"2024-01-{i:02d}" for i in range(1, 7)], "close": [3, 2, 1, 2, 3, 4]})
     for context in ({}, {"pe_ratio": 21}):
         assert backtester.run("X", df, context).trades == []
-    assert backtester.run("X", df, {"pe_ratio": 20}).trades[0]["side"] == "BUY"
+    assert backtester.run("X", df, {"financial_history": {"history": [{"period": "2022", "eps": 1}]}}).trades[0]["side"] == "BUY"
 
 
 @pytest.mark.parametrize("windows", [(0, 3), (2, -1), (3, 3), (4, 3)])

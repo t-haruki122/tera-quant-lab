@@ -157,10 +157,11 @@ class YFinanceClient:
     @external_call
     def get_financial_history(self, symbol: str, limit: int = 6) -> dict[str, Any]:
         """
-        年次の財務履歴（売上高・純利益）を取得
+        年次の財務履歴（年度末日・EPS・加重平均株式数を含む）を取得
 
         Returns:
-            {"symbol": str, "history": [{"period": str, "revenue": int, "net_income": int}, ...]}
+            history: period (year), period_end (ISO date), revenue, net_income,
+            eps (Diluted EPS, otherwise Basic EPS), shares (matching weighted average).
         """
         logger.info(
             "External API call: yfinance get_financial_history symbol=%s limit=%s",
@@ -178,6 +179,26 @@ class YFinanceClient:
         columns = list(financials.columns)
         for col in columns:
             period_label = col.strftime("%Y") if isinstance(col, (datetime, date)) else str(col)
+            period_end = col.strftime("%Y-%m-%d") if isinstance(col, (datetime, date)) else None
+
+            def finite_value(label, column=col):
+                if label not in financials.index:
+                    return None
+                value = financials.at[label, column]
+                if value is None or not math.isfinite(float(value)):
+                    return None
+                return float(value)
+
+            eps = finite_value("Diluted EPS")
+            shares = finite_value("Diluted Average Shares")
+            if eps is None:
+                basic_eps = finite_value("Basic EPS")
+                if basic_eps is not None or shares is None:
+                    eps = basic_eps
+                    shares = finite_value("Basic Average Shares")
+            if eps is None and shares is not None and shares > 0:
+                income = finite_value("Net Income")
+                eps = income / shares if income is not None else None
             revenue = None
             net_income = None
             if "Total Revenue" in financials.index:
@@ -191,6 +212,9 @@ class YFinanceClient:
             entries.append(
                 {
                     "period": period_label,
+                    "period_end": period_end,
+                    "eps": eps,
+                    "shares": shares,
                     "revenue": revenue,
                     "net_income": net_income,
                 }

@@ -25,24 +25,30 @@ from urllib.parse import quote
 import pandas as pd
 import requests
 
+# Direct execution from scripts/ also works without installing the project.
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
-@dataclasses.dataclass
-class BacktestMetrics:
-    symbol: str
-    initial_capital: float
-    final_asset: float
-    return_pct: float
-    total_trades: int
-    win_rate: float
-    max_drawdown: float
-
-
-@dataclasses.dataclass
-class BacktestResult:
-    symbol: str
-    equity_curve: pd.DataFrame
-    trades: list[dict[str, Any]]
-    metrics: BacktestMetrics
+from app.backtest import (  # noqa: E402
+    REGISTRY,
+    Backtester,
+    BacktestMetrics,
+    BacktestResult,
+    grid_params,
+    history_to_df,
+    make_strategy,
+    parse_assignments,
+    run_grid,
+    validate_params,
+)
+from app.backtest import (  # noqa: E402
+    SmaCrossPerStrategy as SmaCrossPerStrategy,
+)
+from app.backtest import (  # noqa: E402
+    Strategy as Strategy,
+)
+from app.backtest.grid import RANK_METRICS  # noqa: E402
 
 
 class APIClient:
@@ -188,209 +194,6 @@ class APIClient:
         return sorted(set(symbols))
 
 
-class Strategy:
-    name = "base"
-
-    def prepare(self, price_df: pd.DataFrame, context: dict[str, Any]) -> pd.DataFrame:
-        raise NotImplementedError
-
-
-class SmaCrossPerStrategy(Strategy):
-    name = "sma_cross_per"
-
-    def __init__(self, short_window: int, long_window: int, max_per: float | None = None) -> None:
-        if short_window <= 0 or long_window <= 0:
-            raise ValueError("Window must be positive")
-        if short_window >= long_window:
-            raise ValueError("short_window must be smaller than long_window")
-        self.short_window = short_window
-        self.long_window = long_window
-        self.max_per = max_per
-
-    def prepare(self, price_df: pd.DataFrame, context: dict[str, Any]) -> pd.DataFrame:
-        df = price_df.copy()
-        df["sma_short"] = df["close"].rolling(self.short_window).mean()
-        df["sma_long"] = df["close"].rolling(self.long_window).mean()
-        df["signal"] = 0
-
-        prev_short = df["sma_short"].shift(1)
-        prev_long = df["sma_long"].shift(1)
-
-        buy_cross = (df["sma_short"] > df["sma_long"]) & (prev_short <= prev_long)
-        sell_cross = (df["sma_short"] < df["sma_long"]) & (prev_short >= prev_long)
-
-        if self.max_per is not None:
-            per_value = context.get("pe_ratio")
-            per_ok = per_value is not None and per_value <= self.max_per
-            if not per_ok:
-                buy_cross = pd.Series([False] * len(df), index=df.index)
-
-        df.loc[buy_cross, "signal"] = 1
-        df.loc[sell_cross, "signal"] = -1
-        return df
-
-
-class Backtester:
-    def __init__(
-        self,
-        strategy: Strategy,
-        initial_capital: float,
-        fee_rate: float = 0.0,
-    ) -> None:
-        self.strategy = strategy
-        self.initial_capital = initial_capital
-        self.fee_rate = fee_rate
-
-    def run(
-        self,
-        symbol: str,
-        price_df: pd.DataFrame,
-        context: dict[str, Any] | None = None,
-        progress_callback: Callable[[int, int, dict[str, Any]], None] | None = None,
-    ) -> BacktestResult:
-        if context is None:
-            context = {}
-
-        if price_df.empty:
-            raise ValueError(f"No price data for {symbol}")
-
-        df = self.strategy.prepare(price_df, context)
-
-        cash = float(self.initial_capital)
-        shares = 0
-        position_cost = 0.0
-
-        trades: list[dict[str, Any]] = []
-        equity_rows: list[dict[str, Any]] = []
-        total_rows = len(df)
-        progress_step = max(1, total_rows // 100)
-
-        for idx, row in enumerate(df.itertuples(index=False), start=1):
-            date = row.date
-            price = float(row.close)
-            signal = int(row.signal)
-            trade_side: str | None = None
-
-            if signal == 1 and shares == 0 and price > 0:
-                max_shares = int(cash // (price * (1 + self.fee_rate)))
-                if max_shares > 0:
-                    gross = max_shares * price
-                    fee = gross * self.fee_rate
-                    cash -= gross + fee
-                    shares = max_shares
-                    position_cost = gross + fee
-                    trades.append(
-                        {
-                            "symbol": symbol,
-                            "date": date,
-                            "side": "BUY",
-                            "price": round(price, 4),
-                            "shares": shares,
-                            "fee": round(fee, 4),
-                            "pnl": None,
-                            "cash_after": round(cash, 4),
-                        }
-                    )
-                    trade_side = "BUY"
-
-            elif signal == -1 and shares > 0:
-                gross = shares * price
-                fee = gross * self.fee_rate
-                proceeds = gross - fee
-                trade_pnl = proceeds - position_cost
-                cash += proceeds
-                trades.append(
-                    {
-                        "symbol": symbol,
-                        "date": date,
-                        "side": "SELL",
-                        "price": round(price, 4),
-                        "shares": shares,
-                        "fee": round(fee, 4),
-                        "pnl": round(trade_pnl, 4),
-                        "cash_after": round(cash, 4),
-                    }
-                )
-                shares = 0
-                position_cost = 0.0
-                trade_side = "SELL"
-
-            holding_value = shares * price
-            equity = cash + holding_value
-            equity_rows.append(
-                {
-                    "symbol": symbol,
-                    "date": date,
-                    "close": price,
-                    "shares": shares,
-                    "cash": cash,
-                    "holding_value": holding_value,
-                    "equity": equity,
-                    "signal": signal,
-                }
-            )
-
-            if progress_callback is not None:
-                should_emit = (
-                    idx == 1
-                    or idx == total_rows
-                    or idx % progress_step == 0
-                    or trade_side is not None
-                )
-                if should_emit:
-                    progress_callback(
-                        idx,
-                        total_rows,
-                        {
-                            "symbol": symbol,
-                            "date": date,
-                            "signal": signal,
-                            "trade_side": trade_side,
-                            "cash": cash,
-                            "equity": equity,
-                            "price": price,
-                        },
-                    )
-
-        equity_df = pd.DataFrame(equity_rows)
-        metrics = self._calculate_metrics(symbol, equity_df, trades)
-
-        return BacktestResult(
-            symbol=symbol,
-            equity_curve=equity_df,
-            trades=trades,
-            metrics=metrics,
-        )
-
-    def _calculate_metrics(
-        self,
-        symbol: str,
-        equity_df: pd.DataFrame,
-        trades: list[dict[str, Any]],
-    ) -> BacktestMetrics:
-        final_asset = float(equity_df["equity"].iloc[-1])
-        ret = ((final_asset - self.initial_capital) / self.initial_capital) * 100
-
-        sell_trades = [t for t in trades if t["side"] == "SELL" and t["pnl"] is not None]
-        total_trades = len(sell_trades)
-        winning = [t for t in sell_trades if float(t["pnl"]) > 0]
-        win_rate = (len(winning) / total_trades * 100) if total_trades > 0 else 0.0
-
-        running_max = equity_df["equity"].cummax()
-        drawdown = (equity_df["equity"] - running_max) / running_max
-        max_drawdown = abs(float(drawdown.min())) * 100 if not drawdown.empty else 0.0
-
-        return BacktestMetrics(
-            symbol=symbol,
-            initial_capital=self.initial_capital,
-            final_asset=final_asset,
-            return_pct=ret,
-            total_trades=total_trades,
-            win_rate=win_rate,
-            max_drawdown=max_drawdown,
-        )
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="py_stock_data_api バックテストCLI")
 
@@ -414,6 +217,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--long-window", type=int, default=60, help="長期SMA期間")
     parser.add_argument("--max-per", type=float, default=None, help="PER上限フィルター")
 
+    parser.add_argument("--strategy", choices=list(REGISTRY), default="sma_cross", help="戦略名")
+    parser.add_argument("--param", action="append", default=[], help="戦略パラメータ key=value (繰返し可)")
+    parser.add_argument("--execution", choices=["next_open", "close"], default="next_open")
+    parser.add_argument("--eps-lag-days", type=int, default=90)
+    parser.add_argument("--risk-free", type=float, default=0.0, help="年率無リスク金利 (0.02 = 2%%)")
+    parser.add_argument("--slippage-bps", type=float, default=0.0)
+    parser.add_argument("--metrics-csv", default="metrics.csv")
+    parser.add_argument("--grid", action="append", default=[], help="key=v1,v2,... (最大500組)")
+    parser.add_argument("--rank-by", choices=sorted(RANK_METRICS), default="sharpe")
+    parser.add_argument("--grid-csv")
     parser.add_argument("--fetch-financial-history", action="store_true", help="財務履歴を取得して表示")
 
     parser.add_argument("--base-url", default="http://localhost:8000", help="APIベースURL")
@@ -448,39 +261,35 @@ def validate_args(args: argparse.Namespace) -> None:
     if args.initial_capital <= 0:
         raise ValueError("initial-capital は正の値を指定してください")
 
-    if args.fee_rate < 0:
+    if not math.isfinite(args.fee_rate) or args.fee_rate < 0:
         raise ValueError("fee-rate は 0 以上を指定してください")
 
+    name, params, _ = strategy_options(args)
+    Backtester(make_strategy(name, params), **engine_options(args, args.initial_capital))
+    lag = getattr(args, "eps_lag_days", 90)
+    if not isinstance(lag, int) or lag < 0:
+        raise ValueError("eps-lag-days must be a nonnegative integer")
 
-def history_to_df(payload: dict[str, Any]) -> pd.DataFrame:
-    rows = payload.get("history", [])
-    if not rows:
-        return pd.DataFrame(columns=["date", "close"])
 
-    df = pd.DataFrame(rows)
-    if "date" not in df.columns or "close" not in df.columns:
-        raise ValueError("history response format is invalid")
-
-    df = df[["date", "open", "high", "low", "close", "volume"]].copy()
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df = df.dropna(subset=["date", "close"]).sort_values("date").reset_index(drop=True)
-    df["date"] = df["date"].dt.strftime("%Y-%m-%d")
-    return df
+def metrics_text(metrics: BacktestMetrics) -> str:
+    return "\n".join(f"{key}: {value:.6g}" if isinstance(value, float) else f"{key}: {value}"
+                     for key, value in dataclasses.asdict(metrics).items())
 
 
 def print_metrics(metrics: BacktestMetrics) -> None:
     print("=" * 70)
-    print(f"Symbol          : {metrics.symbol}")
-    print(f"Initial Capital : {metrics.initial_capital:,.2f}")
-    print(f"Final Asset     : {metrics.final_asset:,.2f}")
-    print(f"Return          : {metrics.return_pct:.2f}%")
-    print(f"Total Trades    : {metrics.total_trades}")
-    print(f"Win Rate        : {metrics.win_rate:.2f}%")
-    print(f"Max Drawdown    : {metrics.max_drawdown:.2f}%")
+    print(metrics_text(metrics))
+
+
+def save_metrics_csv(results, output_file):
+    path = Path(output_file)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame([dataclasses.asdict(r.metrics) for r in results]).to_csv(path, index=False)
+    print(f"Metrics saved: {path}")
 
 
 def save_trades_csv(trades: list[dict[str, Any]], output_file: str) -> None:
-    fields = ["symbol", "date", "side", "price", "shares", "fee", "pnl", "cash_after"]
+    fields = ["symbol", "date", "signal_date", "side", "price", "shares", "fee", "slippage", "open_fallback", "pnl", "cash_after"]
     out_path = Path(output_file)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -518,15 +327,17 @@ def create_result_figure(result: BacktestResult):
     eq = result.equity_curve.copy()
     eq["date"] = pd.to_datetime(eq["date"])
 
-    buy_points = eq[eq["signal"] == 1]
-    sell_points = eq[eq["signal"] == -1]
+    fills = pd.DataFrame(result.trades, columns=["date", "side", "price"])
+    fills["date"] = pd.to_datetime(fills["date"])
+    buy_points = fills[fills["side"] == "BUY"]
+    sell_points = fills[fills["side"] == "SELL"]
 
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
 
     ax1.plot(eq["date"], eq["close"], label="Close", color="steelblue", linewidth=1.2)
-    ax1.scatter(buy_points["date"], buy_points["close"], marker="^", color="green", label="Buy", s=50)
-    ax1.scatter(sell_points["date"], sell_points["close"], marker="v", color="red", label="Sell", s=50)
-    ax1.set_title(f"{result.symbol} Price + Signals")
+    ax1.scatter(buy_points["date"], buy_points["price"], marker="^", color="green", label="Buy", s=50)
+    ax1.scatter(sell_points["date"], sell_points["price"], marker="v", color="red", label="Sell", s=50)
+    ax1.set_title(f"{result.symbol} Price + Fills")
     ax1.set_ylabel("Price")
     ax1.grid(True, alpha=0.3)
     ax1.legend()
@@ -539,6 +350,48 @@ def create_result_figure(result: BacktestResult):
 
     plt.tight_layout()
     return fig
+
+
+def strategy_options(args):
+    name = getattr(args, "strategy", "sma_cross")
+    params = {}
+    if name == "sma_cross":
+        params.update(short_window=args.short_window, long_window=args.long_window)
+    if args.max_per is not None:
+        params["max_per"] = args.max_per
+    params.update(parse_assignments(getattr(args, "param", [])))
+    params = validate_params(name, params)
+    grid = {key: value.split(",") for key, value in parse_assignments(getattr(args, "grid", [])).items()}
+    grid_params(name, params, grid)
+    return name, params, grid
+
+
+def engine_options(args, initial_capital):
+    return dict(initial_capital=initial_capital, fee_rate=args.fee_rate,
+                execution=getattr(args, "execution", "next_open"),
+                slippage_bps=getattr(args, "slippage_bps", 0.0),
+                interval=args.interval, risk_free=getattr(args, "risk_free", 0.0))
+
+
+def fetch_context(client, symbol, args, params, grid, cancel_check=None):
+    context = {"eps_lag_days": getattr(args, "eps_lag_days", 90)}
+    if params.get("max_per") is not None or "max_per" in grid or args.fetch_financial_history:
+        context["financial_history"] = client.get_financial_history(symbol, limit=10, cancel_check=cancel_check)
+        if args.fetch_financial_history:
+            print(f"Financial history fetched for {symbol}: {len(context['financial_history'].get('history', []))} rows")
+    return context
+
+
+def run_symbol_grid(client, symbol, args, initial_capital):
+    name, params, grid = strategy_options(args)
+    prices = history_to_df(client.get_history(symbol, args.start_date, args.end_date, args.interval))
+    context = fetch_context(client, symbol, args, params, grid)
+    return run_grid(symbol, prices, name, params, grid, args.rank_by, context, **engine_options(args, initial_capital))
+
+
+def grid_rows(ranked):
+    return [dict(rank=i, **{f"param_{k}": v for k, v in item.params.items()},
+                 **dataclasses.asdict(item.result.metrics)) for i, item in enumerate(ranked, 1)]
 
 
 def run_single_symbol(
@@ -566,25 +419,10 @@ def run_single_symbol(
     history_df = history_to_df(history_payload)
     emit_progress(20.0, f"{symbol}: price data ready ({len(history_df)} rows)")
 
-    context: dict[str, Any] = {}
-    if args.max_per is not None:
-        emit_progress(25.0, f"{symbol}: financials fetching")
-        financials = client.get_financials(symbol, cancel_check=cancel_check)
-        context["pe_ratio"] = financials.get("pe_ratio")
-        emit_progress(30.0, f"{symbol}: financials ready")
-    else:
-        emit_progress(30.0, f"{symbol}: preparing strategy")
-
-    if args.fetch_financial_history:
-        fin_hist = client.get_financial_history(symbol, limit=6, cancel_check=cancel_check)
-        print(f"Financial history fetched for {symbol}: {len(fin_hist.get('history', []))} rows")
-
-    strategy = SmaCrossPerStrategy(
-        short_window=args.short_window,
-        long_window=args.long_window,
-        max_per=args.max_per,
-    )
-    backtester = Backtester(strategy=strategy, initial_capital=initial_capital, fee_rate=args.fee_rate)
+    strategy_name, params, grid = strategy_options(args)
+    context = fetch_context(client, symbol, args, params, grid, cancel_check)
+    emit_progress(30.0, f"{symbol}: strategy ready")
+    backtester = Backtester(make_strategy(strategy_name, params), **engine_options(args, initial_capital))
 
     def on_backtest_progress(done: int, total: int, state: dict[str, Any]) -> None:
         ratio = (done / total) if total > 0 else 1.0
@@ -602,6 +440,7 @@ def run_single_symbol(
         price_df=history_df,
         context=context,
         progress_callback=on_backtest_progress,
+        cancel_check=cancel_check,
     )
     emit_progress(100.0, f"{symbol}: backtest completed")
     return result
@@ -659,10 +498,24 @@ def main() -> int:
 
     all_results: list[BacktestResult] = []
     all_trades: list[dict[str, Any]] = []
+    all_grid_rows = []
 
     for symbol in symbols:
         try:
-            result = run_single_symbol(client, symbol, args, initial_capital=capital_per_symbol)
+            if args.grid:
+                ranked = run_symbol_grid(client, symbol, args, capital_per_symbol)
+                rows = grid_rows(ranked)
+                all_grid_rows.extend(rows)
+                print(f"Grid ranking: {symbol} by {args.rank_by}")
+                print(pd.DataFrame(rows).to_string(index=False))
+                for item in ranked:
+                    for warning in item.result.warnings:
+                        print(f"WARNING: {warning}")
+                result = ranked[0].result
+            else:
+                result = run_single_symbol(client, symbol, args, initial_capital=capital_per_symbol)
+                for warning in result.warnings:
+                    print(f"WARNING: {warning}")
             all_results.append(result)
             all_trades.extend(result.trades)
             print_metrics(result.metrics)
@@ -685,6 +538,12 @@ def main() -> int:
     print(f"Return          : {total_return:.2f}%")
 
     save_trades_csv(all_trades, args.trade_csv)
+    save_metrics_csv(all_results, args.metrics_csv)
+    if args.grid_csv and all_grid_rows:
+        path = Path(args.grid_csv)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame(all_grid_rows).to_csv(path, index=False)
+        print(f"Grid saved: {path}")
 
     if args.save_chart:
         if len(all_results) == 1:

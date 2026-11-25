@@ -184,10 +184,11 @@ async def get_history(
     fetch_start_date = start_date
     if start_date:
         start_dt_req = datetime.strptime(start_date, "%Y-%m-%d")
-        if source_interval == "1d":
-            fetch_start_dt = start_dt_req - timedelta(days=365)
-        else:
-            fetch_start_dt = start_dt_req - timedelta(days=365 * 3)
+        # Requested bar frequency determines the SMA_200 warmup, even though
+        # weekly/monthly prices are fetched and cached as daily bars.
+        # Bound the extension to 18 years; actual provider coverage can be shorter.
+        lookback_days = {"1d": 365, "1wk": 365 * 5, "1mo": 366 * 18}.get(requested_interval, 365 * 3)
+        fetch_start_dt = max(datetime(1900, 1, 1), start_dt_req - timedelta(days=lookback_days))
         fetch_start_date = fetch_start_dt.strftime("%Y-%m-%d")
 
     records = []

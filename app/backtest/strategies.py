@@ -1,0 +1,150 @@
+"""Typed strategy registry. All signals use only the current and earlier closes."""
+
+from typing import Any
+
+import pandas as pd
+
+from .pit import eps_for_bars, number
+
+
+class Strategy:
+    name = "base"
+    max_per = None
+
+    def prepare(self, price_df: pd.DataFrame, context: dict[str, Any]) -> pd.DataFrame:
+        raise NotImplementedError
+
+
+class SmaCrossPerStrategy(Strategy):
+    name = "sma_cross"
+
+    def __init__(self, short_window=20, long_window=60, max_per=None):
+        self.params = validate_params(self.name, dict(short_window=short_window, long_window=long_window, max_per=max_per))
+        self.short_window = self.params["short_window"]
+        self.long_window = self.params["long_window"]
+        self.max_per = self.params["max_per"]
+
+    def prepare(self, price_df, context):
+        df = price_df.copy()
+        short = df["close"].rolling(self.short_window).mean()
+        long = df["close"].rolling(self.long_window).mean()
+        df["sma_short"], df["sma_long"] = short, long
+        df["signal"] = 0
+        df.loc[(short > long) & (short.shift() <= long.shift()), "signal"] = 1
+        df.loc[(short < long) & (short.shift() >= long.shift()), "signal"] = -1
+        return apply_per(df, context, self.max_per)
+
+
+def apply_per(df, context, max_per):
+    if max_per is not None:
+        df["eps"] = eps_for_bars(df["date"], context.get("financial_history", {}), context.get("eps_lag_days", 90))
+        df["per"] = df["close"] / df["eps"].where(df["eps"] > 0)
+        df.loc[(df["signal"] == 1) & ~((df["eps"] > 0) & (df["per"] <= max_per)), "signal"] = 0
+    return df
+
+
+def wilder_rsi(close, period):
+    changes = close.diff()
+    result = pd.Series(float("nan"), index=close.index)
+    if len(close) <= period:
+        return result
+    gain = changes.iloc[1:period + 1].clip(lower=0).mean()
+    loss = -changes.iloc[1:period + 1].clip(upper=0).mean()
+    for i in range(period, len(close)):
+        if i > period:
+            gain = (gain * (period - 1) + max(changes.iloc[i], 0)) / period
+            loss = (loss * (period - 1) + max(-changes.iloc[i], 0)) / period
+        result.iloc[i] = 100 if loss == 0 else 100 - 100 / (1 + gain / loss)
+    return result
+
+
+class RegisteredStrategy(Strategy):
+    def __init__(self, name, params):
+        self.name, self.params = name, validate_params(name, params)
+        self.max_per = self.params["max_per"]
+
+    def prepare(self, price_df, context):
+        df, p = price_df.copy(), self.params
+        close = df["close"]
+        if self.name == "rsi_reversion":
+            df["rsi"] = wilder_rsi(close, p["period"])
+            buy, sell = df["rsi"] < p["lower"], df["rsi"] > p["upper"]
+        elif self.name == "bollinger":
+            df["middle"] = close.rolling(p["window"]).mean()
+            deviation = close.rolling(p["window"]).std(ddof=0) * p["std_dev"]
+            df["lower"], df["upper"] = df["middle"] - deviation, df["middle"] + deviation
+            buy, sell = close < df["lower"], close >= df[p["exit"]]
+        else:
+            df["roc"] = close / close.shift(p["period"]) - 1
+            buy, sell = df["roc"] > p["threshold"], df["roc"] < p["exit_threshold"]
+        df["signal"] = 0
+        df.loc[buy, "signal"], df.loc[sell, "signal"] = 1, -1
+        return apply_per(df, context, self.max_per)
+
+
+# (Python type, default). max_per is optional for every strategy.
+REGISTRY = {
+    "sma_cross": {"short_window": (int, 20), "long_window": (int, 60)},
+    "rsi_reversion": {"period": (int, 14), "lower": (float, 30.0), "upper": (float, 70.0)},
+    "bollinger": {"window": (int, 20), "std_dev": (float, 2.0), "exit": (str, "middle")},
+    "momentum": {"period": (int, 20), "threshold": (float, 0.0), "exit_threshold": (float, 0.0)},
+}
+for _schema in REGISTRY.values():
+    _schema["max_per"] = (float, None)
+
+
+def param_help(name):
+    return ", ".join(f"{key}: {kind.__name__} (default={default})" for key, (kind, default) in REGISTRY[name].items())
+
+
+def validate_params(name, params=None):
+    if name not in REGISTRY:
+        raise ValueError(f"Unknown strategy {name!r}; valid strategies: {', '.join(REGISTRY)}")
+    schema = REGISTRY[name]
+    try:
+        extra = set(params or {}) - schema.keys()
+        if extra:
+            raise ValueError(f"Unknown params: {', '.join(sorted(extra))}")
+        values = {}
+        for key, (kind, default) in schema.items():
+            raw = (params or {}).get(key, default)
+            if raw is None and default is None:
+                values[key] = None
+                continue
+            if isinstance(raw, bool) or (kind is int and str(raw) != str(int(raw))):
+                raise ValueError(f"{key} must be {kind.__name__}")
+            value = kind(raw)
+            if kind in (int, float) and number(value) is None:
+                raise ValueError(f"{key} must be finite")
+            values[key] = value
+        for key in ("short_window", "long_window", "period", "window", "std_dev", "max_per"):
+            if key in values and values[key] is not None and values[key] <= 0:
+                raise ValueError(f"{key} must be positive")
+        if name == "sma_cross" and values["short_window"] >= values["long_window"]:
+            raise ValueError("short_window must be smaller than long_window")
+        if name == "rsi_reversion" and not 0 <= values["lower"] < values["upper"] <= 100:
+            raise ValueError("require 0 <= lower < upper <= 100")
+        if name == "bollinger" and values["exit"] not in ("middle", "upper"):
+            raise ValueError("exit must be middle|upper")
+        if name == "momentum" and values["exit_threshold"] > values["threshold"]:
+            raise ValueError("exit_threshold must be <= threshold")
+    except (ValueError, TypeError, OverflowError) as exc:
+        raise ValueError(f"{name}: {exc}. Valid params: {param_help(name)}") from exc
+    return values
+
+
+def make_strategy(name="sma_cross", params=None):
+    values = validate_params(name, params)
+    return SmaCrossPerStrategy(**values) if name == "sma_cross" else RegisteredStrategy(name, values)
+
+
+def parse_assignments(items):
+    result = {}
+    for item in items:
+        key, sep, value = item.partition("=")
+        if not sep or not key.strip() or not value.strip():
+            raise ValueError(f"Expected key=value: {item!r}")
+        if key.strip() in result:
+            raise ValueError(f"Duplicate param: {key.strip()}")
+        result[key.strip()] = value.strip()
+    return result
