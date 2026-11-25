@@ -19,7 +19,7 @@ import time
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 from urllib.parse import quote
 
 import pandas as pd
@@ -366,11 +366,24 @@ def strategy_options(args):
     return name, params, grid
 
 
-def engine_options(args, initial_capital):
-    return dict(initial_capital=initial_capital, fee_rate=args.fee_rate,
-                execution=getattr(args, "execution", "next_open"),
-                slippage_bps=getattr(args, "slippage_bps", 0.0),
-                interval=args.interval, risk_free=getattr(args, "risk_free", 0.0))
+class EngineOptions(TypedDict):
+    initial_capital: float
+    fee_rate: float
+    execution: str
+    slippage_bps: float
+    interval: str
+    risk_free: float
+
+
+def engine_options(args: argparse.Namespace, initial_capital: float) -> EngineOptions:
+    return EngineOptions(
+        initial_capital=initial_capital,
+        fee_rate=args.fee_rate,
+        execution=getattr(args, "execution", "next_open"),
+        slippage_bps=getattr(args, "slippage_bps", 0.0),
+        interval=args.interval,
+        risk_free=getattr(args, "risk_free", 0.0),
+    )
 
 
 def fetch_context(client, symbol, args, params, grid, cancel_check=None):
@@ -466,6 +479,8 @@ def resolve_symbols(client: APIClient, args: argparse.Namespace) -> list[str]:
             raise ValueError("ウォッチリストには --username または --token / TQL_TOKEN が必要です")
         client.session.headers["Authorization"] = f"Bearer {token}"
 
+    if user_id is None:
+        raise ValueError("watchlist-id 指定時は --user-id が必要です（--username 指定時は省略可）")
     symbols = client.get_watchlist_symbols(user_id, args.watchlist_id)
     if not symbols:
         raise ValueError("ウォッチリストに銘柄が存在しません")

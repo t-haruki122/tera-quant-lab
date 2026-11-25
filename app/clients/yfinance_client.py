@@ -3,8 +3,9 @@
 import logging
 import math
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
+import pandas as pd
 import yfinance as yf
 
 from app.clients.errors import external_call
@@ -132,18 +133,22 @@ class YFinanceClient:
             raise SymbolNotFoundError(symbol)
         records = []
         for idx, row in hist.iterrows():
+            if not isinstance(idx, date):
+                raise ValueError("Price history index must contain dates")
             close = _finite_history_value(row["Close"])
             if close is None:
                 # Yahoo can return a partial current-day row with volume but no prices.
                 continue
-            open_price, high, low, volume = (_finite_history_value(row[key]) for key in ("Open", "High", "Low", "Volume"))
+            open_price, high, low = (_finite_history_value(row[key]) for key in ("Open", "High", "Low"))
+            raw_volume = row.at["Volume"]
+            volume = _finite_history_value(raw_volume)
             record = {
                 "date": idx.strftime("%Y-%m-%d"),
                 "open": round(open_price, 2) if open_price else None,
                 "high": round(high, 2) if high else None,
                 "low": round(low, 2) if low else None,
                 "close": round(close, 2),
-                "volume": int(row["Volume"]) if volume else None,
+                "volume": int(raw_volume) if volume else None,
             }
             records.append(record)
         return records
@@ -262,7 +267,11 @@ class YFinanceClient:
         if all_dividends is None or all_dividends.empty:
             raise SymbolNotFoundError(symbol)
         all_dividends = all_dividends.sort_index()
-        years = sorted({int(idx.year) for idx in all_dividends.index})
+        dividend_index = all_dividends.index
+        if not isinstance(dividend_index, pd.DatetimeIndex):
+            raise ValueError("Dividend history index must contain dates")
+        dividend_years = dividend_index.year
+        years = sorted(set(dividend_years))
         if limit > 0:
             years = years[-limit:]
         first_year = years[0]
@@ -279,16 +288,18 @@ class YFinanceClient:
         year_end_close_by_year: dict[int, float] = {}
         if price_hist is not None and not price_hist.empty:
             try:
-                closes = price_hist["Close"].dropna()
+                closes = cast(pd.Series, price_hist["Close"].dropna())
+                if not isinstance(closes.index, pd.DatetimeIndex):
+                    raise ValueError("Price history index must contain dates")
                 for year in years:
-                    year_closes = closes[closes.index.year == year]
+                    year_closes = closes.loc[closes.index.year == year]
                     if not year_closes.empty:
                         year_end_close_by_year[year] = float(year_closes.iloc[-1])
             except Exception:
                 year_end_close_by_year = {}
         entries: list[dict[str, Any]] = []
         for year in years:
-            year_dividends = all_dividends[all_dividends.index.year == year]
+            year_dividends = all_dividends.loc[dividend_years == year]
             if year_dividends is None or year_dividends.empty:
                 continue
             annual_dividend_per_share = float(year_dividends.sum())

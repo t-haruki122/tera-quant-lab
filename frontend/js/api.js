@@ -51,7 +51,7 @@ export async function fetchAPI(endpoint, options = {}, errorMessage = 'リクエ
         throw new Error('ログイン状態が変更されました');
     }
 
-    if (useCache) {
+    if (useCache && !data?.stale) {
         cache.set(cacheKey, { data, timestamp: Date.now() });
     }
 

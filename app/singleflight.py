@@ -1,10 +1,11 @@
 """Share only in-flight work, independently for each event loop and key."""
 
 import asyncio
-from collections.abc import Awaitable, Callable, Hashable
+from collections.abc import Callable, Coroutine, Hashable
 from copy import deepcopy
 from functools import wraps
 from inspect import signature
+from typing import Any
 from weakref import WeakKeyDictionary
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +19,7 @@ class SingleFlight:
     def pending(self) -> int:
         return sum(len(tasks) for tasks in self._loops.values())
 
-    async def run(self, key: Hashable, factory: Callable[[], Awaitable]):
+    async def run[T](self, key: Hashable, factory: Callable[[], Coroutine[Any, Any, T]]) -> T:
         tasks = self._loops.setdefault(asyncio.get_running_loop(), {})
         task = tasks.get(key)
         if task is None:

@@ -4,6 +4,7 @@
 
 import { state } from './state.js';
 import { fetchAPI } from './api.js';
+import { staleMessage } from './utils.js';
 
 // ===== Indicators & Chart Helper =====
 export function updateChartVisibility() {
@@ -44,6 +45,8 @@ export function setChartLoading(isLoading) {
 // ===== Chart =====
 export async function loadChart(symbol, period, currency) {
     const requestId = ++state.latestChartRequestId;
+    const notice = document.getElementById('history-stale');
+    if (notice) notice.textContent = '';
     setChartLoading(true);
     clearPriceAndRsiCharts();
 
@@ -80,6 +83,7 @@ export async function loadChart(symbol, period, currency) {
 
         state.currentChartHistory = data.history;
         state.currentChartCurrency = currency;
+        if (notice) notice.textContent = staleMessage(data);
         renderChart(data.history, currency);
     } catch (err) {
         if (requestId === state.latestChartRequestId && symbol === state.currentSymbol) {

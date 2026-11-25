@@ -4,22 +4,23 @@ from datetime import date, datetime, timedelta
 from weakref import WeakKeyDictionary
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 
-from app.cache import upsert_cache
+from app.cache import PROVIDER_FAILURES, CacheWindow, allows_stale, cached_response, stale_fields, upsert_cache
 from app.clients.yfinance_client import YFinanceClient
 from app.config import get_settings
 from app.models.db_models import StockPrice
 from app.singleflight import coalesce, fetch
 from app.stats import stats
-from app.timeutil import to_db, utcnow
+from app.timeutil import to_db, utc_iso, utcnow
 from app.validation import shift_years
 
-settings = get_settings()
 _client = YFinanceClient()
 # A bar cannot represent a holiday or an unfinished trading day. Remember the
 # furthest end date fetched for each symbol in the same database cache.
-_history_coverage: WeakKeyDictionary[AsyncEngine, dict[str, tuple[date, datetime]]] = WeakKeyDictionary()
+_history_coverage: WeakKeyDictionary[AsyncEngine | AsyncConnection, dict[str, tuple[date, datetime]]] = (
+    WeakKeyDictionary()
+)
 
 
 def _calculate_sma(closes: list[float], period: int) -> list[float | None]:
@@ -125,34 +126,28 @@ def _aggregate_history(records: list[dict], interval: str) -> list[dict]:
 
 @coalesce
 async def get_current_price(symbol: str, db: AsyncSession) -> dict:
-    """
-    現在の株価を取得（キャッシュ優先）
-
-    キャッシュTTL: 1分
-    """
-    symbol = symbol.upper()
-    # キャッシュ確認
-    cutoff = to_db() - timedelta(seconds=settings.cache_ttl_current_price)
+    """現在の株価を取得（キャッシュ優先）"""
+    window = CacheWindow(get_settings().cache_ttl_current_price)
     stmt = (
         select(StockPrice)
-        .where(StockPrice.symbol == symbol.upper())
-        .where(StockPrice.cached_at >= cutoff)
+        .where(StockPrice.symbol == symbol)
+        .where(StockPrice.cached_at >= window.usable_since)
         .where(StockPrice.interval == "quote")
-        .order_by(StockPrice.cached_at.desc())
+        .order_by(StockPrice.cached_at.desc(), StockPrice.id.desc())
         .limit(1)
     )
-    result = await db.execute(stmt)
-    cached = result.scalar_one_or_none()
+    record = (await db.execute(stmt)).scalar_one_or_none()
+    cached = None
+    if record is not None:
+        cached = (record.cached_at, {"symbol": record.symbol, "price": record.close, "timestamp": utc_iso(record.timestamp)})
+    # Release the read session before the shared refresh opens its write session.
+    await db.rollback()
+    return await cached_response(f"quote:{symbol}", window, cached, lambda: refresh_quote(symbol, db))
 
-    if cached:
-        stats.log_cache_hit()
-        return {
-            "symbol": cached.symbol,
-            "price": cached.close,
-            "timestamp": cached.timestamp.isoformat() + "Z",
-        }
 
-    # 外部APIから取得
+@coalesce
+async def refresh_quote(symbol: str, db: AsyncSession) -> dict:
+    """Refresh the cache for both foreground requests and the warmer."""
     stats.log_api_call()
     data = await fetch(_client.get_current_price, symbol)
 
@@ -162,12 +157,37 @@ async def get_current_price(symbol: str, db: AsyncSession) -> dict:
         interval="quote",
         timestamp=datetime.fromisoformat(data["timestamp"].replace("Z", "+00:00")),
         close=data["price"],
-        cached_at=to_db(),
     )
     await upsert_cache(db, StockPrice, values)
     await db.commit()
 
     return data
+
+
+def _covers_history(
+    rows: list[StockPrice], start: str | None, end: date | None,
+    coverage: tuple[date, datetime] | None, cutoff: datetime,
+) -> bool:
+    if not rows or (start and (rows[0].timestamp - datetime.fromisoformat(start)).days > 7):
+        return False
+    return (
+        end is None or rows[-1].timestamp.date() >= end
+        or (coverage is not None and coverage[0] >= end and coverage[1] >= cutoff)
+    )
+
+
+def _history_rows(rows: list[StockPrice]) -> list[dict]:
+    return [
+        {
+            "date": row.timestamp.date().isoformat(),
+            "open": row.open,
+            "high": row.high,
+            "low": row.low,
+            "close": row.close,
+            "volume": row.volume,
+        }
+        for row in rows
+    ]
 
 
 @coalesce
@@ -201,27 +221,23 @@ async def get_history(
         fetch_start_date = fetch_start_dt.date().isoformat()
         return_start_date = (start_dt_req - timedelta(days=min(available_days, warmup_days))).date().isoformat()
 
-    records = []
-    fetch_end_date = end_date
+    records: list[dict] = []
+    metadata = {}
+    window = CacheWindow(get_settings().cache_ttl_history)
+    end_day = min(date.fromisoformat(end_date), utcnow().date()) if end_date and source_interval == "1d" else None
+    fetch_end_date = end_day.isoformat() if end_day is not None else end_date
+    bind = db.bind
+    coverage = _history_coverage.setdefault(bind, {}) if bind is not None else {}
+    cached_records: list[StockPrice] = []
 
-    # 日次データ(1d)をソースとして使う場合はDBキャッシュを利用する
     if source_interval == "1d":
-        ttl = timedelta(seconds=settings.cache_ttl_history)
-        cutoff = to_db() - ttl
-        coverage = _history_coverage.setdefault(db.bind, {})
-        end_day = min(datetime.strptime(end_date, "%Y-%m-%d").date(), utcnow().date()) if end_date else None
-        if end_day is not None:
-            fetch_end_date = end_day.isoformat()
         stmt = (
             select(StockPrice)
-            .where(StockPrice.symbol == symbol.upper())
-            .where(StockPrice.cached_at >= cutoff)
-            .where(StockPrice.interval == "1d")
+            .where(StockPrice.symbol == symbol, StockPrice.interval == "1d", StockPrice.cached_at >= window.usable_since)
             .order_by(StockPrice.timestamp.asc())
         )
-
         if fetch_start_date:
-            stmt = stmt.where(StockPrice.timestamp >= datetime.strptime(fetch_start_date, "%Y-%m-%d"))
+            stmt = stmt.where(StockPrice.timestamp >= datetime.fromisoformat(fetch_start_date))
         else:
             # A cache warmed by longer requests can contain more data than the provider default.
             anchor = end_day or utcnow().date()
@@ -233,64 +249,49 @@ async def get_history(
         if end_day is not None:
             stmt = stmt.where(StockPrice.timestamp <= datetime.combine(end_day, datetime.min.time()))
 
-        result = await db.execute(stmt)
-        cached_records = result.scalars().all()
+        cached_records = list((await db.scalars(stmt)).all())
+        fresh = [row for row in cached_records if row.cached_at >= window.fresh_since]
+        if _covers_history(
+            fresh, fetch_start_date, end_day if warmup_days else None, coverage.get(symbol), window.fresh_since,
+        ):
+            stats.log_cache_hit()
+            records = _history_rows(fresh)
 
-        if cached_records:
-            # キャッシュが要求された開始日を十分にカバーしているかチェックする（土日祝日を考慮して7日間の猶予）
-            first_record_date = cached_records[0].timestamp
-            fetch_start_dt_obj = datetime.strptime(fetch_start_date, "%Y-%m-%d") if fetch_start_date else None
-            
-            is_cache_valid = True
-            if fetch_start_dt_obj and (first_record_date - fetch_start_dt_obj).days > 7:
-                is_cache_valid = False
-            if warmup_days and end_day is not None and cached_records[-1].timestamp.date() < end_day:
-                covered_end, covered_at = coverage.get(symbol, (date.min, datetime.min))
-                is_cache_valid = is_cache_valid and covered_at >= cutoff and covered_end >= end_day
-
-            if is_cache_valid:
-                stats.log_cache_hit()
-                records = [
-                    {
-                        "date": r.timestamp.strftime("%Y-%m-%d"),
-                        "open": r.open,
-                        "high": r.high,
-                        "low": r.low,
-                        "close": r.close,
-                        "volume": r.volume,
-                    }
-                    for r in cached_records
-                ]
-
-    # キャッシュがない場合は外部APIから取得
     if not records:
         stats.log_api_call()
-        records = await fetch(_client.get_history, symbol, fetch_start_date, fetch_end_date, source_interval)
-
-        # 取得したデータをDBにキャッシュする（日次ソースのみ）
-        if source_interval == "1d":
-            # 同じ日足だけを更新し、他期間と現在値は保持する
-            for rec in records:
-                values = dict(
-                    symbol=symbol,
-                    interval="1d",
-                    timestamp=datetime.strptime(rec["date"], "%Y-%m-%d"),
-                    open=rec.get("open"),
-                    high=rec.get("high"),
-                    low=rec.get("low"),
-                    close=rec["close"],
-                    volume=rec.get("volume"),
-                    cached_at=to_db(),
-                )
-                await upsert_cache(db, StockPrice, values)
-            await db.commit()
-            if end_day is not None and records:
-                # Re-read after commit so a concurrent, shorter fetch cannot
-                # replace a fresh watermark from a longer request.
-                covered_end, covered_at = coverage.get(symbol, (date.min, datetime.min))
-                now = to_db()
-                if end_day >= covered_end or covered_at < now - ttl:
-                    coverage[symbol] = (end_day, now)
+        try:
+            records = await fetch(_client.get_history, symbol, fetch_start_date, fetch_end_date, source_interval)
+        except PROVIDER_FAILURES as error:
+            # Chart indicators may have less warmup in an older cache. Backtests still require their full coverage.
+            if not allows_stale(error) or not _covers_history(
+                cached_records, fetch_start_date if warmup_days else return_start_date,
+                end_day if warmup_days else None, coverage.get(symbol), window.usable_since,
+            ):
+                raise
+            cached_at = min(row.cached_at for row in cached_records)
+            if cached_at >= window.fresh_since:
+                raise
+            records = _history_rows(cached_records)
+            metadata = stale_fields(f"history:{symbol}", cached_at, error)
+        else:
+            if source_interval == "1d":
+                for row in records:
+                    await upsert_cache(db, StockPrice, {
+                        "symbol": symbol,
+                        "interval": "1d",
+                        "timestamp": datetime.fromisoformat(row["date"]),
+                        "open": row.get("open"),
+                        "high": row.get("high"),
+                        "low": row.get("low"),
+                        "close": row["close"],
+                        "volume": row.get("volume"),
+                    })
+                await db.commit()
+                if end_day is not None and records:
+                    # Re-read after commit so a concurrent shorter fetch cannot replace a fresh watermark.
+                    covered_end, covered_at = coverage.get(symbol, (date.min, datetime.min))
+                    if end_day >= covered_end or covered_at < window.fresh_since:
+                        coverage[symbol] = (end_day, to_db())
 
     # 1wk/1moは日次データから再集計する
     if requested_interval in {"1wk", "1mo"}:
@@ -305,12 +306,11 @@ async def get_history(
         sma_200 = _calculate_sma(closes, 200)
         rsi_14 = _calculate_rsi(closes, 14)
 
-        for i, rec in enumerate(records):
-            rec["sma_25"] = round(sma_25[i], 2) if sma_25[i] is not None else None
-            rec["sma_50"] = round(sma_50[i], 2) if sma_50[i] is not None else None
-            rec["sma_75"] = round(sma_75[i], 2) if sma_75[i] is not None else None
-            rec["sma_200"] = round(sma_200[i], 2) if sma_200[i] is not None else None
-            rec["rsi_14"] = round(rsi_14[i], 2) if rsi_14[i] is not None else None
+        for key, values in (
+            ("sma_25", sma_25), ("sma_50", sma_50), ("sma_75", sma_75), ("sma_200", sma_200), ("rsi_14", rsi_14),
+        ):
+            for record, value in zip(records, values, strict=True):
+                record[key] = round(value, 2) if value is not None else None
 
     # 要求されたオリジナル期間でフィルタリング
     if return_start_date:
@@ -318,4 +318,4 @@ async def get_history(
     if end_date:
         records = [r for r in records if r["date"] <= end_date]
 
-    return {"symbol": symbol.upper(), "history": records}
+    return {"symbol": symbol, "history": records, **metadata}

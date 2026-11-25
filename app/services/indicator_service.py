@@ -1,19 +1,15 @@
 """指数サービス - キャッシュ付き投資指数取得"""
 
-from datetime import timedelta
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.cache import upsert_cache
+from app.cache import CacheWindow, cached_response, upsert_cache
 from app.clients.yfinance_client import YFinanceClient
 from app.config import get_settings
 from app.models.db_models import Indicator
 from app.singleflight import coalesce, fetch
 from app.stats import stats
-from app.timeutil import to_db
 
-settings = get_settings()
 _client = YFinanceClient()
 
 
@@ -24,53 +20,30 @@ async def get_indicators(symbol: str, db: AsyncSession) -> dict:
 
     キャッシュTTL: 1日
     """
-    symbol = symbol.upper()
-    # キャッシュ確認
-    cutoff = to_db() - timedelta(seconds=settings.cache_ttl_history)
-    stmt = (
-        select(Indicator)
-        .where(Indicator.symbol == symbol.upper())
-        .where(Indicator.cached_at >= cutoff)
-        .order_by(Indicator.cached_at.desc())
-        .limit(1)
+    window = CacheWindow(get_settings().cache_ttl_history)
+    stmt = select(Indicator).where(Indicator.symbol == symbol, Indicator.cached_at >= window.usable_since)
+    record = (await db.execute(stmt)).scalar_one_or_none()
+    fields = (
+        "roe",
+        "roa",
+        "pbr",
+        "per",
+        "eps",
+        "dividend_yield",
+        "mix_index",
+        "profit_margin",
+        "debt_to_equity",
     )
-    result = await db.execute(stmt)
-    cached = result.scalar_one_or_none()
+    cached = None
+    if record is not None:
+        cached = (record.cached_at, {"symbol": record.symbol, **{field: getattr(record, field) for field in fields}})
 
-    if cached:
-        stats.log_cache_hit()
-        return {
-            "symbol": cached.symbol,
-            "roe": cached.roe,
-            "roa": cached.roa,
-            "pbr": cached.pbr,
-            "per": cached.per,
-            "eps": cached.eps,
-            "dividend_yield": cached.dividend_yield,
-            "mix_index": cached.mix_index,
-            "profit_margin": cached.profit_margin,
-            "debt_to_equity": cached.debt_to_equity,
-        }
+    async def refresh() -> dict:
+        stats.log_api_call()
+        data = await fetch(_client.get_indicators, symbol)
+        values = {"symbol": data["symbol"], **{field: data.get(field) for field in fields}}
+        await upsert_cache(db, Indicator, values)
+        await db.commit()
+        return data
 
-    # 外部APIから取得
-    stats.log_api_call()
-    data = await fetch(_client.get_indicators, symbol)
-
-    # キャッシュに保存
-    values = dict(
-        symbol=data["symbol"],
-        roe=data.get("roe"),
-        roa=data.get("roa"),
-        pbr=data.get("pbr"),
-        per=data.get("per"),
-        eps=data.get("eps"),
-        dividend_yield=data.get("dividend_yield"),
-        mix_index=data.get("mix_index"),
-        profit_margin=data.get("profit_margin"),
-        debt_to_equity=data.get("debt_to_equity"),
-        cached_at=to_db(),
-    )
-    await upsert_cache(db, Indicator, values)
-    await db.commit()
-
-    return data
+    return await cached_response(f"get_indicators:{symbol}", window, cached, refresh)

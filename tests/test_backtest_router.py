@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from app.exceptions import UPSTREAM_UNAVAILABLE, UpstreamUnavailableError
 from app.routers import backtest
 from app.services import finance_service, stock_service
 
@@ -42,6 +43,16 @@ def test_public_registry_and_protected_jobs(client, services):
         assert denied.status_code == 401
         assert denied.headers["WWW-Authenticate"] == "Bearer"
     services[0].assert_not_called()
+
+
+def test_backtest_routes_use_generic_upstream_errors(client, users, services):
+    raw = "private backtest upstream response"
+    services[0].side_effect = UpstreamUnavailableError(raw)
+    for path, body in [("run", BODY), ("grid", {**BODY, "grid": {}})]:
+        response = client.post(f"/backtest/{path}", headers=users[0]["headers"], json=body)
+        assert response.status_code == 503
+        assert response.json() == {"detail": UPSTREAM_UNAVAILABLE, "status_code": 503}
+        assert raw not in response.text
 
 
 @pytest.mark.parametrize(("changes", "message"), [

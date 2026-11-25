@@ -1,19 +1,15 @@
 """財務サービス - キャッシュ付き財務データ取得"""
 
-from datetime import timedelta
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.cache import upsert_cache
+from app.cache import CacheWindow, cached_response, upsert_cache
 from app.clients.yfinance_client import YFinanceClient
 from app.config import get_settings
 from app.models.db_models import Financial
 from app.singleflight import coalesce, fetch
 from app.stats import stats
-from app.timeutil import to_db
 
-settings = get_settings()
 _client = YFinanceClient()
 
 
@@ -24,46 +20,28 @@ async def get_financials(symbol: str, db: AsyncSession) -> dict:
 
     キャッシュTTL: 四半期（約90日）
     """
-    symbol = symbol.upper()
-    # キャッシュ確認
-    cutoff = to_db() - timedelta(seconds=settings.cache_ttl_financials)
-    stmt = (
-        select(Financial)
-        .where(Financial.symbol == symbol.upper())
-        .where(Financial.cached_at >= cutoff)
-        .order_by(Financial.cached_at.desc())
-        .limit(1)
+    window = CacheWindow(get_settings().cache_ttl_financials)
+    stmt = select(Financial).where(Financial.symbol == symbol, Financial.cached_at >= window.usable_since)
+    record = (await db.execute(stmt)).scalar_one_or_none()
+    fields = (
+        "revenue",
+        "net_income",
+        "eps",
+        "pe_ratio",
     )
-    result = await db.execute(stmt)
-    cached = result.scalar_one_or_none()
+    cached = None
+    if record is not None:
+        cached = (record.cached_at, {"symbol": record.symbol, **{field: getattr(record, field) for field in fields}})
 
-    if cached:
-        stats.log_cache_hit()
-        return {
-            "symbol": cached.symbol,
-            "revenue": cached.revenue,
-            "net_income": cached.net_income,
-            "eps": cached.eps,
-            "pe_ratio": cached.pe_ratio,
-        }
+    async def refresh() -> dict:
+        stats.log_api_call()
+        data = await fetch(_client.get_financials, symbol)
+        values = {"symbol": data["symbol"], **{field: data.get(field) for field in fields}}
+        await upsert_cache(db, Financial, values)
+        await db.commit()
+        return data
 
-    # 外部APIから取得
-    stats.log_api_call()
-    data = await fetch(_client.get_financials, symbol)
-
-    # キャッシュに保存
-    values = dict(
-        symbol=data["symbol"],
-        revenue=data.get("revenue"),
-        net_income=data.get("net_income"),
-        eps=data.get("eps"),
-        pe_ratio=data.get("pe_ratio"),
-        cached_at=to_db(),
-    )
-    await upsert_cache(db, Financial, values)
-    await db.commit()
-
-    return data
+    return await cached_response(f"get_financials:{symbol}", window, cached, refresh)
 
 
 @coalesce

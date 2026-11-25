@@ -50,13 +50,19 @@ async def get_list_summary(user_id: int, list_id: int, db: AsyncSession, concurr
                 lookup(profile_service.get_profile, symbol),
                 lookup(indicator_service.get_indicators, symbol),
             )
-        fields = {"memo": memos.get(symbol)}
+        fields: dict = {"memo": memos.get(symbol)}
         if quote is not None:
             fields["price"] = quote.get("price")
         if profile is not None:
             fields.update({key: profile.get(key) for key in ("name", "country", "sector", "currency", "market_cap")})
         if indicators is not None:
             fields.update({key: indicators.get(key) for key in ("mix_index", "dividend_yield", "per", "pbr")})
+        stale_times = [
+            source["cached_at"] for source in (quote, profile, indicators)
+            if source is not None and source.get("stale")
+        ]
+        if stale_times:
+            fields.update(stale=True, cached_at=min(stale_times))
         if quote is None or profile is None or indicators is None:
             fields["error"] = (
                 "銘柄データを取得できませんでした。"

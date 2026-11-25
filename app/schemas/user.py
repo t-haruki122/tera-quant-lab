@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, StrictInt
 
+from app.schemas.stock import CachedResponse
 from app.validation import Symbol
 
 # --- ユーザー ---
@@ -106,7 +107,7 @@ class StockMemoResponse(BaseModel):
     updated_at: str | None = None
 
 
-class ListSummaryItem(ListItemResponse):
+class ListSummaryItem(ListItemResponse, CachedResponse):
     name: str | None = None
     country: str | None = None
     sector: str | None = None

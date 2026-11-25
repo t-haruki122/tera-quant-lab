@@ -79,7 +79,7 @@ class Backtester:
         metrics.benchmark_return_pct = bench_metrics.return_pct
         metrics.benchmark_cagr = bench_metrics.cagr
         metrics.benchmark_max_drawdown = bench_metrics.max_drawdown
-        metrics.missing_eps_bars = int(df["eps"].isna().sum()) if "eps" in df else 0
+        metrics.missing_eps_bars = int(df["eps"].isna().to_numpy().sum()) if "eps" in df else 0
         warnings = []
         if metrics.missing_eps_bars:
             warnings.append(f"Historical EPS unavailable on {metrics.missing_eps_bars}/{len(df)} bars; PER blocks entries on those bars.")
@@ -98,14 +98,17 @@ class Backtester:
             order = pending if self.execution == "next_open" else signal
             pending = signal
             side = None
+            fill_price = close
             if (order == 1 and shares == 0) or (order == -1 and shares > 0):
-                raw_price = number(row.get("open")) if self.execution == "next_open" else close
-                fallback = raw_price is None or raw_price <= 0
-                if fallback:
-                    raw_price = close
+                opening_price = number(row.get("open")) if self.execution == "next_open" else close
+                if opening_price is None or opening_price <= 0:
+                    raw_price, fallback = close, True
+                else:
+                    raw_price, fallback = opening_price, False
                 price = raw_price * (1 + self.slippage_bps / 10000 * (1 if order == 1 else -1))
                 quantity = int(cash / (price * (1 + self.fee_rate))) if order == 1 else shares
                 if quantity > 0:
+                    fill_price = price
                     fallbacks += int(fallback)
                     fee = quantity * price * self.fee_rate
                     pnl = None
@@ -128,7 +131,7 @@ class Backtester:
                              holding_value=shares * close, equity=equity, signal=signal, trade_side=side))
             if progress_callback:
                 progress_callback(idx + 1, len(df), dict(symbol=symbol, date=row["date"], signal=signal,
-                                                       trade_side=side, cash=cash, equity=equity, price=price if side else close))
+                                                       trade_side=side, cash=cash, equity=equity, price=fill_price))
         return pd.DataFrame(rows), trades, fallbacks
 
     def _calculate_metrics(self, symbol, equity_df, trades):

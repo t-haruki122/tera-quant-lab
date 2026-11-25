@@ -14,6 +14,10 @@ import { bindBacktestEvents, openBacktest, refreshBacktestSession, updateBacktes
 
 let activeApp = null;
 
+function isSubmitEnter(event) {
+    return event.key === 'Enter' && !event.isComposing && event.keyCode !== 229;
+}
+
 export class App {
     constructor(deps = {}) {
         this.state = deps.state ?? state;
@@ -58,9 +62,12 @@ export class App {
 
     async fetchExchangeRate() {
         try {
-            const { rate } = await this.fetchAPI('/forex/usdjpy', { anonymous: true });
-            if (Number.isFinite(rate) && rate > 0 && rate !== this.state.exchangeRateUSDJPY) {
+            const { rate, stale, cached_at } = await this.fetchAPI('/forex/usdjpy', { anonymous: true });
+            const cachedAt = stale ? cached_at : null;
+            if (Number.isFinite(rate) && rate > 0 &&
+                (rate !== this.state.exchangeRateUSDJPY || cachedAt !== this.state.exchangeRateCachedAt)) {
                 this.state.exchangeRateUSDJPY = rate;
+                this.state.exchangeRateCachedAt = cachedAt;
                 renderListTable();
                 if (this.currentView === 'detail') refreshDetailPrices();
             }
@@ -71,7 +78,7 @@ export class App {
 
     bindCoreEvents() {
         this.document.getElementById('search-input')?.addEventListener('keydown', e => {
-            if (e.key === 'Enter') this.searchStock();
+            if (isSubmitEnter(e)) this.searchStock();
         });
 
         this.document.getElementById('list-search-input')?.addEventListener('input', e => {
@@ -79,15 +86,15 @@ export class App {
         });
 
         this.document.getElementById('list-add-modal-input')?.addEventListener('keydown', e => {
-            if (e.key === 'Enter') this.submitListAddFromModal();
+            if (isSubmitEnter(e)) this.submitListAddFromModal();
         });
 
         this.document.getElementById('tag-input')?.addEventListener('keydown', e => {
-            if (e.key === 'Enter') this.addTagFromInput();
+            if (isSubmitEnter(e)) this.addTagFromInput();
         });
 
         this.document.getElementById('auth-password')?.addEventListener('keydown', e => {
-            if (e.key === 'Enter') this.submitAuth();
+            if (isSubmitEnter(e)) this.submitAuth();
         });
 
         this.document.getElementById('logo-home-btn')?.addEventListener('click', () => this.switchView('list'));

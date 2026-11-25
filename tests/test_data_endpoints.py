@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock
+from unittest.mock import ANY, AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -100,7 +100,7 @@ def test_data_limit_ip_retry_after_and_health_exemption(client, settings, data_s
     settings.rate_limit_data_requests = 1
     settings.rate_limit_data_window_seconds = 30
     assert client.get("/forex/%20usdjpy=x%20").status_code == 200
-    data_services[0].assert_awaited_once_with("USDJPY=X")
+    data_services[0].assert_awaited_once_with("USDJPY=X", ANY)
     limited = client.get("/stock/X/history", headers={"X-Forwarded-For": "203.0.113.10"})
     assert limited.status_code == 429
     assert 1 <= int(limited.headers["Retry-After"]) <= 30

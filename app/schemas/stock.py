@@ -1,11 +1,16 @@
 """Pydantic レスポンススキーマ"""
 
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+
+class CachedResponse(BaseModel):
+    stale: bool | None = Field(default=None, exclude_if=lambda value: value is None)
+    cached_at: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 # --- 株価 ---
 
-class StockPriceResponse(BaseModel):
+class StockPriceResponse(CachedResponse):
     """現在株価レスポンス"""
     symbol: str
     price: float
@@ -29,7 +34,7 @@ class HistoryEntry(BaseModel):
     rsi_14: float | None = None
 
 
-class StockHistoryResponse(BaseModel):
+class StockHistoryResponse(CachedResponse):
     """過去株価レスポンス"""
     symbol: str
     history: list[HistoryEntry]
@@ -37,7 +42,7 @@ class StockHistoryResponse(BaseModel):
 
 # --- 財務情報 ---
 
-class FinancialResponse(BaseModel):
+class FinancialResponse(CachedResponse):
     """財務情報レスポンス"""
     symbol: str
     revenue: int | None = None
@@ -83,9 +88,11 @@ class NewsEntry(BaseModel):
     title: str
     url: str
     published_at: str | None = None
+    publisher: str | None = None
+    source: str | None = None
 
 
-class NewsResponse(BaseModel):
+class NewsResponse(CachedResponse):
     """ニュースレスポンス"""
     symbol: str
     news: list[NewsEntry]
@@ -93,7 +100,7 @@ class NewsResponse(BaseModel):
 
 # --- 会社プロフィール ---
 
-class CompanyProfileResponse(BaseModel):
+class CompanyProfileResponse(CachedResponse):
     """会社プロフィールレスポンス"""
     symbol: str
     name: str
@@ -109,7 +116,7 @@ class CompanyProfileResponse(BaseModel):
 
 # --- 投資指数 ---
 
-class IndicatorsResponse(BaseModel):
+class IndicatorsResponse(CachedResponse):
     """投資指数レスポンス"""
     symbol: str
     roe: float | None = None

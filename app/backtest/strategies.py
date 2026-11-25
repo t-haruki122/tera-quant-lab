@@ -1,6 +1,6 @@
 """Typed strategy registry. All signals use only the current and earlier closes."""
 
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 
@@ -26,8 +26,10 @@ class SmaCrossPerStrategy(Strategy):
 
     def prepare(self, price_df, context):
         df = price_df.copy()
-        short = df["close"].rolling(self.short_window).mean()
-        long = df["close"].rolling(self.long_window).mean()
+        close = cast(pd.Series, df["close"])  # A single named price column is a Series.
+        # Rolling.mean preserves the Series input, though pandas types it for several containers.
+        short = cast(pd.Series, close.rolling(self.short_window).mean())
+        long = cast(pd.Series, close.rolling(self.long_window).mean())
         df["sma_short"], df["sma_long"] = short, long
         df["signal"] = 0
         df.loc[(short > long) & (short.shift() <= long.shift()), "signal"] = 1
@@ -112,7 +114,7 @@ EXIT_CHOICES = ("middle", "upper")
 def param_schema(name):
     result = []
     for key, (kind, default) in REGISTRY[name].items():
-        field = dict(name=key, type=kind.__name__, default=default, description=PARAM_DESCRIPTIONS[key])
+        field: dict[str, Any] = dict(name=key, type=kind.__name__, default=default, description=PARAM_DESCRIPTIONS[key])
         if key in POSITIVE_PARAMS:
             field.update(min=1 if kind is int else 0)
             if kind is float:
@@ -140,7 +142,9 @@ def validate_params(name, params=None):
         values = {}
         for key, (kind, default) in schema.items():
             raw = (params or {}).get(key, default)
-            if raw is None and default is None:
+            if raw is None:
+                if default is not None:
+                    raise ValueError(f"{key} must be {kind.__name__}")
                 values[key] = None
                 continue
             if isinstance(raw, bool) or (kind is int and str(raw) != str(int(raw))):

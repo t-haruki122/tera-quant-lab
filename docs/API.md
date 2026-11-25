@@ -30,6 +30,8 @@
 - 投資指標: `GET /stock/{symbol}/indicators`
 - 関連ニュース: `GET /stock/{symbol}/news`
 
+東証銘柄は「7203 株価」のような語句で日本語ニュースを検索します。検索期間は全市場で `NEWS_PERIOD`（既定 `30d`、空欄で無期限）を使い、該当記事が0件なら期間を外して一度だけ再検索します。配信元は `publisher` で返し、既存クライアント向けの `source` にも同じ値が入ります。
+
 `history` の主なクエリパラメータ:
 
 | パラメータ | 説明 | 例 |
@@ -45,6 +47,7 @@
 
 - 為替レート: `GET /forex/{pair}`
 - 通貨コードを英字6文字で指定します。`USDJPY` は内部で `USDJPY=X` に補完されます。
+- 為替レートはSQLiteに保存し、TTLは1時間です。キャッシュはアプリの再起動後も利用できます。
 
 ### 3. ユーザー・ウォッチリスト
 
@@ -208,6 +211,10 @@ JWT の `ver` がアカウントのトークンバージョンと一致する間
 
 - 利用統計: `GET /stats` で API 呼び出し回数やキャッシュヒット情報を取得
 - SQLite を使ったキャッシュで外部APIアクセスを最適化
+
+キャッシュはテーブルごとに `CACHE_RETENTION_DAYS`（既定30日）と「そのテーブルで最長のTTL + `CACHE_STALE_MAX_DAYS`」（既定の猶予は7日）の長い方を保持期間とします。データ提供元の通信障害、レート制限、5xx応答時に猶予内のキャッシュを返す場合は、`stale: true` と取得日時 `cached_at` を付けます。
+
+データ提供元の失敗を HTTP `502`、`503`、`429` で返す場合、応答には日本語の案内が入り、エラーの詳細はリクエストID付きのサーバーログに記録されます。
 
 `GET /stats` は認証不要です。従来の `api_calls`、`cache_hits`、`total_requests`、`hit_rate_percent`、`server_requests`、`server_errors`、`error_rate_percent`、`avg_response_time_ms`、`top_endpoints`、`uptime_seconds` に加え、次の項目を返します。
 

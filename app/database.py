@@ -2,6 +2,7 @@
 
 import importlib
 from asyncio import timeout
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 from alembic import command
@@ -34,10 +35,10 @@ class Base(DeclarativeBase):
 
 
 def ensure_sqlite_directory(url: URL) -> None:
-    if url.get_backend_name() == "sqlite" and url.database not in {None, "", ":memory:"}:
+    if url.get_backend_name() == "sqlite" and (database := url.database) and database != ":memory:":
         # Let SQLite interpret explicit file: URIs and their query options.
-        if not (url.database.startswith("file:") and url.query.get("uri") == "true"):
-            Path(url.database).parent.mkdir(parents=True, exist_ok=True)
+        if not (database.startswith("file:") and url.query.get("uri") == "true"):
+            Path(database).parent.mkdir(parents=True, exist_ok=True)
 
 
 async def check_health() -> str | None:
@@ -69,7 +70,7 @@ async def init_db():
         await session.commit()
 
 
-async def get_db() -> AsyncSession:
+async def get_db() -> AsyncIterator[AsyncSession]:
     """DBセッションの依存性注入用ジェネレータ"""
     async with AsyncSessionLocal() as session:
         try:

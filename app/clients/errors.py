@@ -31,6 +31,8 @@ def classify(error, symbol):
     missing_type = getattr(yf_errors, "YFTickerMissingError", ())
     if status == 404 or (missing_type and isinstance(error, missing_type)):
         return SymbolNotFoundError(symbol)
+    if isinstance(status, int) and 500 <= status < 600:
+        return ExternalAPIError(str(error))
     # Libraries sometimes wrap HTTP/I/O errors in their own exception type.
     if error.__cause__ is not None:
         return classify(error.__cause__, symbol)
@@ -53,7 +55,7 @@ def classify(error, symbol):
         transient = True
     if transient:
         return UpstreamUnavailableError(str(error))
-    return ExternalAPIError(str(error))
+    return ExternalAPIError(str(error), allow_stale=False)
 
 
 def external_call(method):

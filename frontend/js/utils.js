@@ -88,14 +88,30 @@ export function formatTimestamp(ts) {
     }
 }
 
-export function formatNewsDate(dateStr) {
-    try {
-        const date = new Date(dateStr);
-        if (isNaN(date.getTime())) return dateStr;
-        return date.toLocaleDateString('ja-JP', { year: 'numeric', month: 'short', day: 'numeric' });
-    } catch {
-        return dateStr;
-    }
+const localDateTime = new Intl.DateTimeFormat('ja-JP', {
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+});
+
+export function formatNewsDate(value) {
+    if (!value) return '';
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? localDateTime.format(date) : '';
+}
+
+export function oldestStaleData(...sources) {
+    return sources.filter(data => data?.stale === true && typeof data.cached_at === 'string')
+        .reduce((oldest, data) => !oldest || data.cached_at < oldest.cached_at ? data : oldest, null);
+}
+
+export function staleMessage(data) {
+    if (!data?.stale || !data.cached_at) return '';
+    const date = formatNewsDate(data.cached_at) || data.cached_at;
+    return `最新データを取得できなかったため、${date} 時点のデータを表示しています`;
+}
+
+export function staleNotice(data) {
+    const message = staleMessage(data);
+    return message ? `<small class="stale-notice text-muted">${escapeHtml(message)}</small>` : '';
 }
 
 export function escapeHtml(value) {

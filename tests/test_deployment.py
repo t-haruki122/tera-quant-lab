@@ -137,6 +137,26 @@ def test_hsts_and_deployment_csp_override(client, settings):
         Settings(_env_file=None, content_security_policy="default-src 'self'\r\nInvalid: value")
 
 
+@pytest.mark.parametrize("path", ["/", "/static/app.js"])
+def test_frontend_revalidates_cached_files(client, path):
+    response = client.get(path)
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "no-cache"
+    assert response.headers["Last-Modified"]
+    conditional = client.get(path, headers={"If-None-Match": response.headers["ETag"]})
+    assert conditional.status_code == 304
+    assert conditional.headers["Cache-Control"] == "no-cache"
+    assert conditional.headers["ETag"] == response.headers["ETag"]
+    assert conditional.content == b""
+
+
+def test_missing_static_file_is_revalidated_too(client):
+    response = client.get("/static/missing.js")
+    assert response.status_code == 404
+    assert response.headers["Cache-Control"] == "no-cache"
+    assert "Cache-Control" not in client.get("/health").headers
+
+
 def test_chart_sri():
     html = (main.FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
     tag = re.search(r'<script\s+src="https://cdn\.jsdelivr\.net/npm/chart\.js@4\.4\.7/dist/chart\.umd\.min\.js"[^>]*>', html)

@@ -53,6 +53,7 @@ uv run uvicorn app.main:app --reload --reload-dir app --workers 1 --no-proxy-hea
 ```bash
 uv run pytest
 uv run ruff check
+uv run basedpyright
 # フロントエンド検証（Node.js 22、追加のnpm依存なし）
 node --test "tests/frontend/**/*.test.mjs"
 ```
@@ -60,6 +61,8 @@ node --test "tests/frontend/**/*.test.mjs"
 フロントエンドの `.js` は ES Modules です。Node.js 22.17 以降は構文を自動検出できるため、
 `package.json` や追加ローダーなしで上記コマンドを実行できます。
 テストのDOM shimはブラウザー向けの描画文字列を検証します。
+
+コミット時に lint・型検査・依存関係の整合性チェックを実行するには、環境作成後に `uv run pre-commit install` を実行します。フックはローカルの開発ツールを使います。
 
 pip を使う場合も `pip install -r requirements.txt` で導入できます。
 `requirements.txt` は `uv.lock` から生成されるファイルです。依存関係は `pyproject.toml` で管理します。
@@ -95,4 +98,10 @@ pip を使う場合も `pip install -r requirements.txt` で導入できます�
 
 モデル変更時のリビジョン作成: `uv run alembic revision --autogenerate -m "変更内容"`
 
-`CACHE_RETENTION_DAYS`（既定30日）より古いキャッシュを起動時と書き込み時（プロセス内で最大1時間に1回）に削除します。ユーザー関連テーブルは削除対象に含みません。為替キャッシュと同時取得の共有はプロセス内に限られます。
+`CACHE_RETENTION_DAYS`（既定30日）はキャッシュ保持期間の下限です。テーブルごとに、この設定と「そのテーブルで最長のTTL + `CACHE_STALE_MAX_DAYS`」の長い方を適用します。たとえば既定の財務キャッシュは97日間保持します。期限を過ぎたキャッシュは起動時と書き込み時（プロセス内で最大1時間に1回）に削除します。ユーザー関連テーブルは削除対象に含みません。
+
+データ提供元からの取得に失敗した場合、TTLを過ぎてから `CACHE_STALE_MAX_DAYS`（既定7日、0で無効）以内の保存済みデータを `stale: true` と取得日時 `cached_at` 付きで返します。為替の最終取得レートはSQLiteに保存し、再起動後も参照できます。同時取得の共有はプロセス内に限られます。
+
+`CACHE_WARM_ENABLED=true` で、全ユーザーのウォッチリストに登録された銘柄の株価とUSD/JPYをバックグラウンドで更新できます。既定は無効で、有効時は `CACHE_WARM_INTERVAL_MINUTES`（既定30分）ごとに最大 `CACHE_WARM_CONCURRENCY`（既定2件）を並行更新します。提供元のレート制限に達した場合は次の更新まで待機します。
+
+ニュースは既定で過去30日間を検索します。`NEWS_PERIOD` で期間を変更でき、空欄にすると期間制限がなくなります。指定した期間に記事が見つからない場合は、期間を外して一度だけ検索し直します。公開日時はUTCで返し、旧形式のキャッシュも読み取り時に変換します。

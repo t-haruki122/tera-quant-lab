@@ -5,7 +5,7 @@
 import { state } from './state.js';
 import { downloadAPI, fetchAPI } from './api.js';
 import { createActionModal } from './action-modal.js';
-import { showToast, formatCurrency, formatLargeNumber, escapeHtml, escapeAttr, normalizeTagHue } from './utils.js';
+import { showToast, formatCurrency, formatLargeNumber, escapeHtml, escapeAttr, normalizeTagHue, oldestStaleData, staleNotice } from './utils.js';
 import { getMarketCapCategory, getMixIndexRating, getRatingSymbol, searchStock } from './detail.js';
 
 const RATE_LIMIT_MESSAGE = 'アクセスが集中しています。しばらくしてから再試行してください。';
@@ -183,6 +183,7 @@ async function fetchGuestItemData(symbol) {
     const [quote, profile, indicators] = results.map(result => result.value);
     const failures = results.filter(result => result.status === 'rejected');
     const rateLimited = failures.some(result => result.reason?.status === 429);
+    const cached = oldestStaleData(quote, profile, indicators);
     return {
         rateLimited,
         fields: {
@@ -193,6 +194,8 @@ async function fetchGuestItemData(symbol) {
             market_cap: profile?.market_cap,
             mix_index: indicators?.mix_index,
             dividend_yield: indicators?.dividend_yield,
+            stale: !!cached,
+            cached_at: cached?.cached_at,
             loadError: rateLimited ? RATE_LIMIT_MESSAGE : failures.length ? '一部のデータを取得できませんでした。' : null,
         },
     };
@@ -512,11 +515,15 @@ export function renderListTable() {
         const price = item.price == null ? '—' : item.currency
             ? formatCurrency(item.price, item.currency) : item.price.toLocaleString('ja-JP');
         const loadError = item.loadError ? `<br><small class="text-muted">${escapeHtml(item.loadError)}</small>` : '';
+        const usesExchangeRate = (item.currency === 'USD' && (item.price != null || item.market_cap != null))
+            || ((!item.currency || item.currency === 'JPY') && item.market_cap != null);
+        const forex = usesExchangeRate && { stale: true, cached_at: state.exchangeRateCachedAt };
+        const notice = staleNotice(oldestStaleData(item, forex));
 
         html += `
             <tr data-symbol="${escapeHtml(item.symbol)}">
                 <td class="table-ticker">${escapeHtml(item.symbol)}</td>
-                <td class="table-company">${escapeHtml(item.name || '—')}${loadError}</td>
+                <td class="table-company">${escapeHtml(item.name || '—')}${loadError}${notice}</td>
                 <td class="numeric">${escapeHtml(price)}</td>
                 <td class="table-market-cap" title="${item.market_cap != null ? escapeAttr(formatLargeNumber(item.market_cap, item.currency)) : ''}">${marketCapCategory || '—'}</td>
                 <td class="numeric">${item.mix_index != null ? item.mix_index.toFixed(2) : '—'} ${mixBadge}</td>

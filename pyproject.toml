@@ -21,7 +21,12 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest", "ruff"]
+dev = [
+    "basedpyright>=1.40.2",
+    "pre-commit>=4.7.0",
+    "pytest",
+    "ruff",
+]
 
 [tool.uv]
 package = false
@@ -43,3 +48,10 @@ ignore = ["E501"]
 # FastAPI evaluates Depends/Query marker calls to declare dependency injection.
 "app/routers/*.py" = ["B008"]
 "app/auth.py" = ["B008"]
+
+[tool.basedpyright]
+typeCheckingMode = "standard"
+pythonVersion = "3.12"
+include = ["app", "scripts", "migrations"]
+venvPath = "."
+venv = ".venv"

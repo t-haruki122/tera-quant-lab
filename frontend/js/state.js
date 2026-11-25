@@ -27,6 +27,7 @@ export const state = {
     responseTimeChartInstance: null,
 
     exchangeRateUSDJPY: null,
+    exchangeRateCachedAt: null,
 
     listItems: [],
     sortKey: 'symbol',

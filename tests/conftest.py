@@ -26,6 +26,7 @@ os.environ["RATE_LIMIT_ENABLED"] = "false"
 os.environ["CORS_ORIGINS"] = ""
 os.environ["DOCS_ENABLED"] = "true"
 os.environ["YFINANCE_CACHE_DIR"] = ""
+os.environ["CACHE_WARM_ENABLED"] = "false"
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -69,7 +70,7 @@ def no_network(monkeypatch):
     monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", blocked)
     monkeypatch.setattr(yfinance, "Ticker", blocked)
     monkeypatch.setattr(yfinance, "download", blocked)
-    monkeypatch.setattr(GNews, "get_news", blocked)
+    monkeypatch.setattr(GNews, "_fetch_feed", blocked)
 
 
 @pytest.fixture(autouse=True)

@@ -78,8 +78,10 @@ class RequestMiddleware:
             return
 
         request = Request(scope)
+        path = get_route_path(scope)
         incoming = request.headers.getlist("x-request-id")
         correlation_id = incoming[0] if len(incoming) == 1 and re.fullmatch(r"[A-Za-z0-9._-]{1,64}", incoming[0]) else uuid4().hex
+        request.state.request_id = correlation_id
         token = request_id.set(correlation_id)
         settings = get_settings()
         ip = client_ip(request, settings)
@@ -95,9 +97,11 @@ class RequestMiddleware:
                 headers = MutableHeaders(scope=message)
                 for name, value in SECURITY_HEADERS.items():
                     headers[name] = value
+                if path == "/" or path.startswith("/static/"):
+                    headers["Cache-Control"] = "no-cache"
                 docs_html = (
                     status == 200
-                    and get_route_path(scope) in self.docs_paths
+                    and path in self.docs_paths
                     and headers.get("content-type", "").startswith("text/html")
                 )
                 headers["Content-Security-Policy"] = (

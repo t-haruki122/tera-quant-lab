@@ -7,9 +7,9 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 import yfinance
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.types import Scope
 
@@ -19,6 +19,7 @@ from app.database import init_db
 from app.exceptions import register_exception_handlers
 from app.middleware import InternalErrorMiddleware, RequestIDFilter, RequestMiddleware
 from app.routers import backtest, forex, stats, stock, user
+from app.services.cache_warmer import warm_cache_periodically
 from app.stats import stats as app_stats
 
 
@@ -55,6 +56,9 @@ started_at = time.monotonic()
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
 
+frontend = StaticFiles(directory=FRONTEND_DIR) if FRONTEND_DIR.exists() else None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """アプリケーションのライフサイクル管理"""
@@ -70,11 +74,20 @@ async def lifespan(app: FastAPI):
         yfinance.set_tz_cache_location(str(cache_dir))
     await init_db()
     flush_task = asyncio.create_task(app_stats.flush_periodically(settings.stats_flush_seconds))
+    warm_task = None
+    if settings.cache_warm_enabled:
+        warm_task = asyncio.create_task(warm_cache_periodically(
+            settings.cache_warm_interval_minutes, settings.cache_warm_concurrency,
+        ))
     logger.info("Application startup completed")
     try:
         yield
     finally:
         flush_task.cancel()
+        if warm_task is not None:
+            warm_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await warm_task
         with suppress(asyncio.CancelledError):
             await flush_task
         await app_stats.flush()
@@ -133,8 +146,8 @@ app.include_router(backtest.router)
 register_exception_handlers(app)
 
 # 静的ファイル配信（フロントエンド）
-if FRONTEND_DIR.exists():
-    app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
+if frontend is not None:
+    app.mount("/static", frontend, name="static")
 
 
 @app.get("/health", tags=["root"], responses={503: {"description": "データベースに接続できません"}})
@@ -156,11 +169,11 @@ async def health():
 
 
 @app.get("/", tags=["root"])
-async def root():
+async def root(request: Request):
     """フロントエンドのindex.htmlを返す"""
     index_path = FRONTEND_DIR / "index.html"
-    if index_path.exists():
-        return FileResponse(str(index_path))
+    if frontend is not None and index_path.exists():
+        return await frontend.get_response("index.html", request.scope)
     return {
         "name": settings.app_name,
         "version": settings.app_version,

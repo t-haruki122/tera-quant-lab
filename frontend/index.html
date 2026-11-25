@@ -345,6 +345,7 @@
                 <div class="stock-header-right">
                     <div class="price-display" id="price-display"></div>
                     <div class="price-timestamp" id="price-timestamp"></div>
+                    <small id="quote-stale" class="stale-notice text-muted"></small>
                     <button class="btn-primary btn-sm" id="btn-detail-backtest" type="button">バックテスト</button>
                 </div>
             </div>
@@ -369,6 +370,7 @@
                     <label class="toggle-label"><input type="checkbox" id="toggle-sma200" checked> SMA 200</label>
                     <label class="toggle-label"><input type="checkbox" id="toggle-rsi" checked> RSI 14</label>
                 </div>
+                <small id="history-stale" class="stale-notice text-muted"></small>
                 <div class="chart-stage">
                     <div class="chart-loading-overlay hidden" id="chart-loading-overlay" aria-live="polite" aria-busy="true">
                         <div class="chart-loading-box">

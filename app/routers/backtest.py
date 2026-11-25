@@ -102,10 +102,12 @@ def _simulate(body, history, context, cancel_check):
 
     engine = Backtester(make_strategy(body.strategy, body.params), **options)
     result = engine.run(body.symbol, prices, context, cancel_check=cancel_check)
+    benchmark = result.benchmark_curve.rename(columns={"equity": "benchmark_equity"})
     curve = result.equity_curve[["date", "equity"]].merge(
-        result.benchmark_curve[["date", "equity"]].rename(columns={"equity": "benchmark_equity"}),
+        benchmark[["date", "benchmark_equity"]],
         on="date", validate="one_to_one",
     )
+    assert result.benchmark_metrics is not None
     return json_safe({
         "metrics": asdict(result.metrics),
         "benchmark_metrics": asdict(result.benchmark_metrics),

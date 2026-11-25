@@ -564,6 +564,10 @@ body {
     margin: 0;
 }
 
+.stale-notice {
+    display: block;
+}
+
 .chart-container {
     padding: var(--space-md) var(--space-lg) var(--space-sm);
     height: 360px;

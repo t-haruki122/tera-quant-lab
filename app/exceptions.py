@@ -1,5 +1,6 @@
 """カスタム例外・グローバルエラーハンドラー"""
 
+import logging
 import math
 
 from fastapi import FastAPI, Request
@@ -10,10 +11,22 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
 INTERNAL_ERROR = "サーバー内部でエラーが発生しました。しばらくしてから再試行してください。"
+UPSTREAM_ERROR = "データ提供元からデータを取得できませんでした。しばらくしてから再試行してください。"
+UPSTREAM_UNAVAILABLE = "データ提供元に接続できませんでした。しばらくしてから再試行してください。"
+UPSTREAM_RATE_LIMIT = "データ提供元の利用上限に達しました。しばらくしてから再試行してください。"
+logger = logging.getLogger(__name__)
 
 
 def internal_error_response() -> JSONResponse:
     return JSONResponse(status_code=500, content={"detail": INTERNAL_ERROR})
+
+
+def upstream_error_response(
+    request: Request, error: Exception, status_code: int, detail: str, *, headers: dict[str, str] | None = None,
+) -> JSONResponse:
+    logger.warning("Upstream request failed (%d): %s", status_code, error,
+                   extra={"request_id": getattr(request.state, "request_id", "-")})
+    return JSONResponse(status_code=status_code, content={"detail": detail, "status_code": status_code}, headers=headers)
 
 
 class SymbolNotFoundError(Exception):
@@ -36,8 +49,9 @@ class RateLimitError(Exception):
 class ExternalAPIError(Exception):
     """外部APIエラー (502)"""
 
-    def __init__(self, message: str = "External API error"):
+    def __init__(self, message: str = "External API error", *, allow_stale: bool = True):
         self.message = message
+        self.allow_stale = allow_stale
         super().__init__(self.message)
 
 
@@ -97,19 +111,12 @@ def register_exception_handlers(app: FastAPI):
 
     @app.exception_handler(RateLimitError)
     async def rate_limit_handler(request: Request, exc: RateLimitError):
-        return JSONResponse(
-            status_code=429,
-            content={"detail": exc.message, "status_code": 429},
-            headers={"Retry-After": "60"},
-        )
+        return upstream_error_response(request, exc, 429, UPSTREAM_RATE_LIMIT, headers={"Retry-After": "60"})
 
     @app.exception_handler(UpstreamUnavailableError)
     async def unavailable_handler(request: Request, exc: UpstreamUnavailableError):
-        return JSONResponse(status_code=503, content={"detail": exc.message, "status_code": 503})
+        return upstream_error_response(request, exc, 503, UPSTREAM_UNAVAILABLE)
 
     @app.exception_handler(ExternalAPIError)
     async def external_api_handler(request: Request, exc: ExternalAPIError):
-        return JSONResponse(
-            status_code=502,
-            content={"detail": exc.message, "status_code": 502},
-        )
+        return upstream_error_response(request, exc, 502, UPSTREAM_ERROR)

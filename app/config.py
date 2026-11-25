@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     history_max_span_years: int = Field(default=20, ge=1, le=9999)
 
     cache_retention_days: int = Field(default=30, gt=0)
+    cache_stale_max_days: int = Field(default=7, ge=0)
+    cache_warm_enabled: bool = False
+    cache_warm_interval_minutes: int = Field(default=30, gt=0)
+    cache_warm_concurrency: int = Field(default=2, gt=0)
     yfinance_cache_dir: str = ""
     stats_flush_seconds: float = Field(default=60, gt=0, allow_inf_nan=False)
 
@@ -62,6 +66,7 @@ class Settings(BaseSettings):
     cache_ttl_history: int = 86400           # 1日
     cache_ttl_financials: int = 7776000      # 約90日（四半期）
     cache_ttl_news: int = 600                # 10分
+    news_period: str = "30d"
 
     # Server
     host: str = "127.0.0.1"

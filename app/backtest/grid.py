@@ -47,7 +47,8 @@ def run_grid(symbol, price_df, strategy="sma_cross", base_params=None, grid=None
 
     def key(item):
         value = getattr(item.result.metrics, rank_by)
-        missing = value is None or isnan(value)
-        return missing, 0 if missing else (value if rank_by in LOWER_IS_BETTER else -value)
+        if value is None or isnan(value):
+            return True, 0
+        return False, value if rank_by in LOWER_IS_BETTER else -value
 
     return sorted(results, key=key)

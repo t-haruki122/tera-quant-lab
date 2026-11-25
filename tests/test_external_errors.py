@@ -16,7 +16,15 @@ from yfinance.exceptions import YFPricesMissingError, YFRateLimitError
 from app.clients import errors, yfinance_client
 from app.clients.news_client import CheckedGNews, NewsClient
 from app.clients.yfinance_client import YFinanceClient
-from app.exceptions import ExternalAPIError, RateLimitError, SymbolNotFoundError, UpstreamUnavailableError
+from app.exceptions import (
+    UPSTREAM_ERROR,
+    UPSTREAM_RATE_LIMIT,
+    UPSTREAM_UNAVAILABLE,
+    ExternalAPIError,
+    RateLimitError,
+    SymbolNotFoundError,
+    UpstreamUnavailableError,
+)
 
 
 def http_error(status):
@@ -63,7 +71,7 @@ def test_yfinance_mapping_and_bounded_retries(monkeypatch, failure, expected, at
 def test_news_mapping_and_retries(monkeypatch, failure, expected, attempts):
     client = NewsClient()
     fake = Mock(side_effect=failure)
-    monkeypatch.setattr(client._gnews, "get_news", fake)
+    monkeypatch.setattr(CheckedGNews, "get_news", fake)
     sleep = Mock()
     monkeypatch.setattr(errors.time, "sleep", sleep)
     with pytest.raises(expected):
@@ -86,6 +94,13 @@ def test_transient_retry_can_recover_and_wrapped_http_errors_are_not_network_err
     assert type(errors.classify(wrapped, "AAPL")) is ExternalAPIError
 
 
+def test_only_upstream_5xx_and_transport_errors_allow_stale():
+    assert errors.classify(http_error(500), "AAPL").allow_stale
+    assert errors.classify(requests.Timeout("timeout"), "AAPL").allow_stale
+    assert not errors.classify(http_error(401), "AAPL").allow_stale
+    assert not errors.classify(ValueError("unexpected data"), "AAPL").allow_stale
+
+
 @pytest.mark.parametrize("status", [404, 429, 503])
 def test_news_feed_http_status_is_not_mistaken_for_empty_data(monkeypatch, status):
     from gnews import GNews
@@ -103,19 +118,32 @@ def test_yfinance_and_news_no_data_are_404(monkeypatch):
         with pytest.raises(SymbolNotFoundError):
             getattr(YFinanceClient(), method)("aapl")
     client = NewsClient()
-    monkeypatch.setattr(client._gnews, "get_news", lambda query: [])
+    monkeypatch.setattr(CheckedGNews, "get_news", lambda self, query: [])
     with pytest.raises(SymbolNotFoundError):
         client.get_news("aapl")
 
 
-@pytest.mark.parametrize("failure,status", [(YFRateLimitError(), 429), (requests.Timeout("down"), 503),
-                                           (ValueError("bad data"), 502)])
-def test_error_response_shape_and_retry_after(client, monkeypatch, failure, status):
+@pytest.mark.parametrize(("status", "detail"), [
+    (429, UPSTREAM_RATE_LIMIT), (503, UPSTREAM_UNAVAILABLE), (502, UPSTREAM_ERROR),
+])
+def test_error_response_shape_and_retry_after(client, monkeypatch, caplog, status, detail):
+    raw = "private upstream diagnostic"
+    failure = requests.Timeout(raw) if status == 503 else requests.HTTPError(
+        raw, response=SimpleNamespace(status_code=status),
+    )
     monkeypatch.setattr(yfinance_client.yf, "Ticker", Mock(side_effect=failure))
     monkeypatch.setattr(errors.time, "sleep", Mock())
-    response = client.get("/stock/AAPL")
-    assert response.status_code == status
-    assert set(response.json()) == {"detail", "status_code"}
-    assert response.json()["status_code"] == status
-    if status == 429:
-        assert response.headers["Retry-After"] == "60"
+    for name, path in (
+        ("quote", "/stock/AAPL"),
+        ("annual-finances", "/stock/AAPL/financials/history"),
+        ("dividends", "/stock/AAPL/dividends/history"),
+    ):
+        request_id = f"upstream-{name}-{status}"
+        response = client.get(path, headers={"X-Request-ID": request_id})
+        assert response.status_code == status
+        assert response.json() == {"detail": detail, "status_code": status}
+        assert raw not in response.text
+        if status == 429:
+            assert response.headers["Retry-After"] == "60"
+        assert any(raw in record.getMessage() and getattr(record, "request_id", None) == request_id
+                   for record in caplog.records)

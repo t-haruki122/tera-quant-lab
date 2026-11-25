@@ -4,7 +4,7 @@
 
 import { state } from './state.js';
 import { fetchAPI } from './api.js';
-import { formatCurrency, formatLargeNumber, formatTimestamp, formatNewsDate, escapeHtml, safeHttpUrl } from './utils.js';
+import { formatCurrency, formatLargeNumber, formatTimestamp, formatNewsDate, escapeHtml, safeHttpUrl, oldestStaleData, staleMessage, staleNotice } from './utils.js';
 import { loadChart, clearPriceAndRsiCharts, updateChartVisibility } from './chart.js';
 import { renderFinancialHistoryChart, renderDividendHistoryChart } from './financial-chart.js';
 
@@ -77,8 +77,9 @@ export function renderStockHeader(price, profile) {
     document.getElementById('stock-meta').textContent = meta.join(' • ');
 
     const currency = profile.currency || 'USD';
-    displayedQuote = { price: price.price, currency };
+    displayedQuote = { ...price, currency };
     renderQuotePrice();
+    renderQuoteStaleNotice();
     document.getElementById('price-timestamp').textContent = `最終更新: ${formatTimestamp(price.timestamp)}`;
 }
 
@@ -87,9 +88,16 @@ function renderQuotePrice() {
     displayedQuote.renderedRate = state.exchangeRateUSDJPY;
 }
 
+function renderQuoteStaleNotice() {
+    const notice = document.getElementById('quote-stale');
+    const forex = displayedQuote.currency === 'USD' && { stale: true, cached_at: state.exchangeRateCachedAt };
+    if (notice) notice.textContent = staleMessage(oldestStaleData(displayedQuote, forex));
+}
+
 export function refreshDetailPrices() {
-    if (!displayedQuote || displayedQuote.renderedRate === state.exchangeRateUSDJPY ||
-        document.getElementById('stock-detail').classList.contains('hidden')) return;
+    if (!displayedQuote || document.getElementById('stock-detail').classList.contains('hidden')) return;
+    renderQuoteStaleNotice();
+    if (displayedQuote.renderedRate === state.exchangeRateUSDJPY) return;
     renderQuotePrice();
     updateChartVisibility();
 }
@@ -126,7 +134,7 @@ export function renderProfile(profile) {
         html += `<div class="company-summary">${escapeHtml(profile.summary)}</div>`;
     }
 
-    body.innerHTML = html || '<p class="text-muted">データなし</p>';
+    body.innerHTML = staleNotice(profile) + (html || '<p class="text-muted">データなし</p>');
 }
 
 export function getMixIndexRating(value) {
@@ -195,7 +203,7 @@ export function renderIndicators(data) {
             </div>`;
     });
 
-    body.innerHTML = html;
+    body.innerHTML = staleNotice(data) + html;
 }
 
 // ===== Load: Financials =====
@@ -204,12 +212,14 @@ export async function loadFinancials(symbol, profile) {
     body.innerHTML = '<div class="skeleton-lines"><div></div><div></div><div></div></div>';
 
     try {
-        const [data, historyData, dividendHistoryData] = await Promise.all([
+        const [data, [history, dividends]] = await Promise.all([
             fetchAPI(`/stock/${encodeURIComponent(symbol)}/financials`),
-            fetchAPI(`/stock/${encodeURIComponent(symbol)}/financials/history?limit=8`),
-            fetchAPI(`/stock/${encodeURIComponent(symbol)}/dividends/history?limit=20`),
+            Promise.allSettled([
+                fetchAPI(`/stock/${encodeURIComponent(symbol)}/financials/history?limit=8`),
+                fetchAPI(`/stock/${encodeURIComponent(symbol)}/dividends/history?limit=20`),
+            ]),
         ]);
-        let html = '';
+        let html = staleNotice(data);
         const rows = [
             ['売上高', data.revenue ? formatLargeNumber(data.revenue, profile?.currency) : null],
             ['純利益', data.net_income ? formatLargeNumber(data.net_income, profile?.currency) : null],
@@ -229,21 +239,23 @@ export async function loadFinancials(symbol, profile) {
                     </div>
                 </div>
                 <div class="financial-history-chart-container">
-                    <canvas id="financials-history-chart"></canvas>
+                    ${history.status === 'fulfilled' ? '<canvas id="financials-history-chart"></canvas>'
+                        : `<p class="text-error">取得失敗: ${escapeHtml(history.reason.message)}</p>`}
                 </div>
             </div>
             <div class="financial-history-chart-wrap">
                 <div class="mini-chart-header">過去の配当推移（年利%）</div>
                 <div class="dividend-history-chart-container" id="dividend-history-chart-container">
-                    <canvas id="dividend-history-chart"></canvas>
-                    <p class="mini-chart-empty hidden" id="dividend-history-empty">配当履歴データがありません</p>
+                    ${dividends.status === 'fulfilled' ? `<canvas id="dividend-history-chart"></canvas>
+                        <p class="mini-chart-empty hidden" id="dividend-history-empty">配当履歴データがありません</p>`
+                        : `<p class="text-error">取得失敗: ${escapeHtml(dividends.reason.message)}</p>`}
                 </div>
             </div>`;
         body.innerHTML = html || '<p class="text-muted">データなし</p>';
-        state.currentFinancialHistory = historyData?.history || [];
+        state.currentFinancialHistory = history.value?.history || [];
         state.currentFinancialMetric = 'net_income';
         renderFinancialHistoryChart(state.currentFinancialHistory, state.currentFinancialMetric);
-        renderDividendHistoryChart(dividendHistoryData?.history || [], profile?.currency);
+        renderDividendHistoryChart(dividends.value?.history || [], profile?.currency);
     } catch (err) {
         if (state.financialChartInstance) {
             state.financialChartInstance.destroy();
@@ -265,12 +277,12 @@ export async function loadNews(symbol) {
     try {
         const data = await fetchAPI(`/stock/${encodeURIComponent(symbol)}/news`);
         if (!data.news || data.news.length === 0) {
-            body.innerHTML = '<p class="text-muted">ニュースが見つかりませんでした</p>';
+            body.innerHTML = staleNotice(data) + '<p class="text-muted">ニュースが見つかりませんでした</p>';
             return;
         }
-        let html = '<div class="news-list">';
+        let html = staleNotice(data) + '<div class="news-list">';
         data.news.forEach(article => {
-            const dateStr = article.published_at ? formatNewsDate(article.published_at) : '';
+            const metadata = [formatNewsDate(article.published_at), article.publisher || article.source].filter(Boolean).join(' · ');
             const url = safeHttpUrl(article.url);
             const open = url
                 ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="news-item">`
@@ -280,7 +292,7 @@ export async function loadNews(symbol) {
                     <div class="news-bullet"></div>
                     <div class="news-item-content">
                         <h4>${escapeHtml(article.title)}</h4>
-                        ${dateStr ? `<span class="news-date">${escapeHtml(dateStr)}</span>` : ''}
+                        ${metadata ? `<span class="news-date">${escapeHtml(metadata)}</span>` : ''}
                     </div>
                 ${url ? '</a>' : '</div>'}`;
         });
