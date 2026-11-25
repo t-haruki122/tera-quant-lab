@@ -1,28 +1,32 @@
 """プロフィールサービス - キャッシュ付き会社情報取得"""
 
-import asyncio
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.cache import upsert_cache
 from app.clients.yfinance_client import YFinanceClient
 from app.config import get_settings
 from app.models.db_models import CompanyProfile
+from app.singleflight import coalesce, fetch
 from app.stats import stats
+from app.timeutil import to_db
 
 settings = get_settings()
 _client = YFinanceClient()
 
 
+@coalesce
 async def get_profile(symbol: str, db: AsyncSession) -> dict:
     """
     会社プロフィールを取得（キャッシュ優先）
 
     キャッシュTTL: 1日
     """
+    symbol = symbol.upper()
     # キャッシュ確認
-    cutoff = datetime.utcnow() - timedelta(seconds=settings.cache_ttl_history)
+    cutoff = to_db() - timedelta(seconds=settings.cache_ttl_history)
     stmt = (
         select(CompanyProfile)
         .where(CompanyProfile.symbol == symbol.upper())
@@ -50,10 +54,10 @@ async def get_profile(symbol: str, db: AsyncSession) -> dict:
 
     # 外部APIから取得
     stats.log_api_call()
-    data = await asyncio.to_thread(_client.get_company_profile, symbol)
+    data = await fetch(_client.get_company_profile, symbol)
 
     # キャッシュに保存
-    record = CompanyProfile(
+    values = dict(
         symbol=data["symbol"],
         name=data["name"],
         sector=data.get("sector"),
@@ -64,9 +68,9 @@ async def get_profile(symbol: str, db: AsyncSession) -> dict:
         currency=data.get("currency"),
         website=data.get("website"),
         country=data.get("country"),
-        cached_at=datetime.utcnow(),
+        cached_at=to_db(),
     )
-    db.add(record)
+    await upsert_cache(db, CompanyProfile, values)
     await db.commit()
 
     return data

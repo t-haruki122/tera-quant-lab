@@ -71,7 +71,7 @@ export async function loadChart(symbol, period, currency) {
     const endStr = endDate.toISOString().split('T')[0];
 
     try {
-        const data = await fetchAPI(`/stock/${symbol}/history?start_date=${startStr}&end_date=${endStr}&interval=${interval}`);
+        const data = await fetchAPI(`/stock/${encodeURIComponent(symbol)}/history?start_date=${startStr}&end_date=${endStr}&interval=${interval}`);
 
         // 先に送信された遅いレスポンスで現在表示を上書きしない
         if (requestId !== state.latestChartRequestId || symbol !== state.currentSymbol) {

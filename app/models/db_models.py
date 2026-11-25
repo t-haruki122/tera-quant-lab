@@ -3,17 +3,26 @@
 from datetime import datetime
 
 from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from app.database import Base
+from app.timeutil import to_db
 
 
-class StockPrice(Base):
+class SymbolMixin:
+    @validates("symbol")
+    def normalize_symbol(self, key, value):
+        return value.upper()
+
+
+class StockPrice(SymbolMixin, Base):
     """株価データ"""
     __tablename__ = "stock_prices"
+    __table_args__ = (UniqueConstraint("symbol", "timestamp", "interval", name="uq_stock_prices_cache"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     symbol: Mapped[str] = mapped_column(String(20), index=True, nullable=False)
+    interval: Mapped[str] = mapped_column(String(20), default="1d", server_default="1d", nullable=False)
     timestamp: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     open: Mapped[float | None] = mapped_column(Float, nullable=True)
     high: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -21,13 +30,14 @@ class StockPrice(Base):
     close: Mapped[float] = mapped_column(Float, nullable=False)
     volume: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     cached_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime, default=to_db, nullable=False
     )
 
 
-class Financial(Base):
+class Financial(SymbolMixin, Base):
     """財務情報"""
     __tablename__ = "financials"
+    __table_args__ = (UniqueConstraint("symbol", name="uq_financials_cache"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     symbol: Mapped[str] = mapped_column(String(20), index=True, nullable=False)
@@ -39,13 +49,14 @@ class Financial(Base):
     assets: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     liabilities: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     cached_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime, default=to_db, nullable=False
     )
 
 
-class News(Base):
+class News(SymbolMixin, Base):
     """ニュース"""
     __tablename__ = "news"
+    __table_args__ = (UniqueConstraint("symbol", "url", name="uq_news_cache"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     symbol: Mapped[str] = mapped_column(String(20), index=True, nullable=False)
@@ -54,13 +65,14 @@ class News(Base):
     published_at: Mapped[str | None] = mapped_column(String(50), nullable=True)
     source: Mapped[str | None] = mapped_column(String(100), nullable=True)
     cached_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime, default=to_db, nullable=False
     )
 
 
-class CompanyProfile(Base):
+class CompanyProfile(SymbolMixin, Base):
     """会社プロフィール"""
     __tablename__ = "company_profiles"
+    __table_args__ = (UniqueConstraint("symbol", name="uq_company_profiles_cache"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     symbol: Mapped[str] = mapped_column(String(20), index=True, nullable=False)
@@ -74,13 +86,14 @@ class CompanyProfile(Base):
     website: Mapped[str | None] = mapped_column(String(500), nullable=True)
     country: Mapped[str | None] = mapped_column(String(100), nullable=True)
     cached_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime, default=to_db, nullable=False
     )
 
 
-class Indicator(Base):
+class Indicator(SymbolMixin, Base):
     """投資指数"""
     __tablename__ = "indicators"
+    __table_args__ = (UniqueConstraint("symbol", name="uq_indicators_cache"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     symbol: Mapped[str] = mapped_column(String(20), index=True, nullable=False)
@@ -94,7 +107,7 @@ class Indicator(Base):
     profit_margin: Mapped[float | None] = mapped_column(Float, nullable=True)
     debt_to_equity: Mapped[float | None] = mapped_column(Float, nullable=True)
     cached_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime, default=to_db, nullable=False
     )
 
 
@@ -106,7 +119,7 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime, default=to_db, nullable=False
     )
 
 
@@ -118,14 +131,14 @@ class UserList(Base):
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime, default=to_db, nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+        DateTime, default=to_db, onupdate=to_db, nullable=False
     )
 
 
-class UserListItem(Base):
+class UserListItem(SymbolMixin, Base):
     """リスト内の銘柄アイテム"""
     __tablename__ = "user_list_items"
     __table_args__ = (
@@ -138,7 +151,7 @@ class UserListItem(Base):
     tags: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON文字列 例: '["テック","高配当"]'
 
 
-class StockMemo(Base):
+class StockMemo(SymbolMixin, Base):
     """ユーザーごとの銘柄メモ"""
     __tablename__ = "stock_memos"
     __table_args__ = (
@@ -150,5 +163,5 @@ class StockMemo(Base):
     symbol: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     memo: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+        DateTime, default=to_db, onupdate=to_db, nullable=False
     )

@@ -1,10 +1,10 @@
 """為替レートサービス"""
 
-import asyncio
-from datetime import datetime
 from typing import Any
 
 from app.clients.yfinance_client import YFinanceClient
+from app.singleflight import coalesce, fetch
+from app.timeutil import utcnow
 
 _client = YFinanceClient()
 
@@ -12,12 +12,13 @@ _client = YFinanceClient()
 _forex_cache: dict[str, dict[str, Any]] = {}
 CACHE_TTL_SECONDS = 3600 
 
+@coalesce
 async def get_exchange_rate(pair: str) -> dict[str, Any]:
     """
     指定された為替ペア（例: USDJPY=X）の現在のレートを取得
     """
     pair = pair.upper()
-    now = datetime.utcnow()
+    now = utcnow()
 
     # キャッシュをチェック
     if pair in _forex_cache:
@@ -31,7 +32,7 @@ async def get_exchange_rate(pair: str) -> dict[str, Any]:
             }
 
     # APIから取得
-    data = await asyncio.to_thread(_client.get_exchange_rate, pair)
+    data = await fetch(_client.get_exchange_rate, pair)
     
     # キャッシュに保存
     _forex_cache[pair] = {

@@ -81,3 +81,13 @@ pip を使う場合も `pip install -r requirements.txt` で導入できます�
 
 ### システム統計
 ![システム統計](docs/images/ScreenShots_3.png)
+
+## データベースのマイグレーション
+
+起動時に Alembic の `upgrade head` が自動実行されます。従来の `create_all` で作成したDBも移行できます。キャッシュの重複は最新の取得日時（同時刻なら最大ID）を残して整理し、ユーザーデータは保持します。
+
+開発時の手動適用: `uv run alembic upgrade head`
+
+モデル変更時のリビジョン作成: `uv run alembic revision --autogenerate -m "変更内容"`
+
+`CACHE_RETENTION_DAYS`（既定30日）より古いキャッシュを起動時と書き込み時（プロセス内で最大1時間に1回）に削除します。ユーザー関連テーブルは削除対象に含みません。為替キャッシュと同時取得の共有はプロセス内に限られます。

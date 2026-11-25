@@ -22,11 +22,15 @@ class RateLimitError(Exception):
 
 
 class ExternalAPIError(Exception):
-    """外部APIエラー (500)"""
+    """外部APIエラー (502)"""
 
     def __init__(self, message: str = "External API error"):
         self.message = message
         super().__init__(self.message)
+
+
+class UpstreamUnavailableError(ExternalAPIError):
+    """Network failures and timeouts (503)."""
 
 
 def register_exception_handlers(app: FastAPI):
@@ -44,11 +48,16 @@ def register_exception_handlers(app: FastAPI):
         return JSONResponse(
             status_code=429,
             content={"detail": exc.message, "status_code": 429},
+            headers={"Retry-After": "60"},
         )
+
+    @app.exception_handler(UpstreamUnavailableError)
+    async def unavailable_handler(request: Request, exc: UpstreamUnavailableError):
+        return JSONResponse(status_code=503, content={"detail": exc.message, "status_code": 503})
 
     @app.exception_handler(ExternalAPIError)
     async def external_api_handler(request: Request, exc: ExternalAPIError):
         return JSONResponse(
-            status_code=500,
-            content={"detail": exc.message, "status_code": 500},
+            status_code=502,
+            content={"detail": exc.message, "status_code": 502},
         )

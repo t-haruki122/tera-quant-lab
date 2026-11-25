@@ -115,3 +115,16 @@ def users(client):
         user["list_id"] = client.get(f"/user/{user['id']}/default-list", headers=user["headers"]).json()["id"]
         result.append(user)
     return result
+
+
+@pytest.fixture
+def async_db(monkeypatch, settings):
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from app import database
+
+    engine = create_async_engine(settings.database_url)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    monkeypatch.setattr(database, "engine", engine)
+    monkeypatch.setattr(database, "AsyncSessionLocal", sessions)
+    return engine, sessions

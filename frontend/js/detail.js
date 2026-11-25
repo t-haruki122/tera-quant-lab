@@ -28,9 +28,9 @@ export async function searchStock() {
 
     try {
         const [price, profile, indicators] = await Promise.all([
-            fetchAPI(`/stock/${symbol}`),
-            fetchAPI(`/stock/${symbol}/profile`),
-            fetchAPI(`/stock/${symbol}/indicators`),
+            fetchAPI(`/stock/${encodeURIComponent(symbol)}`),
+            fetchAPI(`/stock/${encodeURIComponent(symbol)}/profile`),
+            fetchAPI(`/stock/${encodeURIComponent(symbol)}/indicators`),
         ]);
 
         renderStockHeader(price, profile);
@@ -189,9 +189,9 @@ export async function loadFinancials(symbol, profile) {
 
     try {
         const [data, historyData, dividendHistoryData] = await Promise.all([
-            fetchAPI(`/stock/${symbol}/financials`),
-            fetchAPI(`/stock/${symbol}/financials/history?limit=8`),
-            fetchAPI(`/stock/${symbol}/dividends/history?limit=20`),
+            fetchAPI(`/stock/${encodeURIComponent(symbol)}/financials`),
+            fetchAPI(`/stock/${encodeURIComponent(symbol)}/financials/history?limit=8`),
+            fetchAPI(`/stock/${encodeURIComponent(symbol)}/dividends/history?limit=20`),
         ]);
         let html = '';
         const rows = [
@@ -247,7 +247,7 @@ export async function loadNews(symbol) {
     body.innerHTML = '<div class="skeleton-lines"><div></div><div></div><div></div></div>';
 
     try {
-        const data = await fetchAPI(`/stock/${symbol}/news`);
+        const data = await fetchAPI(`/stock/${encodeURIComponent(symbol)}/news`);
         if (!data.news || data.news.length === 0) {
             body.innerHTML = '<p style="color:var(--text-muted)">ニュースが見つかりませんでした</p>';
             return;

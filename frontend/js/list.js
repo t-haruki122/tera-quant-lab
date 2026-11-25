@@ -12,7 +12,7 @@ export async function loadDefaultList() {
     if (!state.currentUser) return;
 
     try {
-        const data = await fetchAPI(`/user/${state.currentUser.id}/default-list`);
+        const data = await fetchAPI(`/user/${encodeURIComponent(state.currentUser.id)}/default-list`);
         state.currentListId = data.id;
 
         // 既存リストをクリアして読み込み
@@ -34,9 +34,9 @@ async function loadListItemData(symbol, tags) {
     const requestUser = state.currentUser;
     try {
         const [price, profile, indicators, memo] = await Promise.all([
-            fetchAPI(`/stock/${symbol}`),
-            fetchAPI(`/stock/${symbol}/profile`),
-            fetchAPI(`/stock/${symbol}/indicators`),
+            fetchAPI(`/stock/${encodeURIComponent(symbol)}`),
+            fetchAPI(`/stock/${encodeURIComponent(symbol)}/profile`),
+            fetchAPI(`/stock/${encodeURIComponent(symbol)}/indicators`),
             fetchStockMemo(symbol),
         ]);
 
@@ -73,7 +73,7 @@ async function loadListItemData(symbol, tags) {
 async function fetchStockMemo(symbol) {
     if (!state.currentUser) return null;
     try {
-        const data = await fetchAPI(`/user/${state.currentUser.id}/memo/${symbol}`);
+        const data = await fetchAPI(`/user/${encodeURIComponent(state.currentUser.id)}/memo/${encodeURIComponent(symbol)}`);
         return data.memo || null;
     } catch (err) {
         console.warn('Memo fetch failed:', err);
@@ -95,7 +95,7 @@ export async function editStockMemo(symbol) {
     const memo = input.trim() === '' ? null : input.trim();
 
     try {
-        const saved = await fetchAPI(`/user/${state.currentUser.id}/memo/${symbol}`, {
+        const saved = await fetchAPI(`/user/${encodeURIComponent(state.currentUser.id)}/memo/${encodeURIComponent(symbol)}`, {
             method: 'PUT',
             body: JSON.stringify({ memo }),
         });
@@ -203,7 +203,7 @@ async function addSymbolToList(symbol) {
     // サーバーにも追加（ログイン中のみ）
     if (state.currentUser && state.currentListId) {
         try {
-            await fetchAPI(`/user/${state.currentUser.id}/lists/${state.currentListId}/items`, {
+            await fetchAPI(`/user/${encodeURIComponent(state.currentUser.id)}/lists/${encodeURIComponent(state.currentListId)}/items`, {
                 method: 'POST',
                 body: JSON.stringify({ symbol, tags: [] }),
             });
@@ -214,9 +214,9 @@ async function addSymbolToList(symbol) {
 
     try {
         const [price, profile, indicators, memo] = await Promise.all([
-            fetchAPI(`/stock/${symbol}`),
-            fetchAPI(`/stock/${symbol}/profile`),
-            fetchAPI(`/stock/${symbol}/indicators`),
+            fetchAPI(`/stock/${encodeURIComponent(symbol)}`),
+            fetchAPI(`/stock/${encodeURIComponent(symbol)}/profile`),
+            fetchAPI(`/stock/${encodeURIComponent(symbol)}/indicators`),
             fetchStockMemo(symbol),
         ]);
 
@@ -244,7 +244,7 @@ async function addSymbolToList(symbol) {
         // サーバーからも削除
         if (state.currentUser && state.currentListId) {
             try {
-            await fetchAPI(`/user/${state.currentUser.id}/lists/${state.currentListId}/items/${symbol}`, { method: 'DELETE' });
+            await fetchAPI(`/user/${encodeURIComponent(state.currentUser.id)}/lists/${encodeURIComponent(state.currentListId)}/items/${encodeURIComponent(symbol)}`, { method: 'DELETE' });
             } catch { /* ignore */ }
         }
         showToast(`${symbol} の取得に失敗しました`, 'error');
@@ -268,7 +268,7 @@ async function removeFromList(symbol) {
     // サーバーからも削除
     if (state.currentUser && state.currentListId) {
         try {
-            await fetchAPI(`/user/${state.currentUser.id}/lists/${state.currentListId}/items/${symbol}`, { method: 'DELETE' });
+            await fetchAPI(`/user/${encodeURIComponent(state.currentUser.id)}/lists/${encodeURIComponent(state.currentListId)}/items/${encodeURIComponent(symbol)}`, { method: 'DELETE' });
         } catch (err) {
             console.warn('Server remove failed:', err);
         }
@@ -556,7 +556,7 @@ export function removeTag(tag) {
 async function syncTagsToServer(symbol, tags) {
     if (!state.currentUser || !state.currentListId) return;
     try {
-        await fetchAPI(`/user/${state.currentUser.id}/lists/${state.currentListId}/items/${symbol}/tags`, {
+        await fetchAPI(`/user/${encodeURIComponent(state.currentUser.id)}/lists/${encodeURIComponent(state.currentListId)}/items/${encodeURIComponent(symbol)}/tags`, {
             method: 'PUT',
             body: JSON.stringify({ tags }),
         });

@@ -20,6 +20,7 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import pandas as pd
 import requests
@@ -146,7 +147,7 @@ class APIClient:
     ) -> dict[str, Any]:
         return self._request(
             "GET",
-            f"/stock/{symbol}/history",
+            f"/stock/{quote(symbol, safe="")}/history",
             params={
                 "start_date": start_date,
                 "end_date": end_date,
@@ -160,7 +161,7 @@ class APIClient:
         symbol: str,
         cancel_check: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
-        return self._request("GET", f"/stock/{symbol}/financials", cancel_check=cancel_check)
+        return self._request("GET", f"/stock/{quote(symbol, safe="")}/financials", cancel_check=cancel_check)
 
     def get_financial_history(
         self,
@@ -170,7 +171,7 @@ class APIClient:
     ) -> dict[str, Any]:
         return self._request(
             "GET",
-            f"/stock/{symbol}/financials/history",
+            f"/stock/{quote(symbol, safe="")}/financials/history",
             params={"limit": limit},
             cancel_check=cancel_check,
         )

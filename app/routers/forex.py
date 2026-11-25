@@ -21,6 +21,7 @@ class ExchangeRateResponse(BaseModel):
 async def get_exchange_rate(pair: str):
     """現在の為替レートを取得"""
     # フロントエンドから 'USDJPY' と送られてきた場合などに '=X' を補完
+    pair = pair.upper()
     if not pair.endswith("=X"):
         pair = f"{pair}=X"
     return await forex_service.get_exchange_rate(pair)

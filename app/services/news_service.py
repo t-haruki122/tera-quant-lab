@@ -1,17 +1,19 @@
 """ニュースサービス - キャッシュ付きニュース取得"""
 
-import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.cache import upsert_cache
 from app.clients.news_client import NewsClient
 from app.clients.yfinance_client import YFinanceClient
 from app.config import get_settings
 from app.models.db_models import News
+from app.singleflight import coalesce, fetch
 from app.stats import stats
+from app.timeutil import to_db
 
 settings = get_settings()
 _news_client = NewsClient()
@@ -20,23 +22,19 @@ logger = logging.getLogger("app.services.news")
 
 
 def _get_company_name(symbol: str) -> str | None:
-    import yfinance as yf
-    logger.info(
-        "External API call: yfinance company_name_lookup symbol=%s",
-        symbol.upper(),
-    )
-    ticker = yf.Ticker(symbol)
-    return ticker.info.get("shortName") or ticker.info.get("longName")
+    return _yf_client.get_company_profile(symbol).get("name")
 
 
+@coalesce
 async def get_news(symbol: str, db: AsyncSession) -> dict:
     """
     ニュースを取得（キャッシュ優先）
 
     キャッシュTTL: 10分
     """
+    symbol = symbol.upper()
     # キャッシュ確認
-    cutoff = datetime.utcnow() - timedelta(seconds=settings.cache_ttl_news)
+    cutoff = to_db() - timedelta(seconds=settings.cache_ttl_news)
     stmt = (
         select(News)
         .where(News.symbol == symbol.upper())
@@ -61,25 +59,25 @@ async def get_news(symbol: str, db: AsyncSession) -> dict:
     # 会社名を取得して検索精度を向上
     company_name = None
     try:
-        company_name = await asyncio.to_thread(_get_company_name, symbol)
+        company_name = await fetch(_get_company_name, symbol)
     except Exception:
         pass
 
     # 外部APIから取得
     stats.log_api_call()
-    articles = await asyncio.to_thread(_news_client.get_news, symbol, company_name)
+    articles = await fetch(_news_client.get_news, symbol, company_name)
 
     # キャッシュに保存
     for article in articles:
-        record = News(
+        values = dict(
             symbol=symbol.upper(),
             title=article["title"],
             url=article["url"],
             published_at=article.get("published_at", ""),
             source=article.get("source", ""),
-            cached_at=datetime.utcnow(),
+            cached_at=to_db(),
         )
-        db.add(record)
+        await upsert_cache(db, News, values)
     if articles:
         await db.commit()
 

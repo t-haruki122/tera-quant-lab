@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     rate_limit_register_attempts: int = Field(default=5, gt=0)
     rate_limit_register_window_seconds: int = Field(default=3600, gt=0)
 
+    cache_retention_days: int = Field(default=30, gt=0)
+
     # Cache TTL (seconds)
     cache_ttl_current_price: int = 60        # 1分
     cache_ttl_history: int = 86400           # 1日

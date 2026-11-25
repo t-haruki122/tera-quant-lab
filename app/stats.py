@@ -1,7 +1,8 @@
 """アプリケーションのシステム統計情報管理"""
 
 from collections import defaultdict
-from datetime import datetime
+
+from app.timeutil import utcnow
 
 
 class AppStats:
@@ -16,7 +17,7 @@ class AppStats:
         self.errors = 0
         self.endpoint_hits = defaultdict(int)
         
-        self.started_at = datetime.utcnow()
+        self.started_at = utcnow()
 
     def log_api_call(self):
         """外部APIへのアクセスを記録"""
@@ -92,7 +93,7 @@ class AppStats:
             "avg_response_time_ms": avg_response_time,
             "top_endpoints": top_endpoints,
             
-            "uptime_seconds": int((datetime.utcnow() - self.started_at).total_seconds())
+            "uptime_seconds": int((utcnow() - self.started_at).total_seconds())
         }
 
 # グローバルな統計インスタンス

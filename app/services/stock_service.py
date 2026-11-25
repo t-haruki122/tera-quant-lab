@@ -1,15 +1,17 @@
 """株価サービス - キャッシュ付き株価データ取得"""
 
-import asyncio
 from datetime import datetime, timedelta
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.cache import upsert_cache
 from app.clients.yfinance_client import YFinanceClient
 from app.config import get_settings
 from app.models.db_models import StockPrice
+from app.singleflight import coalesce, fetch
 from app.stats import stats
+from app.timeutil import to_db
 
 settings = get_settings()
 _client = YFinanceClient()
@@ -116,18 +118,21 @@ def _aggregate_history(records: list[dict], interval: str) -> list[dict]:
     return aggregated
 
 
+@coalesce
 async def get_current_price(symbol: str, db: AsyncSession) -> dict:
     """
     現在の株価を取得（キャッシュ優先）
 
     キャッシュTTL: 1分
     """
+    symbol = symbol.upper()
     # キャッシュ確認
-    cutoff = datetime.utcnow() - timedelta(seconds=settings.cache_ttl_current_price)
+    cutoff = to_db() - timedelta(seconds=settings.cache_ttl_current_price)
     stmt = (
         select(StockPrice)
         .where(StockPrice.symbol == symbol.upper())
         .where(StockPrice.cached_at >= cutoff)
+        .where(StockPrice.interval == "quote")
         .order_by(StockPrice.cached_at.desc())
         .limit(1)
     )
@@ -144,21 +149,23 @@ async def get_current_price(symbol: str, db: AsyncSession) -> dict:
 
     # 外部APIから取得
     stats.log_api_call()
-    data = await asyncio.to_thread(_client.get_current_price, symbol)
+    data = await fetch(_client.get_current_price, symbol)
 
     # キャッシュに保存
-    record = StockPrice(
-        symbol=data["symbol"],
+    values = dict(
+        symbol=symbol,
+        interval="quote",
         timestamp=datetime.fromisoformat(data["timestamp"].replace("Z", "+00:00")),
         close=data["price"],
-        cached_at=datetime.utcnow(),
+        cached_at=to_db(),
     )
-    db.add(record)
+    await upsert_cache(db, StockPrice, values)
     await db.commit()
 
     return data
 
 
+@coalesce
 async def get_history(
     symbol: str,
     db: AsyncSession,
@@ -169,6 +176,7 @@ async def get_history(
     """
     過去の株価データを取得（キャッシュ優先・指標計算付き）
     """
+    symbol = symbol.upper()
     requested_interval = interval.lower()
     source_interval = "1d" if requested_interval in {"1wk", "1mo"} else requested_interval
 
@@ -186,12 +194,13 @@ async def get_history(
 
     # 日次データ(1d)をソースとして使う場合はDBキャッシュを利用する
     if source_interval == "1d":
-        cutoff = datetime.utcnow() - timedelta(seconds=settings.cache_ttl_history)
+        cutoff = to_db() - timedelta(seconds=settings.cache_ttl_history)
         stmt = (
             select(StockPrice)
             .where(StockPrice.symbol == symbol.upper())
             .where(StockPrice.cached_at >= cutoff)
             .where(StockPrice.open.isnot(None))
+            .where(StockPrice.interval == "1d")
             .order_by(StockPrice.timestamp.asc())
         )
 
@@ -229,24 +238,24 @@ async def get_history(
     # キャッシュがない場合は外部APIから取得
     if not records:
         stats.log_api_call()
-        records = await asyncio.to_thread(_client.get_history, symbol, fetch_start_date, end_date, source_interval)
+        records = await fetch(_client.get_history, symbol, fetch_start_date, end_date, source_interval)
 
         # 取得したデータをDBにキャッシュする（日次ソースのみ）
         if source_interval == "1d":
-            # 重複挿入を防ぐため、既存の該当シンボルのキャッシュを削除
-            await db.execute(delete(StockPrice).where(StockPrice.symbol == symbol.upper()))
+            # 同じ日足だけを更新し、他期間と現在値は保持する
             for rec in records:
-                db_record = StockPrice(
-                    symbol=symbol.upper(),
+                values = dict(
+                    symbol=symbol,
+                    interval="1d",
                     timestamp=datetime.strptime(rec["date"], "%Y-%m-%d"),
                     open=rec.get("open"),
                     high=rec.get("high"),
                     low=rec.get("low"),
                     close=rec["close"],
                     volume=rec.get("volume"),
-                    cached_at=datetime.utcnow(),
+                    cached_at=to_db(),
                 )
-                db.add(db_record)
+                await upsert_cache(db, StockPrice, values)
             await db.commit()
 
     # 1wk/1moは日次データから再集計する

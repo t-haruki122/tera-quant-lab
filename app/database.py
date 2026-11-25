@@ -1,7 +1,10 @@
 """データベース接続・セッション管理"""
 
 import importlib
+from pathlib import Path
 
+from alembic import command
+from alembic.config import Config
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -28,11 +31,23 @@ class Base(DeclarativeBase):
 
 
 async def init_db():
-    """データベース初期化（テーブル作成）"""
+    """マイグレーション適用と期限切れキャッシュの削除。"""
     # Register models even when init_db is called without importing the routers.
     importlib.import_module("app.models.db_models")
+
+    def upgrade(connection):
+        config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+        config.attributes["connection"] = connection
+        command.upgrade(config, "head")
+
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(upgrade)
+
+    from app.cache import purge_cache
+
+    async with AsyncSessionLocal() as session:
+        await purge_cache(session, force=True)
+        await session.commit()
 
 
 async def get_db() -> AsyncSession:

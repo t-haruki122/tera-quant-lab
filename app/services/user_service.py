@@ -5,7 +5,6 @@ import hashlib
 import hmac
 import json
 import re
-from datetime import datetime
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
@@ -13,6 +12,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.db_models import StockMemo, User, UserList, UserListItem
+from app.timeutil import to_db
 
 ph = PasswordHasher()
 _DUMMY_HASH = ph.hash("tql-dummy-password-for-missing-users")
@@ -48,13 +48,13 @@ async def register_user(username: str, password: str, db: AsyncSession) -> User:
     user = User(
         username=username,
         password_hash=await asyncio.to_thread(_hash_password, password),
-        created_at=datetime.utcnow(),
+        created_at=to_db(),
     )
     db.add(user)
     await db.flush()  # IDを取得するためflush
 
     # デフォルトリストを自動作成
-    now = datetime.utcnow()
+    now = to_db()
     default_list = UserList(
         user_id=user.id,
         name="マイリスト",
@@ -96,7 +96,7 @@ async def get_or_create_default_list(user_id: int, db: AsyncSession) -> UserList
         return user_list
 
     # リストがなければ作成
-    now = datetime.utcnow()
+    now = to_db()
     user_list = UserList(
         user_id=user_id,
         name="マイリスト",
@@ -121,7 +121,7 @@ async def get_user_lists(user_id: int, db: AsyncSession) -> list[UserList]:
 
 async def create_list(user_id: int, name: str, db: AsyncSession) -> UserList:
     """リストを作成"""
-    now = datetime.utcnow()
+    now = to_db()
     user_list = UserList(
         user_id=user_id,
         name=name,
@@ -173,7 +173,7 @@ async def update_list(user_id: int, list_id: int, name: str, db: AsyncSession) -
         raise ValueError("リストが見つかりません")
 
     user_list.name = name
-    user_list.updated_at = datetime.utcnow()
+    user_list.updated_at = to_db()
     await db.commit()
     await db.refresh(user_list)
     return user_list
@@ -202,6 +202,7 @@ async def add_list_item(
     user_id: int, list_id: int, symbol: str, tags: list[str], db: AsyncSession
 ) -> UserListItem:
     """リストにアイテムを追加"""
+    symbol = symbol.upper()
     # リスト所有権チェック
     result = await db.execute(
         select(UserList).where(UserList.id == list_id, UserList.user_id == user_id)
@@ -230,7 +231,7 @@ async def add_list_item(
         select(UserList).where(UserList.id == list_id)
     )
     user_list = list_result.scalar_one()
-    user_list.updated_at = datetime.utcnow()
+    user_list.updated_at = to_db()
 
     await db.commit()
     await db.refresh(item)
@@ -241,6 +242,7 @@ async def remove_list_item(
     user_id: int, list_id: int, symbol: str, db: AsyncSession
 ) -> None:
     """リストからアイテムを削除"""
+    symbol = symbol.upper()
     # リスト所有権チェック
     result = await db.execute(
         select(UserList).where(UserList.id == list_id, UserList.user_id == user_id)
@@ -265,6 +267,7 @@ async def update_item_tags(
     user_id: int, list_id: int, symbol: str, tags: list[str], db: AsyncSession
 ) -> UserListItem:
     """アイテムのタグを更新"""
+    symbol = symbol.upper()
     # リスト所有権チェック
     result = await db.execute(
         select(UserList).where(UserList.id == list_id, UserList.user_id == user_id)
@@ -290,6 +293,7 @@ async def update_item_tags(
 
 async def get_stock_memo(user_id: int, symbol: str, db: AsyncSession) -> StockMemo | None:
     """ユーザーの銘柄メモを取得"""
+    symbol = symbol.upper()
     result = await db.execute(
         select(StockMemo).where(
             StockMemo.user_id == user_id,
@@ -306,12 +310,13 @@ async def save_stock_memo(
     db: AsyncSession,
 ) -> StockMemo:
     """ユーザーの銘柄メモを保存（作成または更新）"""
+    symbol = symbol.upper()
     normalized_symbol = symbol.upper()
     existing_memo = await get_stock_memo(user_id, normalized_symbol, db)
 
     if existing_memo:
         existing_memo.memo = memo
-        existing_memo.updated_at = datetime.utcnow()
+        existing_memo.updated_at = to_db()
         await db.commit()
         await db.refresh(existing_memo)
         return existing_memo
