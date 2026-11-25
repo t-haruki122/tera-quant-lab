@@ -4,15 +4,16 @@ import logging
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
-from app.config import get_settings
+from app.config import DEV_SECRET_KEY, get_settings
 from app.database import init_db
-from app.routers import stock, user, stats, forex
 from app.exceptions import register_exception_handlers
+from app.routers import forex, stats, stock, user
 from app.stats import stats as app_stats
 
 
@@ -50,6 +51,11 @@ FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 async def lifespan(app: FastAPI):
     """アプリケーションのライフサイクル管理"""
     # 起動時: DB初期化
+    if settings.secret_key == DEV_SECRET_KEY:
+        logger.warning(
+            "SECRET_KEY is using the insecure development default. "
+            "Set a strong, private SECRET_KEY before deploying; tokens can otherwise be forged."
+        )
     await init_db()
     logger.info("Application startup completed")
     yield
@@ -65,13 +71,20 @@ app = FastAPI(
 )
 
 # CORS設定
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+def configure_cors(app: FastAPI, origins: list[str], *, allow_credentials: bool = False) -> None:
+    if "*" in origins and allow_credentials:
+        raise ValueError("Wildcard CORS origins cannot be combined with credentials")
+    if origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_credentials=allow_credentials,
+            allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+            allow_headers=["Authorization", "Content-Type"],
+        )
+
+
+configure_cors(app, settings.cors_origins)
 
 @app.middleware("http")
 async def stats_middleware(request: Request, call_next):

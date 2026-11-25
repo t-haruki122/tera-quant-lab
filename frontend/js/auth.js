@@ -2,7 +2,7 @@
  * Stock Analyzer — Account and auth modals
  */
 
-import { state } from './state.js';
+import { state, cache } from './state.js';
 import { fetchAPI } from './api.js';
 import { showToast } from './utils.js';
 import { loadDefaultList, renderListTable } from './list.js';
@@ -100,6 +100,12 @@ export async function submitAuth() {
         return;
     }
 
+    if (state.authMode === 'register' && password.length < 8) {
+        errorEl.textContent = 'パスワードは8文字以上にしてください';
+        errorEl.classList.remove('hidden');
+        return;
+    }
+
     const submitBtn = document.getElementById('auth-submit-btn');
     submitBtn.disabled = true;
     submitBtn.textContent = '処理中...';
@@ -111,9 +117,14 @@ export async function submitAuth() {
             body: JSON.stringify({ username, password }),
         });
 
+        cache.clear();
+        state.currentListId = null;
+        state.listItems = [];
+        state.activeTagFilter = null;
         state.currentUser = user;
         localStorage.setItem('stockAnalyzerUser', JSON.stringify(user));
         updateAccountUI();
+        renderListTable();
         closeAuthModal();
         showToast(state.authMode === 'login' ? 'ログインしました' : 'アカウントを作成しました', 'success');
 
@@ -129,6 +140,7 @@ export async function submitAuth() {
 }
 
 export function logoutUser() {
+    cache.clear();
     state.currentUser = null;
     state.currentListId = null;
     state.listItems = [];

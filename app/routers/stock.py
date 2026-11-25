@@ -5,17 +5,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.schemas.stock import (
-    StockPriceResponse,
-    StockHistoryResponse,
-    FinancialResponse,
-    FinancialHistoryResponse,
-    DividendHistoryResponse,
-    NewsResponse,
     CompanyProfileResponse,
+    DividendHistoryResponse,
+    FinancialHistoryResponse,
+    FinancialResponse,
     IndicatorsResponse,
+    NewsResponse,
+    StockHistoryResponse,
+    StockPriceResponse,
 )
-from app.services import stock_service, finance_service, news_service
-from app.services import profile_service, indicator_service
+from app.services import finance_service, indicator_service, news_service, profile_service, stock_service
 
 router = APIRouter(prefix="/stock", tags=["stock"])
 

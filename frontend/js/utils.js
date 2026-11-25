@@ -10,7 +10,7 @@ export function showToast(message, type = 'info') {
     toast.className = `toast toast-${type}`;
 
     const icons = { success: '✓', error: '✕', warning: '⚠', info: 'ℹ' };
-    toast.innerHTML = `<span class="toast-icon">${icons[type] || 'ℹ'}</span><span class="toast-message">${escapeHtml(message)}</span>`;
+    toast.innerHTML = `<span class="toast-icon">${escapeHtml(icons[type] || 'ℹ')}</span><span class="toast-message">${escapeHtml(message)}</span>`;
 
     container.appendChild(toast);
     setTimeout(() => {
@@ -98,14 +98,28 @@ export function formatNewsDate(dateStr) {
     }
 }
 
-export function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
+export function escapeHtml(value) {
+    const entities = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    return String(value ?? '').replace(/[&<>"']/g, char => entities[char]);
 }
 
-export function escapeAttr(str) {
-    return str.replace(/'/g, "\\'").replace(/\"/g, '&quot;');
+// Attribute values must be quoted; event handlers use data attributes/listeners.
+export function escapeAttr(value) {
+    return escapeHtml(value);
+}
+
+export function safeHttpUrl(value) {
+    try {
+        const url = new URL(String(value ?? ''));
+        return ['http:', 'https:'].includes(url.protocol) ? url.href : null;
+    } catch {
+        return null;
+    }
+}
+
+export function normalizeTagHue(value) {
+    const hue = Number(value);
+    return Number.isFinite(hue) ? Math.max(0, Math.min(360, hue)) : 210;
 }
 
 Object.assign(window, {

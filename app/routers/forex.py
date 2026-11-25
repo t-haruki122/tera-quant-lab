@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter
 from pydantic import BaseModel
+
 from app.services import forex_service
 
 router = APIRouter(prefix="/forex", tags=["forex"])

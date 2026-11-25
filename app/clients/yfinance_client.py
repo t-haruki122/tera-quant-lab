@@ -1,13 +1,13 @@
 """yfinance ラッパークライアント"""
 
 import logging
-import yfinance as yf
-from datetime import datetime, date, timedelta
 import math
+from datetime import date, datetime
 from typing import Any
 
-from app.exceptions import SymbolNotFoundError, ExternalAPIError
+import yfinance as yf
 
+from app.exceptions import ExternalAPIError, SymbolNotFoundError
 
 logger = logging.getLogger("app.external.yfinance")
 
@@ -47,7 +47,7 @@ class YFinanceClient:
         except SymbolNotFoundError:
             raise
         except Exception as e:
-            raise ExternalAPIError(f"Failed to fetch price for {symbol}: {str(e)}")
+            raise ExternalAPIError(f"Failed to fetch price for {symbol}: {str(e)}") from e
 
     def get_exchange_rate(self, pair: str) -> dict[str, Any]:
         """
@@ -85,7 +85,7 @@ class YFinanceClient:
                 "timestamp": timestamp,
             }
         except Exception as e:
-            raise ExternalAPIError(f"Failed to fetch exchange rate for {pair}: {str(e)}")
+            raise ExternalAPIError(f"Failed to fetch exchange rate for {pair}: {str(e)}") from e
 
     def get_history(
         self,
@@ -149,7 +149,7 @@ class YFinanceClient:
         except Exception as e:
             raise ExternalAPIError(
                 f"Failed to fetch history for {symbol}: {str(e)}"
-            )
+            ) from e
 
     def get_financials(self, symbol: str) -> dict[str, Any]:
         """
@@ -179,7 +179,7 @@ class YFinanceClient:
         except Exception as e:
             raise ExternalAPIError(
                 f"Failed to fetch financials for {symbol}: {str(e)}"
-            )
+            ) from e
 
     def get_financial_history(self, symbol: str, limit: int = 6) -> dict[str, Any]:
         """
@@ -240,7 +240,7 @@ class YFinanceClient:
         except Exception as e:
             raise ExternalAPIError(
                 f"Failed to fetch financial history for {symbol}: {str(e)}"
-            )
+            ) from e
 
     def get_dividend_history(self, symbol: str, limit: int = 20) -> dict[str, Any]:
         """
@@ -324,7 +324,7 @@ class YFinanceClient:
         except Exception as e:
             raise ExternalAPIError(
                 f"Failed to fetch dividend history for {symbol}: {str(e)}"
-            )
+            ) from e
 
     def get_company_profile(self, symbol: str) -> dict[str, Any]:
         """
@@ -360,7 +360,7 @@ class YFinanceClient:
         except Exception as e:
             raise ExternalAPIError(
                 f"Failed to fetch profile for {symbol}: {str(e)}"
-            )
+            ) from e
 
     def get_indicators(self, symbol: str) -> dict[str, Any]:
         """
@@ -410,4 +410,4 @@ class YFinanceClient:
         except Exception as e:
             raise ExternalAPIError(
                 f"Failed to fetch indicators for {symbol}: {str(e)}"
-            )
+            ) from e

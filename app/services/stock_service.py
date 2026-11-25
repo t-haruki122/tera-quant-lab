@@ -1,12 +1,14 @@
 """株価サービス - キャッシュ付き株価データ取得"""
 
+import asyncio
 from datetime import datetime, timedelta
-from sqlalchemy import select, delete
+
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients.yfinance_client import YFinanceClient
-from app.models.db_models import StockPrice
 from app.config import get_settings
+from app.models.db_models import StockPrice
 from app.stats import stats
 
 settings = get_settings()
@@ -44,6 +46,9 @@ def _calculate_rsi(closes: list[float], period: int = 14) -> list[float | None]:
                 losses -= diff
             
             if i == period:
+                # Wilder smoothing starts from average gains/losses, not sums.
+                gains /= period
+                losses /= period
                 if losses == 0:
                     rsi.append(100.0)
                 else:
@@ -139,7 +144,7 @@ async def get_current_price(symbol: str, db: AsyncSession) -> dict:
 
     # 外部APIから取得
     stats.log_api_call()
-    data = _client.get_current_price(symbol)
+    data = await asyncio.to_thread(_client.get_current_price, symbol)
 
     # キャッシュに保存
     record = StockPrice(
@@ -224,7 +229,7 @@ async def get_history(
     # キャッシュがない場合は外部APIから取得
     if not records:
         stats.log_api_call()
-        records = _client.get_history(symbol, fetch_start_date, end_date, source_interval)
+        records = await asyncio.to_thread(_client.get_history, symbol, fetch_start_date, end_date, source_interval)
 
         # 取得したデータをDBにキャッシュする（日次ソースのみ）
         if source_interval == "1d":

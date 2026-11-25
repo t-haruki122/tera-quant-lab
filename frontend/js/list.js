@@ -4,7 +4,7 @@
 
 import { state } from './state.js';
 import { fetchAPI } from './api.js';
-import { showToast, formatCurrency, formatLargeNumber, escapeHtml, escapeAttr } from './utils.js';
+import { showToast, formatCurrency, formatLargeNumber, escapeHtml, escapeAttr, normalizeTagHue } from './utils.js';
 import { getMarketCapCategory, getMixIndexRating, getRatingSymbol, searchStock } from './detail.js';
 
 // ===== Default List (1:1対応) =====
@@ -31,6 +31,7 @@ export async function loadDefaultList() {
 }
 
 async function loadListItemData(symbol, tags) {
+    const requestUser = state.currentUser;
     try {
         const [price, profile, indicators, memo] = await Promise.all([
             fetchAPI(`/stock/${symbol}`),
@@ -38,6 +39,8 @@ async function loadListItemData(symbol, tags) {
             fetchAPI(`/stock/${symbol}/indicators`),
             fetchStockMemo(symbol),
         ]);
+
+        if (state.currentUser !== requestUser) return;
 
         const idx = state.listItems.findIndex(i => i.symbol === symbol);
         if (idx >= 0) {
@@ -57,6 +60,7 @@ async function loadListItemData(symbol, tags) {
             renderListTable();
         }
     } catch (err) {
+        if (state.currentUser !== requestUser) return;
         const idx = state.listItems.findIndex(i => i.symbol === symbol);
         if (idx >= 0) {
             state.listItems[idx].loading = false;
@@ -384,10 +388,10 @@ export function renderListTable() {
         if (item.loading) {
             const isPendingDelete = state.pendingDeleteSymbol === item.symbol;
             html += `
-                <tr class="row-loading" data-symbol="${item.symbol}">
-                    <td class="table-ticker">${item.symbol}</td>
+                <tr class="row-loading" data-symbol="${escapeHtml(item.symbol)}">
+                    <td class="table-ticker">${escapeHtml(item.symbol)}</td>
                     <td colspan="7" style="color:var(--text-muted)">読み込み中...</td>
-                    <td><button class="btn-remove ${isPendingDelete ? 'confirm' : ''}" type="button" data-action="remove-item" data-symbol="${item.symbol}">${isPendingDelete ? 'OK?' : '削除'}</button></td>
+                    <td><button class="btn-remove ${isPendingDelete ? 'confirm' : ''}" type="button" data-action="remove-item" data-symbol="${escapeHtml(item.symbol)}">${isPendingDelete ? 'OK?' : '削除'}</button></td>
                 </tr>`;
             return;
         }
@@ -399,7 +403,7 @@ export function renderListTable() {
                 tagsHtml += `<span class="tag-chip small" style="--tag-hue:${color}">${escapeHtml(tag)}</span>`;
             });
         }
-        tagsHtml += `<button class="btn-tag-edit" type="button" data-action="open-tag-modal" data-symbol="${item.symbol}" title="タグ編集">🏷️</button>`;
+        tagsHtml += `<button class="btn-tag-edit" type="button" data-action="open-tag-modal" data-symbol="${escapeHtml(item.symbol)}" title="タグ編集">🏷️</button>`;
 
         const memoPreview = item.memo
             ? escapeHtml(item.memo.length > 24 ? `${item.memo.slice(0, 24)}...` : item.memo)
@@ -411,16 +415,16 @@ export function renderListTable() {
         const isPendingDelete = state.pendingDeleteSymbol === item.symbol;
 
         html += `
-            <tr data-symbol="${item.symbol}">
-                <td class="table-ticker">${item.symbol}</td>
+            <tr data-symbol="${escapeHtml(item.symbol)}">
+                <td class="table-ticker">${escapeHtml(item.symbol)}</td>
                 <td class="table-company">${escapeHtml(item.name || '—')}</td>
-                <td class="numeric">${item.price != null ? formatCurrency(item.price, item.currency) : '—'}</td>
+                <td class="numeric">${escapeHtml(item.price != null ? formatCurrency(item.price, item.currency) : '—')}</td>
                 <td class="table-market-cap" title="${item.market_cap != null ? escapeAttr(formatLargeNumber(item.market_cap, item.currency)) : ''}">${marketCapCategory || '—'}</td>
                 <td class="numeric">${item.mix_index != null ? item.mix_index.toFixed(2) : '—'} ${mixBadge}</td>
                 <td class="numeric">${item.dividend_yield != null ? item.dividend_yield.toFixed(2) + '%' : '—'}</td>
                 <td class="table-tags">${tagsHtml}</td>
-                <td class="table-memo"><button class="btn-memo" type="button" data-action="edit-memo" data-symbol="${item.symbol}">📝</button><span class="memo-preview" title="${memoTitle}">${memoPreview}</span></td>
-                <td><button class="btn-remove ${isPendingDelete ? 'confirm' : ''}" type="button" data-action="remove-item" data-symbol="${item.symbol}">${isPendingDelete ? 'OK?' : '削除'}</button></td>
+                <td class="table-memo"><button class="btn-memo" type="button" data-action="edit-memo" data-symbol="${escapeHtml(item.symbol)}">📝</button><span class="memo-preview" title="${memoTitle}">${memoPreview}</span></td>
+                <td><button class="btn-remove ${isPendingDelete ? 'confirm' : ''}" type="button" data-action="remove-item" data-symbol="${escapeHtml(item.symbol)}">${isPendingDelete ? 'OK?' : '削除'}</button></td>
             </tr>`;
     });
 
@@ -562,11 +566,12 @@ async function syncTagsToServer(symbol, tags) {
 }
 
 function getTagColor(tag) {
+    tag = String(tag ?? '');
     let hash = 0;
     for (let i = 0; i < tag.length; i++) {
         hash = tag.charCodeAt(i) + ((hash << 5) - hash);
     }
-    return Math.abs(hash % 360);
+    return normalizeTagHue(Math.abs(hash % 360));
 }
 
 export function setListSearchQuery(query) {

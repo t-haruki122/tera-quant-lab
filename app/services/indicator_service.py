@@ -1,12 +1,14 @@
 """指数サービス - キャッシュ付き投資指数取得"""
 
+import asyncio
 from datetime import datetime, timedelta
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients.yfinance_client import YFinanceClient
-from app.models.db_models import Indicator
 from app.config import get_settings
+from app.models.db_models import Indicator
 from app.stats import stats
 
 settings = get_settings()
@@ -48,7 +50,7 @@ async def get_indicators(symbol: str, db: AsyncSession) -> dict:
 
     # 外部APIから取得
     stats.log_api_call()
-    data = _client.get_indicators(symbol)
+    data = await asyncio.to_thread(_client.get_indicators, symbol)
 
     # キャッシュに保存
     record = Indicator(

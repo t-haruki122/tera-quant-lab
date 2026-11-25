@@ -10,12 +10,16 @@ from __future__ import annotations
 import argparse
 import csv
 import dataclasses
+import getpass
+import math
+import os
 import sys
 import threading
 import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import pandas as pd
 import requests
@@ -47,12 +51,22 @@ class APIClient:
         timeout: float = 10.0,
         max_retries: int = 3,
         retry_wait: float = 1.0,
+        token: str | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.max_retries = max_retries
         self.retry_wait = retry_wait
         self.session = requests.Session()
+        if token:
+            self.session.headers["Authorization"] = f"Bearer {token}"
+
+    def login(self, username: str, password: str) -> dict[str, Any]:
+        payload = self._request(
+            "POST", "/user/login", json={"username": username, "password": password}
+        )
+        self.session.headers["Authorization"] = f"Bearer {payload['access_token']}"
+        return payload
 
     def _request(
         self,
@@ -60,11 +74,13 @@ class APIClient:
         path: str,
         params: dict[str, Any] | None = None,
         cancel_check: Callable[[], bool] | None = None,
+        json: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         url = f"{self.base_url}{path}"
         last_error: Exception | None = None
 
         for attempt in range(1, self.max_retries + 1):
+            retry_after = None
             if cancel_check is not None and cancel_check():
                 raise RuntimeError("Cancelled")
             try:
@@ -73,31 +89,50 @@ class APIClient:
                     url=url,
                     params=params,
                     timeout=self.timeout,
+                    json=json,
                 )
-
-                if response.status_code == 404:
-                    raise RuntimeError(f"404 Not Found: {url}")
-                if response.status_code >= 400:
-                    raise RuntimeError(
-                        f"HTTP {response.status_code}: {url} - {response.text[:200]}"
-                    )
-
-                return response.json()
             except (requests.Timeout, requests.ConnectionError, RuntimeError) as exc:
                 last_error = exc
                 if str(exc) == "Cancelled":
                     raise
-                if attempt >= self.max_retries:
-                    break
-                sleep_sec = self.retry_wait * attempt
-                # Sleep in short chunks so cancellation can interrupt retry waits.
-                waited = 0.0
-                while waited < sleep_sec:
-                    if cancel_check is not None and cancel_check():
-                        raise RuntimeError("Cancelled")
-                    chunk = min(0.1, sleep_sec - waited)
-                    time.sleep(chunk)
-                    waited += chunk
+            else:
+                if response.status_code == 404:
+                    raise RuntimeError(f"404 Not Found: {url}")
+                if response.status_code < 400:
+                    return response.json()
+
+                detail = response.text[:200]
+                if response.status_code in (401, 403):
+                    try:
+                        payload = response.json()
+                    except ValueError:
+                        pass
+                    else:
+                        if isinstance(payload, dict) and payload.get("detail"):
+                            detail = payload["detail"]
+                last_error = RuntimeError(f"HTTP {response.status_code}: {url} - {detail}")
+                if response.status_code == 429:
+                    try:
+                        seconds = float(getattr(response, "headers", {}).get("Retry-After", ""))
+                    except (ValueError, TypeError):
+                        pass
+                    else:
+                        if math.isfinite(seconds) and seconds >= 0:
+                            retry_after = min(seconds, 30.0)
+                if 400 <= response.status_code < 500 and response.status_code != 429:
+                    raise last_error
+
+            if attempt >= self.max_retries:
+                break
+            sleep_sec = retry_after if retry_after is not None else self.retry_wait * attempt
+            # Sleep in short chunks so cancellation can interrupt retry waits.
+            waited = 0.0
+            while waited < sleep_sec:
+                if cancel_check is not None and cancel_check():
+                    raise RuntimeError("Cancelled")
+                chunk = min(0.1, sleep_sec - waited)
+                time.sleep(chunk)
+                waited += chunk
 
         raise RuntimeError(f"API request failed after retries: {url} ({last_error})")
 
@@ -362,7 +397,10 @@ def parse_args() -> argparse.Namespace:
     target_group.add_argument("--symbol", type=str, help="単一銘柄シンボル (例: AAPL)")
     target_group.add_argument("--watchlist-id", type=int, help="ウォッチリストID")
 
-    parser.add_argument("--user-id", type=int, help="ウォッチリスト取得用のユーザーID")
+    parser.add_argument("--user-id", type=int, help="ウォッチリスト取得用のユーザーID (--username 指定時は省略可)")
+    auth_group = parser.add_mutually_exclusive_group()
+    auth_group.add_argument("--username", help="ログインユーザー名 (パスワード: TQL_PASSWORD または非表示入力)")
+    auth_group.add_argument("--token", help="Bearerトークン (未指定時: TQL_TOKEN)")
 
     parser.add_argument("--start-date", required=True, help="開始日 YYYY-MM-DD")
     parser.add_argument("--end-date", required=True, help="終了日 YYYY-MM-DD")
@@ -399,8 +437,12 @@ def validate_args(args: argparse.Namespace) -> None:
     if start > end:
         raise ValueError("start-date は end-date 以前にしてください")
 
-    if args.watchlist_id is not None and args.user_id is None:
-        raise ValueError("watchlist-id 指定時は user-id が必要です")
+    if (
+        getattr(args, "watchlist_id", None) is not None
+        and getattr(args, "user_id", None) is None
+        and not getattr(args, "username", None)
+    ):
+        raise ValueError("watchlist-id 指定時は --user-id が必要です（--username 指定時は省略可）")
 
     if args.initial_capital <= 0:
         raise ValueError("initial-capital は正の値を指定してください")
@@ -568,7 +610,23 @@ def resolve_symbols(client: APIClient, args: argparse.Namespace) -> list[str]:
     if args.symbol:
         return [args.symbol.upper()]
 
-    symbols = client.get_watchlist_symbols(args.user_id, args.watchlist_id)
+    # Authentication is only needed for watchlists. Never prompt from APIClient/GUI.
+    user_id = getattr(args, "user_id", None)
+    if getattr(args, "username", None):
+        password = os.environ.get("TQL_PASSWORD")
+        if password is None:
+            password = getpass.getpass("Password: ")
+        user = client.login(args.username, password)
+        if user_id is not None and user_id != user["id"]:
+            raise ValueError(f"--user-id {user_id} はログインユーザーのID {user['id']} と一致しません")
+        user_id = user["id"]
+    else:
+        token = getattr(args, "token", None) or os.environ.get("TQL_TOKEN")
+        if not token:
+            raise ValueError("ウォッチリストには --username または --token / TQL_TOKEN が必要です")
+        client.session.headers["Authorization"] = f"Bearer {token}"
+
+    symbols = client.get_watchlist_symbols(user_id, args.watchlist_id)
     if not symbols:
         raise ValueError("ウォッチリストに銘柄が存在しません")
     return symbols

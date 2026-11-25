@@ -1,7 +1,8 @@
 """SQLAlchemy データベースモデル"""
 
 from datetime import datetime
-from sqlalchemy import String, Float, Integer, BigInteger, DateTime, Text, ForeignKey, UniqueConstraint
+
+from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base

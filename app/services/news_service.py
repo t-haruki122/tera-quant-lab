@@ -1,20 +1,32 @@
 """ニュースサービス - キャッシュ付きニュース取得"""
 
+import asyncio
 import logging
 from datetime import datetime, timedelta
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients.news_client import NewsClient
 from app.clients.yfinance_client import YFinanceClient
-from app.models.db_models import News
 from app.config import get_settings
+from app.models.db_models import News
 from app.stats import stats
 
 settings = get_settings()
 _news_client = NewsClient()
 _yf_client = YFinanceClient()
 logger = logging.getLogger("app.services.news")
+
+
+def _get_company_name(symbol: str) -> str | None:
+    import yfinance as yf
+    logger.info(
+        "External API call: yfinance company_name_lookup symbol=%s",
+        symbol.upper(),
+    )
+    ticker = yf.Ticker(symbol)
+    return ticker.info.get("shortName") or ticker.info.get("longName")
 
 
 async def get_news(symbol: str, db: AsyncSession) -> dict:
@@ -49,19 +61,13 @@ async def get_news(symbol: str, db: AsyncSession) -> dict:
     # 会社名を取得して検索精度を向上
     company_name = None
     try:
-        import yfinance as yf
-        logger.info(
-            "External API call: yfinance company_name_lookup symbol=%s",
-            symbol.upper(),
-        )
-        ticker = yf.Ticker(symbol)
-        company_name = ticker.info.get("shortName") or ticker.info.get("longName")
+        company_name = await asyncio.to_thread(_get_company_name, symbol)
     except Exception:
         pass
 
     # 外部APIから取得
     stats.log_api_call()
-    articles = _news_client.get_news(symbol, company_name)
+    articles = await asyncio.to_thread(_news_client.get_news, symbol, company_name)
 
     # キャッシュに保存
     for article in articles:

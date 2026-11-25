@@ -24,7 +24,7 @@
 バックエンドを起動すると、ルート (`/`) で `frontend/index.html` が配信されます。
 
 ```bash
-python -m uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload --reload-dir app
 ```
 
 ブラウザ: `http://localhost:8000/`

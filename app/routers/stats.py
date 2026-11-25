@@ -1,6 +1,7 @@
 """システム統計データのAPIルーター"""
 
 from fastapi import APIRouter
+
 from app.stats import stats
 
 router = APIRouter(prefix="/stats", tags=["System Stats"])

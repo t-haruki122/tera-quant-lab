@@ -1,25 +1,29 @@
 """ユーザー・リスト・タグ APIルーター"""
 
 import json
-from fastapi import APIRouter, Depends, HTTPException
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import create_access_token, require_user_owner
+from app.config import get_settings
 from app.database import get_db
+from app.rate_limit import client_ip, limiter
 from app.schemas.user import (
-    UserRegisterRequest,
-    UserLoginRequest,
-    UserResponse,
     ListCreateRequest,
-    ListUpdateRequest,
-    ListItemAddRequest,
-    TagUpdateRequest,
-    ListResponse,
     ListDetailResponse,
-    ListsResponse,
+    ListItemAddRequest,
     ListItemResponse,
+    ListResponse,
+    ListsResponse,
+    ListUpdateRequest,
     MessageResponse,
     StockMemoRequest,
     StockMemoResponse,
+    TagUpdateRequest,
+    UserLoginRequest,
+    UserRegisterRequest,
+    UserResponse,
 )
 from app.services import user_service
 
@@ -34,18 +38,21 @@ router = APIRouter(prefix="/user", tags=["user"])
     summary="ユーザー登録",
     description="新しいユーザーアカウントを作成します。",
 )
-async def register(req: UserRegisterRequest, db: AsyncSession = Depends(get_db)):
+async def register(req: UserRegisterRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """ユーザー登録"""
+    settings = get_settings()
+    if settings.rate_limit_enabled:
+        limiter.register(client_ip(request), settings)
     if not req.username or len(req.username) < 2:
         raise HTTPException(status_code=400, detail="ユーザー名は2文字以上にしてください")
-    if not req.password or len(req.password) < 4:
-        raise HTTPException(status_code=400, detail="パスワードは4文字以上にしてください")
+    if not req.password or len(req.password) < 8:
+        raise HTTPException(status_code=400, detail="パスワードは8文字以上にしてください")
 
     try:
         user = await user_service.register_user(req.username, req.password, db)
-        return UserResponse(id=user.id, username=user.username)
+        return UserResponse(id=user.id, username=user.username, access_token=create_access_token(user.id))
     except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        raise HTTPException(status_code=409, detail=str(e)) from e
 
 
 @router.post(
@@ -54,17 +61,26 @@ async def register(req: UserRegisterRequest, db: AsyncSession = Depends(get_db))
     summary="ログイン",
     description="ユーザー名とパスワードで認証し、ユーザー情報を返します。",
 )
-async def login(req: UserLoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(req: UserLoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """ログイン"""
+    settings = get_settings()
+    ip = client_ip(request)
+    if settings.rate_limit_enabled:
+        limiter.begin_login(ip, req.username, settings)
     try:
         user = await user_service.login_user(req.username, req.password, db)
-        return UserResponse(id=user.id, username=user.username)
     except ValueError as e:
-        raise HTTPException(status_code=401, detail=str(e))
+        if settings.rate_limit_enabled:
+            limiter.finish_login(ip, req.username, settings, success=False)
+        raise HTTPException(status_code=401, detail=str(e)) from e
+    if settings.rate_limit_enabled:
+        limiter.finish_login(ip, req.username, settings, success=True)
+    return UserResponse(id=user.id, username=user.username, access_token=create_access_token(user.id))
 
 
 @router.get(
     "/{user_id}/default-list",
+    dependencies=[Depends(require_user_owner)],
     response_model=ListDetailResponse,
     summary="デフォルトリストを取得",
     description="ユーザーのデフォルト銘柄リストを取得します（なければ自動作成）。",
@@ -75,13 +91,14 @@ async def get_default_list(user_id: int, db: AsyncSession = Depends(get_db)):
     try:
         return await user_service.get_list_detail(user_id, default_list.id, db)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
 
 # ========== リスト ==========
 
 @router.get(
     "/{user_id}/lists",
+    dependencies=[Depends(require_user_owner)],
     response_model=ListsResponse,
     summary="リスト一覧を取得",
 )
@@ -103,6 +120,7 @@ async def get_lists(user_id: int, db: AsyncSession = Depends(get_db)):
 
 @router.post(
     "/{user_id}/lists",
+    dependencies=[Depends(require_user_owner)],
     response_model=ListResponse,
     summary="リスト作成",
 )
@@ -122,6 +140,7 @@ async def create_list(user_id: int, req: ListCreateRequest, db: AsyncSession = D
 
 @router.get(
     "/{user_id}/lists/{list_id}",
+    dependencies=[Depends(require_user_owner)],
     response_model=ListDetailResponse,
     summary="リスト詳細を取得",
 )
@@ -130,11 +149,12 @@ async def get_list_detail(user_id: int, list_id: int, db: AsyncSession = Depends
     try:
         return await user_service.get_list_detail(user_id, list_id, db)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
 
 @router.put(
     "/{user_id}/lists/{list_id}",
+    dependencies=[Depends(require_user_owner)],
     response_model=ListResponse,
     summary="リスト名を更新",
 )
@@ -151,11 +171,12 @@ async def update_list(
             updated_at=lst.updated_at.isoformat(),
         )
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
 
 @router.delete(
     "/{user_id}/lists/{list_id}",
+    dependencies=[Depends(require_user_owner)],
     response_model=MessageResponse,
     summary="リストを削除",
 )
@@ -165,13 +186,14 @@ async def delete_list(user_id: int, list_id: int, db: AsyncSession = Depends(get
         await user_service.delete_list(user_id, list_id, db)
         return MessageResponse(message="リストを削除しました")
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
 
 # ========== リストアイテム ==========
 
 @router.post(
     "/{user_id}/lists/{list_id}/items",
+    dependencies=[Depends(require_user_owner)],
     response_model=ListItemResponse,
     summary="リストにアイテムを追加",
 )
@@ -186,11 +208,12 @@ async def add_item(
             tags=json.loads(item.tags) if item.tags else [],
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.delete(
     "/{user_id}/lists/{list_id}/items/{symbol}",
+    dependencies=[Depends(require_user_owner)],
     response_model=MessageResponse,
     summary="リストからアイテムを削除",
 )
@@ -202,11 +225,12 @@ async def remove_item(
         await user_service.remove_list_item(user_id, list_id, symbol, db)
         return MessageResponse(message=f"{symbol} をリストから削除しました")
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
 
 @router.put(
     "/{user_id}/lists/{list_id}/items/{symbol}/tags",
+    dependencies=[Depends(require_user_owner)],
     response_model=ListItemResponse,
     summary="アイテムのタグを更新",
 )
@@ -222,12 +246,13 @@ async def update_tags(
             tags=json.loads(item.tags) if item.tags else [],
         )
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
 # ========== 銘柄メモ ==========
 
 @router.get(
     "/{user_id}/memo/{symbol}",
+    dependencies=[Depends(require_user_owner)],
     response_model=StockMemoResponse,
     summary="銘柄メモを取得",
 )
@@ -249,6 +274,7 @@ async def get_memo(user_id: int, symbol: str, db: AsyncSession = Depends(get_db)
 
 @router.put(
     "/{user_id}/memo/{symbol}",
+    dependencies=[Depends(require_user_owner)],
     response_model=StockMemoResponse,
     summary="銘柄メモを保存",
 )

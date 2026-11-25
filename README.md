@@ -25,13 +25,45 @@
 
 ## セットアップ
 
+パッケージ管理には [uv](https://docs.astral.sh/uv/) を使います。
+
 ```bash
-# 依存パッケージのインストール
-pip install -r requirements.txt
+# uv のインストール（未導入の場合）
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# 仮想環境 (.venv) の作成と依存パッケージ・開発ツールのインストール
+uv sync
 
 # サーバー起動
-python -m uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload --reload-dir app
 ```
+
+`uv run` はプロジェクト直下の `.venv` を自動で使うため、仮想環境の有効化（activate）は不要です。
+`uv sync` は pytest・ruff などの開発ツールもインストールします。
+
+```bash
+uv run pytest
+uv run ruff check
+# フロントエンド検証（Node.js 22、追加のnpm依存なし）
+node --test "tests/frontend/**/*.test.mjs"
+```
+
+フロントエンドの `.js` は ES Modules です。Node.js 22.17 以降は構文を自動検出できるため、
+`package.json` や追加ローダーなしで上記コマンドを実行できます。
+`tests/frontend/index.js` がディレクトリ指定の実行入口になり、`.test.mjs` を読み込みます。
+テストのDOM shimはブラウザー向けの描画文字列を検証します。
+
+pip を使う場合も `pip install -r requirements.txt` で導入できます。
+`requirements.txt` は `uv.lock` から生成されるファイルです。依存関係は `pyproject.toml` で管理します。
+
+設定は `.env.example` を参考に `.env` で指定します。フロントエンドはAPIと同一オリジンで配信されるため、`CORS_ORIGINS` は既定で空欄（CORSミドルウェアなし）です。
+別オリジンのフロントエンドを使う場合だけ `CORS_ORIGINS=http://a.example, http://b.example` のように許可先を指定してください。JSON配列も使え、前後の空白と空要素は除去します。
+認証はBearerヘッダーを使い、Cookie等のCORS資格情報は許可しません。許可メソッドはGET/POST/PUT/DELETE/OPTIONS、指定可能なヘッダーはAuthorizationとContent-Typeです。`*` と資格情報の併用は拒否します。
+
+ログイン・登録のレート制限は既定で有効です。`RATE_LIMIT_*` 設定と429応答の詳細は [APIガイド](docs/API.md) を参照してください。
 
 ## アクセス先
 

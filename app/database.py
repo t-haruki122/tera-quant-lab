@@ -1,6 +1,8 @@
 """データベース接続・セッション管理"""
 
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+import importlib
+
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
 from app.config import get_settings
@@ -27,7 +29,8 @@ class Base(DeclarativeBase):
 
 async def init_db():
     """データベース初期化（テーブル作成）"""
-    import app.models.db_models  # モデルをインポートしないとテーブルが作成されない
+    # Register models even when init_db is called without importing the routers.
+    importlib.import_module("app.models.db_models")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

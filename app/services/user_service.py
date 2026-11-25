@@ -1,18 +1,38 @@
 """ユーザー・リスト・タグ管理のサービスレイヤー"""
 
+import asyncio
 import hashlib
+import hmac
 import json
+import re
 from datetime import datetime
 
-from sqlalchemy import select, delete
+from argon2 import PasswordHasher
+from argon2.exceptions import InvalidHashError, VerificationError
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.db_models import User, UserList, UserListItem, StockMemo
+from app.models.db_models import StockMemo, User, UserList, UserListItem
+
+ph = PasswordHasher()
+_DUMMY_HASH = ph.hash("tql-dummy-password-for-missing-users")
 
 
 def _hash_password(password: str) -> str:
-    """パスワードをSHA-256でハッシュ化"""
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+    """パスワードをArgon2でハッシュ化"""
+    return ph.hash(password)
+
+
+def _verify_password(stored_hash: str, password: str) -> tuple[bool, bool]:
+    """認証結果と再ハッシュの必要性を返す（旧SHA-256も移行対象）。"""
+    if re.fullmatch(r"[0-9a-fA-F]{64}", stored_hash):
+        digest = hashlib.sha256(password.encode("utf-8")).hexdigest()
+        return hmac.compare_digest(stored_hash.lower(), digest), True
+    try:
+        ph.verify(stored_hash, password)
+        return True, ph.check_needs_rehash(stored_hash)
+    except (VerificationError, InvalidHashError):
+        return False, False
 
 
 # ========== ユーザー ==========
@@ -27,7 +47,7 @@ async def register_user(username: str, password: str, db: AsyncSession) -> User:
 
     user = User(
         username=username,
-        password_hash=_hash_password(password),
+        password_hash=await asyncio.to_thread(_hash_password, password),
         created_at=datetime.utcnow(),
     )
     db.add(user)
@@ -52,8 +72,17 @@ async def login_user(username: str, password: str, db: AsyncSession) -> User:
     """ログイン（ユーザー認証）"""
     result = await db.execute(select(User).where(User.username == username))
     user = result.scalar_one_or_none()
-    if not user or user.password_hash != _hash_password(password):
+    if not user:
+        # Match the Argon2 work for an existing user without blocking the event loop.
+        await asyncio.to_thread(_verify_password, _DUMMY_HASH, password)
         raise ValueError("ユーザー名またはパスワードが正しくありません")
+    valid, needs_rehash = await asyncio.to_thread(_verify_password, user.password_hash, password)
+    if not valid:
+        raise ValueError("ユーザー名またはパスワードが正しくありません")
+    if needs_rehash:
+        user.password_hash = await asyncio.to_thread(_hash_password, password)
+        await db.commit()
+        await db.refresh(user)
     return user
 
 

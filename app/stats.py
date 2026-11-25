@@ -1,7 +1,8 @@
 """アプリケーションのシステム統計情報管理"""
 
-from datetime import datetime
 from collections import defaultdict
+from datetime import datetime
+
 
 class AppStats:
     def __init__(self):
@@ -37,7 +38,7 @@ class AppStats:
              if len(parts) == 4:
                  base_endpoint = f"/stock/{{symbol}}/{parts[3]}"
              else:
-                 base_endpoint = f"/stock/{{symbol}}"
+                 base_endpoint = "/stock/{symbol}"
         elif endpoint.startswith("/user/") and len(endpoint.split("/")) >= 3:
              parts = endpoint.split("/")
              if len(parts) >= 4 and parts[3] == "lists":

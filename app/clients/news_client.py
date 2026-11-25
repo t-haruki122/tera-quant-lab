@@ -1,11 +1,11 @@
 """ニュース取得クライアント"""
 
 import logging
-from gnews import GNews
 from typing import Any
 
-from app.exceptions import ExternalAPIError
+from gnews import GNews
 
+from app.exceptions import ExternalAPIError
 
 logger = logging.getLogger("app.external.gnews")
 
@@ -53,4 +53,4 @@ class NewsClient:
 
             return results
         except Exception as e:
-            raise ExternalAPIError(f"Failed to fetch news for {symbol}: {str(e)}")
+            raise ExternalAPIError(f"Failed to fetch news for {symbol}: {str(e)}") from e

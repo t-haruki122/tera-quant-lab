@@ -6,12 +6,12 @@ Run:
 
 from __future__ import annotations
 
+import sys
 import threading
 import tkinter as tk
 from argparse import Namespace
 from datetime import datetime
 from pathlib import Path
-import sys
 from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
@@ -23,7 +23,8 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from scripts.backtest_cli import APIClient, create_result_figure, run_single_symbol
+# Direct script execution needs the sys.path bootstrap above before this import.
+from scripts.backtest_cli import APIClient, create_result_figure, run_single_symbol  # noqa: E402
 
 
 class BacktestGUI:

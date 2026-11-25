@@ -4,7 +4,7 @@
 
 import { state } from './state.js';
 import { fetchAPI } from './api.js';
-import { formatCurrency, formatLargeNumber, formatTimestamp, formatNewsDate, escapeHtml } from './utils.js';
+import { formatCurrency, formatLargeNumber, formatTimestamp, formatNewsDate, escapeHtml, safeHttpUrl } from './utils.js';
 import { loadChart, clearPriceAndRsiCharts } from './chart.js';
 import { renderFinancialHistoryChart, renderDividendHistoryChart } from './financial-chart.js';
 
@@ -92,18 +92,22 @@ export function renderProfile(profile) {
         ['通貨', profile.currency],
     ];
 
-    if (profile.website) {
-        rows.push(['ウェブサイト', `<a href="${profile.website}" target="_blank" style="color:var(--accent-blue);text-decoration:none;">${new URL(profile.website).hostname}</a>`]);
-    }
-
     rows.forEach(([label, value]) => {
         if (value != null) {
-            html += `<div class="data-row"><span class="data-label">${label}</span><span class="data-value">${value}</span></div>`;
+            html += `<div class="data-row"><span class="data-label">${escapeHtml(label)}</span><span class="data-value">${escapeHtml(value)}</span></div>`;
         }
     });
 
+    if (profile.website) {
+        const url = safeHttpUrl(profile.website);
+        const website = url
+            ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent-blue);text-decoration:none;">${escapeHtml(new URL(url).hostname)}</a>`
+            : escapeHtml(profile.website);
+        html += `<div class="data-row"><span class="data-label">ウェブサイト</span><span class="data-value">${website}</span></div>`;
+    }
+
     if (profile.summary) {
-        html += `<div class="company-summary">${profile.summary}</div>`;
+        html += `<div class="company-summary">${escapeHtml(profile.summary)}</div>`;
     }
 
     body.innerHTML = html || '<p style="color:var(--text-muted)">データなし</p>';
@@ -167,10 +171,10 @@ export function renderIndicators(data) {
             badge = `<span class="indicator-badge ${rating}">${ratingLabel}</span>`;
         }
         html += `
-            <div class="data-row" title="${tooltip || ''}">
-                <span class="data-label">${label}</span>
+            <div class="data-row" title="${escapeHtml(tooltip)}">
+                <span class="data-label">${escapeHtml(label)}</span>
                 <span class="data-value ${value != null && ratingFn ? ratingFn(value) === 'good' ? 'positive' : ratingFn(value) === 'bad' ? 'negative' : '' : ''}">
-                    ${displayValue} ${badge}
+                    ${escapeHtml(displayValue)} ${badge}
                 </span>
             </div>`;
     });
@@ -197,7 +201,7 @@ export async function loadFinancials(symbol, profile) {
             ['PER', data.pe_ratio != null ? data.pe_ratio.toFixed(2) + '倍' : null],
         ];
         rows.forEach(([label, value]) => {
-            html += `<div class="data-row"><span class="data-label">${label}</span><span class="data-value">${value || '—'}</span></div>`;
+            html += `<div class="data-row"><span class="data-label">${escapeHtml(label)}</span><span class="data-value">${escapeHtml(value || '—')}</span></div>`;
         });
         html += `
             <div class="financial-history-chart-wrap">
@@ -233,7 +237,7 @@ export async function loadFinancials(symbol, profile) {
             state.dividendChartInstance.destroy();
             state.dividendChartInstance = null;
         }
-        body.innerHTML = `<p style="color:var(--accent-rose)">取得失敗: ${err.message}</p>`;
+        body.innerHTML = `<p style="color:var(--accent-rose)">取得失敗: ${escapeHtml(err.message)}</p>`;
     }
 }
 
@@ -251,19 +255,23 @@ export async function loadNews(symbol) {
         let html = '<div class="news-list">';
         data.news.forEach(article => {
             const dateStr = article.published_at ? formatNewsDate(article.published_at) : '';
+            const url = safeHttpUrl(article.url);
+            const open = url
+                ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="news-item">`
+                : '<div class="news-item">';
             html += `
-                <a href="${article.url}" target="_blank" rel="noopener" class="news-item">
+                ${open}
                     <div class="news-bullet"></div>
                     <div class="news-item-content">
                         <h4>${escapeHtml(article.title)}</h4>
-                        ${dateStr ? `<span class="news-date">${dateStr}</span>` : ''}
+                        ${dateStr ? `<span class="news-date">${escapeHtml(dateStr)}</span>` : ''}
                     </div>
-                </a>`;
+                ${url ? '</a>' : '</div>'}`;
         });
         html += '</div>';
         body.innerHTML = html;
     } catch (err) {
-        body.innerHTML = `<p style="color:var(--accent-rose)">取得失敗: ${err.message}</p>`;
+        body.innerHTML = `<p style="color:var(--accent-rose)">取得失敗: ${escapeHtml(err.message)}</p>`;
     }
 }
 

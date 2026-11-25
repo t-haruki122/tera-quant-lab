@@ -1,7 +1,8 @@
 """ユーザー・リスト・タグ関連のPydanticスキーマ"""
 
-from pydantic import BaseModel
+from typing import Literal
 
+from pydantic import BaseModel
 
 # --- ユーザー ---
 
@@ -21,6 +22,8 @@ class UserResponse(BaseModel):
     """ユーザーレスポンス"""
     id: int
     username: str
+    access_token: str
+    token_type: Literal["bearer"] = "bearer"
 
 
 # --- リスト ---

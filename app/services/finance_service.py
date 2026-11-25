@@ -1,12 +1,14 @@
 """財務サービス - キャッシュ付き財務データ取得"""
 
+import asyncio
 from datetime import datetime, timedelta
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients.yfinance_client import YFinanceClient
-from app.models.db_models import Financial
 from app.config import get_settings
+from app.models.db_models import Financial
 from app.stats import stats
 
 settings = get_settings()
@@ -43,7 +45,7 @@ async def get_financials(symbol: str, db: AsyncSession) -> dict:
 
     # 外部APIから取得
     stats.log_api_call()
-    data = _client.get_financials(symbol)
+    data = await asyncio.to_thread(_client.get_financials, symbol)
 
     # キャッシュに保存
     record = Financial(
@@ -66,11 +68,11 @@ async def get_financial_history(symbol: str, db: AsyncSession, limit: int = 6) -
     # （必要に応じて将来DBキャッシュ化）
     del db
     stats.log_api_call()
-    return _client.get_financial_history(symbol, limit=limit)
+    return await asyncio.to_thread(_client.get_financial_history, symbol, limit=limit)
 
 
 async def get_dividend_history(symbol: str, db: AsyncSession, limit: int = 20) -> dict:
     """過去の配当データ（1株配当・配当利回り）を取得"""
     del db
     stats.log_api_call()
-    return _client.get_dividend_history(symbol, limit=limit)
+    return await asyncio.to_thread(_client.get_dividend_history, symbol, limit=limit)
