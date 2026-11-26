@@ -31,6 +31,7 @@
 - 財務履歴: `GET /stock/{symbol}/financials/history`
 - 企業プロフィール: `GET /stock/{symbol}/profile`
 - 投資指標: `GET /stock/{symbol}/indicators`
+  - PER または PBR が 0 以下の場合、投資指標とウォッチリスト概要のミックス指数（`mix_index`）は `null` になります。
 - 関連ニュース: `GET /stock/{symbol}/news`
 
 東証銘柄は「7203 株価」のような語句で日本語ニュースを検索します。検索期間は全市場で `NEWS_PERIOD`（既定 `30d`、空欄で無期限）を使い、該当記事が0件なら期間を外して一度だけ再検索します。配信元は `publisher` で返し、既存クライアント向けの `source` にも同じ値が入ります。

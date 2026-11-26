@@ -198,6 +198,8 @@ async function fetchGuestItemData(symbol) {
             currency: profile?.currency,
             market_cap: profile?.market_cap,
             mix_index: indicators?.mix_index,
+            per: indicators?.per,
+            pbr: indicators?.pbr,
             dividend_yield: indicators?.dividend_yield,
             stale: !!cached,
             cached_at: cached?.cached_at,
@@ -525,8 +527,13 @@ export function renderListTable() {
             : '<span class="memo-empty">未入力</span>';
         const memoTitle = item.memo ? escapeAttr(item.memo) : '';
         const marketCapCategory = getMarketCapCategory(item.market_cap, item.currency);
-        const mixRating = getMixIndexRating(item.mix_index);
-        const mixBadge = mixRating ? `<span class="indicator-badge ${mixRating}">${getRatingSymbol(mixRating)}</span>` : '';
+        const negativePbr = item.pbr < 0;
+        const negativePer = item.per < 0;
+        const mixRating = negativePbr || negativePer ? null : getMixIndexRating(item.mix_index);
+        const mixValue = mixRating ? item.mix_index.toFixed(2) : '—';
+        const mixBadge = mixRating ? ` <span class="indicator-badge ${mixRating}">${getRatingSymbol(mixRating)}</span>` : '';
+        const pbrNote = negativePbr ? ' <small class="text-muted">債務超過</small>' : '';
+        const perNote = negativePer ? ' <small class="text-muted">赤字</small>' : '';
         const price = item.price == null ? '—' : item.currency
             ? formatCurrency(item.price, item.currency) : item.price.toLocaleString('ja-JP');
         const loadError = item.loadError ? `<br><small class="text-muted">${escapeHtml(item.loadError)}</small>` : '';
@@ -541,7 +548,7 @@ export function renderListTable() {
                 <td class="table-company">${escapeHtml(item.name || '—')}${loadError}${notice}</td>
                 <td class="numeric">${escapeHtml(price)}</td>
                 <td class="table-market-cap" title="${item.market_cap != null ? escapeAttr(formatLargeNumber(item.market_cap, item.currency)) : ''}">${marketCapCategory || '—'}</td>
-                <td class="numeric">${item.mix_index != null ? item.mix_index.toFixed(2) : '—'} ${mixBadge}</td>
+                <td class="numeric">${mixValue}${mixBadge}${pbrNote}${perNote}</td>
                 <td class="numeric">${item.dividend_yield != null ? item.dividend_yield.toFixed(2) + '%' : '—'}</td>
                 <td class="table-tags">${tagsHtml}</td>
                 <td class="table-memo"><button class="btn-memo" type="button" data-action="edit-memo" data-symbol="${name}" aria-label="${name} のメモを編集">📝</button><span class="memo-preview" title="${memoTitle}">${memoPreview}</span></td>

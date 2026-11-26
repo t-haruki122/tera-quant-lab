@@ -36,7 +36,10 @@ async def get_indicators(symbol: str, db: AsyncSession) -> dict:
     )
     cached = None
     if record is not None:
-        cached = (record.cached_at, {"symbol": record.symbol, **{field: getattr(record, field) for field in fields}})
+        values = {"symbol": record.symbol, **{field: getattr(record, field) for field in fields}}
+        if not (record.per is not None and record.per > 0 and record.pbr is not None and record.pbr > 0):
+            values["mix_index"] = None
+        cached = (record.cached_at, values)
 
     async def refresh() -> dict:
         stats.log_api_call()

@@ -1,12 +1,35 @@
 from datetime import date
 from itertools import groupby
 from statistics import fmean, pstdev
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 
+from app.clients import yfinance_client
 from app.services import stock_service
 from app.services.stock_service import _aggregate_history, _calculate_rsi, _calculate_sma
+
+
+@pytest.mark.parametrize(("per", "pbr", "expected"), [
+    (10.67, -305.39, None),
+    (-10, 2, None),
+    (-10, -2, None),
+    (0, 2, None),
+    (10, 0, None),
+    (None, 2, None),
+    (10, 0.004, None),
+    (10.674, 1.234, 13.17),
+])
+def test_mix_index_requires_positive_per_and_pbr(monkeypatch, per, pbr, expected):
+    info = {"quoteType": "EQUITY", "trailingPE": per, "priceToBook": pbr}
+    monkeypatch.setattr(yfinance_client.yf, "Ticker", lambda _: SimpleNamespace(info=info))
+
+    indicators = yfinance_client.YFinanceClient().get_indicators("TEST")
+
+    assert indicators["per"] == (round(per, 2) if per is not None else None)
+    assert indicators["pbr"] == round(pbr, 2)
+    assert indicators["mix_index"] == expected
 
 
 @pytest.mark.parametrize("closes,period,expected", [

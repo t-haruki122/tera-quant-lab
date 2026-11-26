@@ -3,7 +3,8 @@ import test from 'node:test';
 import { elements, fromRepo, storage } from './helpers/dom-shim.mjs';
 
 const { cache, state } = await fromRepo('frontend/js/state.js');
-const { loadDefaultList, openListAddModal, selectWatchlist, submitListAddFromModal } = await fromRepo('frontend/js/list.js');
+const { getMixIndexRating, renderIndicators } = await fromRepo('frontend/js/detail.js');
+const { loadDefaultList, openListAddModal, renderListTable, selectWatchlist, submitListAddFromModal } = await fromRepo('frontend/js/list.js');
 
 const response = (data, status = 200) => ({ ok: status < 400, status, json: async () => data });
 const rateLimited = () => response({ detail: 'Too Many Requests' }, 429);
@@ -19,7 +20,53 @@ function resetWatchlist() {
     state.watchlists = [{ id: 8, name: 'リスト' }];
     state.defaultListId = 8;
     state.listItems = [];
+    state.sortKey = 'symbol';
+    state.sortAsc = true;
 }
+
+test('mix index ratings apply only to positive values and keep the existing thresholds', () => {
+    for (const value of [undefined, null, -3257.86, 0]) assert.equal(getMixIndexRating(value), null);
+    assert.equal(getMixIndexRating(22.49), 'good');
+    assert.equal(getMixIndexRating(22.5), 'neutral');
+    assert.equal(getMixIndexRating(50), 'bad');
+});
+
+test('watchlist shows a dash and escaped text for a negative PBR and keeps null indexes last', () => {
+    resetWatchlist();
+    state.listItems = [
+        { symbol: 'HPQ', name: '<img src=x>', per: 10.67, pbr: -305.39, mix_index: null },
+        { symbol: 'HIGH', mix_index: 30 },
+        { symbol: 'LOW', mix_index: 10 },
+    ];
+    state.sortKey = 'mix_index';
+    const sortedSymbols = () => [...markup().matchAll(/<tr data-symbol="([^"]+)"/g)].map(match => match[1]);
+    renderListTable();
+    const row = markup().match(/<tr data-symbol="HPQ">[\s\S]*?<\/tr>/)[0];
+    assert.match(row, /<td class="numeric">— <small class="text-muted">債務超過<\/small><\/td>/);
+    assert.match(row, /&lt;img src=x&gt;/);
+    assert.doesNotMatch(row, /<img|indicator-badge|[◎○△]/);
+    assert.deepEqual(sortedSymbols(), ['LOW', 'HIGH', 'HPQ']);
+    state.sortAsc = false;
+    renderListTable();
+    assert.deepEqual(sortedSymbols(), ['HIGH', 'LOW', 'HPQ']);
+
+    state.listItems = [{ symbol: 'LOSS', per: -10, pbr: 2, mix_index: -20 }];
+    renderListTable();
+    assert.match(markup(), /<td class="numeric">— <small class="text-muted">赤字<\/small><\/td>/);
+    assert.doesNotMatch(markup(), /indicator-badge/);
+});
+
+test('detail shows text instead of badges for nonpositive PBR and PER', () => {
+    for (const value of [-2, 0]) {
+        renderIndicators({ pbr: value, per: value, mix_index: null });
+        const html = document.getElementById('indicators-body').innerHTML;
+        assert.ok(html.includes(`${value}倍 <small class="text-muted">債務超過</small>`));
+        assert.ok(html.includes(`${value}倍 <small class="text-muted">赤字</small>`));
+        assert.match(html, /title="PBRまたはPERが0以下のため算出できません"/);
+        assert.match(html, /— <small class="text-muted">算出不可<\/small>/);
+        assert.doesNotMatch(html, /indicator-badge|[◎○△]/);
+    }
+});
 
 test('watchlist loads stock data with one summary request and renders partial and failed rows', async () => {
     resetWatchlist();

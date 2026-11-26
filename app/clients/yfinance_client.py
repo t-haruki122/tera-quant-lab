@@ -398,9 +398,9 @@ class YFinanceClient:
         dividend_yield = info.get("dividendYield")
         profit_margin = info.get("profitMargins")
         debt_to_equity = info.get("debtToEquity")
-        # ミックス指数 = PER × PBR（低いほど割安）
+        # 表示・キャッシュ用に丸めた PER と PBR がともに正の場合だけ算出する。
         mix_index = None
-        if per is not None and pbr is not None:
+        if per is not None and pbr is not None and round(per, 2) > 0 and round(pbr, 2) > 0:
             mix_index = round(per * pbr, 2)
         return {
             "symbol": symbol.upper(),

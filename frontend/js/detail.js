@@ -168,7 +168,7 @@ export function renderProfile(profile) {
 }
 
 export function getMixIndexRating(value) {
-    if (value == null) return null;
+    if (value == null || value <= 0) return null;
     if (value < 22.5) return 'good';
     if (value < 50) return 'neutral';
     return 'bad';
@@ -203,32 +203,37 @@ export function getMarketCapCategory(marketCap, currency) {
 export function renderIndicators(data) {
     const body = document.getElementById('indicators-body');
     let html = '';
+    const pbrUnavailable = data.pbr != null && data.pbr <= 0;
+    const perUnavailable = data.per != null && data.per <= 0;
+    const mixUnavailable = pbrUnavailable || perUnavailable;
 
     const indicators = [
         ['ROE', data.roe, '%', v => v > 15 ? 'good' : v > 8 ? 'neutral' : 'bad', '高いほど良い'],
         ['ROA', data.roa, '%', v => v > 10 ? 'good' : v > 5 ? 'neutral' : 'bad', '高いほど良い'],
-        ['PBR', data.pbr, '倍', v => v < 1 ? 'good' : v < 3 ? 'neutral' : 'bad', '低いほど割安'],
-        ['PER', data.per, '倍', v => v < 15 ? 'good' : v < 30 ? 'neutral' : 'bad', '低いほど割安'],
+        ['PBR', data.pbr, '倍', v => v < 1 ? 'good' : v < 3 ? 'neutral' : 'bad',
+            '正の値は低いほど割安', pbrUnavailable ? '債務超過' : ''],
+        ['PER', data.per, '倍', v => v < 15 ? 'good' : v < 30 ? 'neutral' : 'bad',
+            '正の値は低いほど割安', perUnavailable ? '赤字' : ''],
         ['EPS', data.eps, '', null, '1株あたり利益'],
-        ['ミックス指数', data.mix_index, '', v => getMixIndexRating(v), 'PER×PBR（22.5以下が割安）'],
+        ['ミックス指数', mixUnavailable ? null : data.mix_index, '', getMixIndexRating,
+            mixUnavailable ? 'PBRまたはPERが0以下のため算出できません' : 'PER×PBR（22.5未満が割安）',
+            mixUnavailable ? '算出不可' : ''],
         ['配当利回り', data.dividend_yield, '%', v => v > 3 ? 'good' : v > 1 ? 'neutral' : 'bad', '高いほど良い'],
         ['利益率', data.profit_margin, '%', v => v > 20 ? 'good' : v > 10 ? 'neutral' : 'bad', '高いほど良い'],
         ['D/Eレシオ', data.debt_to_equity, '', v => v < 50 ? 'good' : v < 150 ? 'neutral' : 'bad', '低いほど財務健全'],
     ];
 
-    indicators.forEach(([label, value, unit, ratingFn, tooltip]) => {
+    indicators.forEach(([label, value, unit, ratingFn, tooltip, note]) => {
         const displayValue = value != null ? `${value}${unit}` : '—';
-        let badge = '';
-        if (value != null && ratingFn) {
-            const rating = ratingFn(value);
-            const ratingLabel = rating === 'good' ? '◎' : rating === 'neutral' ? '○' : '△';
-            badge = `<span class="indicator-badge ${rating}">${ratingLabel}</span>`;
-        }
+        const rating = value != null && !note ? ratingFn?.(value) : null;
+        const valueClass = rating === 'good' ? 'positive' : rating === 'bad' ? 'negative' : '';
+        const badge = rating ? `<span class="indicator-badge ${rating}">${getRatingSymbol(rating)}</span>` : '';
+        const noteHtml = note ? `<small class="text-muted">${escapeHtml(note)}</small>` : '';
         html += `
             <div class="data-row" title="${escapeHtml(tooltip)}">
                 <span class="data-label">${escapeHtml(label)}</span>
-                <span class="data-value ${value != null && ratingFn ? ratingFn(value) === 'good' ? 'positive' : ratingFn(value) === 'bad' ? 'negative' : '' : ''}">
-                    ${escapeHtml(displayValue)} ${badge}
+                <span class="data-value ${valueClass}">
+                    ${escapeHtml(displayValue)} ${badge}${noteHtml}
                 </span>
             </div>`;
     });

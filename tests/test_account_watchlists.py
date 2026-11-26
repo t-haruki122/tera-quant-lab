@@ -6,12 +6,15 @@ import sqlite3
 from collections import Counter
 from contextlib import closing
 from datetime import timedelta
+from unittest.mock import AsyncMock
 
 import jwt
 from sqlalchemy import make_url
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import database
 from app.exceptions import UpstreamUnavailableError
+from app.models.db_models import Indicator
 from app.services import indicator_service, profile_service, stock_service, user_service
 from app.timeutil import utc_iso, utcnow
 
@@ -179,6 +182,30 @@ def test_summary_caps_symbols_and_charges_once(client, users, settings, monkeypa
     assert partial["error"] == "一部のデータを取得できませんでした。"
     assert client.get(route, headers=alice["headers"]).status_code == 429
     assert client.get(list_path(bob) + "/summary", headers=bob["headers"]).status_code == 200
+
+
+def test_cached_negative_pbr_has_no_mix_index_in_detail_or_summary(client, users, settings, monkeypatch):
+    alice, _ = users
+    add_item(client, alice, "HPQ", [])
+    monkeypatch.setattr(stock_service, "get_current_price", AsyncMock(return_value={"price": 20}))
+    monkeypatch.setattr(profile_service, "get_profile", AsyncMock(return_value={"name": "HP"}))
+
+    async def seed_indicators():
+        async with database.AsyncSessionLocal() as db:
+            db.add(Indicator(symbol="HPQ", per=10.67, pbr=-305.39, mix_index=-3257.86))
+            await db.commit()
+
+    client.portal.call(seed_indicators)
+    detail = client.get("/stock/HPQ/indicators")
+    summary = client.get(list_path(alice) + "/summary", headers=alice["headers"])
+    assert detail.status_code == summary.status_code == 200
+    item, = summary.json()["items"]
+    assert item["symbol"] == "HPQ" and item["error"] is None
+    for data in (detail.json(), item):
+        assert data["mix_index"] is None
+        assert data["per"] == 10.67 and data["pbr"] == -305.39
+    with closing(sqlite3.connect(make_url(settings.database_url).database)) as db:
+        assert db.execute("SELECT mix_index FROM indicators WHERE symbol = 'HPQ'").fetchone() == (-3257.86,)
 
 
 def test_watchlist_names_and_protected_default(client, users):
