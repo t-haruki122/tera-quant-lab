@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     # Authentication: override SECRET_KEY for every deployed instance.
     secret_key: str = Field(default=DEV_SECRET_KEY, min_length=1)
     access_token_expire_minutes: int = Field(default=1440, gt=0)
-    user_import_max_bytes: int = Field(default=1_048_576, gt=0)
+    user_import_max_bytes: int = Field(default=33_554_432, gt=0)
     watchlist_summary_concurrency: int = Field(default=8, gt=0)
     portfolio_max_holdings: int = Field(default=200, gt=0)
     price_alert_max_per_user: int = Field(default=100, gt=0)
@@ -63,6 +63,7 @@ class Settings(BaseSettings):
     backtest_grid_max_combos: int = Field(default=100, ge=1, le=500)
     backtest_timeout_seconds: float = Field(default=30, gt=0, allow_inf_nan=False)
     backtest_max_concurrent_per_user: int = Field(default=1, gt=0)
+    backtest_max_saved_runs: int = Field(default=50, gt=0)
 
     # Cache TTL (seconds)
     cache_ttl_current_price: int = 60        # 1分

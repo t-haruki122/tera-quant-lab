@@ -86,9 +86,9 @@ class Backtester:
         metrics.missing_eps_bars = int(df["eps"].isna().to_numpy().sum()) if "eps" in df else 0
         warnings = []
         if metrics.missing_eps_bars:
-            warnings.append(f"Historical EPS unavailable on {metrics.missing_eps_bars}/{len(df)} bars; PER blocks entries on those bars.")
+            warnings.append(f"過去のEPSが {len(df)} バー中 {metrics.missing_eps_bars} バーで取得できず、PER条件により買いを見送りました。")
         if fallbacks or bench_fallbacks:
-            warnings.append(f"Missing/invalid open: close fallback on {fallbacks} strategy fills, {bench_fallbacks} benchmark fills.")
+            warnings.append(f"始値が欠損または無効のため、戦略で {fallbacks} 件、買い持ちで {bench_fallbacks} 件を終値で約定しました。")
         return BacktestResult(symbol, curve, trades, metrics, warnings, bench_curve, bench_metrics)
 
     def _simulate(self, symbol, df, progress_callback, cancel_check):

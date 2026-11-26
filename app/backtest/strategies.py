@@ -111,6 +111,13 @@ POSITIVE_PARAMS = {"short_window", "long_window", "period", "window", "std_dev",
 EXIT_CHOICES = ("middle", "upper")
 
 
+def warmup_days(interval, combinations):
+    bars = max(max((params.get(key, 0) for key in ("long_window", "period", "window")), default=0)
+               for params in combinations)
+    # Include holidays and an extra full period for weekly and monthly bars.
+    return (bars + 1) * {"1d": 2, "1wk": 7, "1mo": 31}[interval] + 7
+
+
 def param_schema(name):
     result = []
     for key, (kind, default) in REGISTRY[name].items():

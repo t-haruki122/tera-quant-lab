@@ -76,7 +76,7 @@ def test_slippage_fees_and_fallback_counts():
     assert result.trades[1]["slippage"] == 16
     assert result.metrics.open_fallbacks == 2
     assert result.metrics.benchmark_open_fallbacks == 1
-    assert "close fallback on 2 strategy fills, 1 benchmark fills" in result.warnings[0]
+    assert "戦略で 2 件、買い持ちで 1 件を終値で約定" in result.warnings[0]
 
 
 def test_every_metric_hand_computed():
@@ -160,10 +160,10 @@ def test_pit_lag_negative_eps_missing_count_and_exits_unblocked():
     result = Backtester(strategy, 100, execution="close").run("X", prices, context)
     assert [t["side"] for t in result.trades] == ["BUY", "SELL"]
     assert result.metrics.missing_eps_bars == 2
-    assert "2/7 bars" in result.warnings[0]
+    assert "7 バー中 2 バー" in result.warnings[0]
     absent = Backtester(strategy, 100).run("X", prices)
     assert not absent.trades and absent.metrics.missing_eps_bars == 7
-    assert "7/7 bars" in absent.warnings[0]
+    assert "7 バー中 7 バー" in absent.warnings[0]
 
 
 def test_eps_derivation_year_fallback_and_unknown_newer_year():

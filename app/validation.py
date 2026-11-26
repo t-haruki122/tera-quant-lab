@@ -15,6 +15,13 @@ def normalize_symbol(value: str) -> str:
     return value.upper()
 
 
+def currency_code(value: object) -> str | None:
+    if not isinstance(value, str) or not (code := value.strip()):
+        return None
+    # Yahoo uses GBp for pence and GBP for pounds. Keep these separate.
+    return code if code == "GBp" else code.upper()
+
+
 def require_iso_date(value):
     if not isinstance(value, str) or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
         raise ValueError("日付は YYYY-MM-DD 形式で指定してください")

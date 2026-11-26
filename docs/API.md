@@ -17,7 +17,7 @@
 | ユーザー機能 | ユーザー登録/ログイン、銘柄リスト管理、タグ管理 | `POST /user/register`、`POST /user/login`、`/user/{user_id}/lists...` |
 | ポートフォリオ | 保有銘柄の管理、円換算評価、CSV出力 | `/user/{user_id}/portfolio` |
 | 価格アラート | アラートの管理・判定 | `/user/{user_id}/alerts`、`POST /user/{user_id}/alerts/check` |
-| バックテスト | 戦略一覧、単一実行、グリッド探索 | `GET /backtest/strategies`、`POST /backtest/run`、`POST /backtest/grid` |
+| バックテスト | 戦略一覧、単一実行、グリッド探索、ポートフォリオ、ウォークフォワード、結果保存 | `GET /backtest/strategies`、`POST /backtest/run`、`POST /backtest/grid`、`POST /backtest/portfolio`、`POST /backtest/walkforward`、`/backtest/runs` |
 | 運用 | API利用統計と稼働状態の取得 | `GET /stats`、`GET /health` |
 
 ## 主な機能詳細
@@ -25,6 +25,7 @@
 ### 1. 株価・分析データ
 
 - 現在株価: `GET /stock/{symbol}`
+  - 取引通貨を取得できた場合は `currency` も返します。
 - 過去株価: `GET /stock/{symbol}/history`
 - 財務情報: `GET /stock/{symbol}/financials`
 - 財務履歴: `GET /stock/{symbol}/financials/history`
@@ -158,11 +159,11 @@ JWT の `ver` がアカウントのトークンバージョンと一致する間
 
 #### JSONバックアップとCSV出力
 
-`GET /user/1/export` は `200` と `Content-Disposition: attachment; filename="watchlists-2026-11-25.json"` を返します。ファイル名の日付は UTC です。JSON にはリスト、銘柄、タグ、メモ、保有銘柄、価格アラートが含まれます。
+`GET /user/1/export` は `200` と `Content-Disposition: attachment; filename="watchlists-2026-11-25.json"` を返します。ファイル名の日付は UTC です。JSON にはリスト、銘柄、タグ、メモ、保有銘柄、価格アラート、保存済みバックテストが含まれます。
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "exported_at": "2026-11-25T12:00:00Z",
   "username": "taro",
   "lists": [{
@@ -174,7 +175,8 @@ JWT の `ver` がアカウントのトークンバージョンと一致する間
     "note": null, "created_at": "2026-11-25T10:00:00Z", "updated_at": "2026-11-25T10:00:00Z"}],
   "alerts": [{"symbol": "7203.T", "kind": "above", "threshold": 3000, "enabled": true, "note": null,
     "created_at": "2026-11-25T10:00:00Z", "last_triggered_at": null, "last_triggered_market_date": null,
-    "trigger_count": 0, "armed": true}]
+    "trigger_count": 0, "armed": true}],
+  "backtest_runs": []
 }
 ```
 
@@ -183,17 +185,18 @@ JWT の `ver` がアカウントのトークンバージョンと一致する間
 `POST /user/1/import?mode=merge` の本文には、エクスポートした JSON をそのまま指定できます。データはURLのアカウントに取り込みます。本文の `username` はバックアップ元の記録です。
 
 - `merge`（既定）は未登録のデータを追加します。同じリスト名の内容を統合し、既存の空でないメモを保持します。既存メモが空（空白のみを含む）の場合、取り込むメモが空でなければ更新します。保有銘柄はティッカーで照合します。アラートはティッカー、条件、基準値、有効状態、メモが一致する件数を照合し、既存の通知履歴を保持します。
-- `replace` はバックアップに含まれる種類のデータを置き換えます。バージョン1のバックアップも取り込めます。バージョン1の置き換え対象はリストとメモです。どちらのモードも1回のトランザクションで確定します。
+- `replace` はバックアップに含まれる種類のデータを置き換えます。バージョン1はリストとメモ、バージョン2はさらに保有銘柄と価格アラート、バージョン3は保存済みバックテストも対象です。どちらのモードも1回のトランザクションで確定します。
 - 銘柄の表記を正規化します。リストや銘柄メモの項目が銘柄形式やリスト名の条件を満たさない場合は、理由付きでスキップします。保有銘柄とアラートの件数には登録上限が適用されます。
+- 保存済みバックテストは名前、種類、作成日時、メモ、リクエスト、結果が一致する項目を照合します。取り込み時に新しいIDを採番し、バックテストの保存件数・サイズの上限を適用します。
 
 ```json
 {
-  "imported": {"lists": 1, "items": 1, "tags": 1, "memos": 1, "holdings": 1, "alerts": 1},
+  "imported": {"lists": 1, "items": 1, "tags": 1, "memos": 1, "holdings": 1, "alerts": 1, "backtest_runs": 0},
   "skipped": [{"entry": "配当株 / A/B", "reason": "symbol は英数字または ^ . = - で20文字以内にしてください"}]
 }
 ```
 
-上記は `200` の応答例です。`USER_IMPORT_MAX_BYTES`（既定値 `1048576`、正の整数）を超える本文は `413` です。JSON の構文、必須項目、型、バージョン、モードが正しくない場合や、定義外の項目がある場合は `422` です。
+上記は `200` の応答例です。`USER_IMPORT_MAX_BYTES`（既定値 `33554432`、正の整数）を超える本文は `413` です。JSON の構文、必須項目、型、バージョン、モードが正しくない場合や、定義外の項目がある場合は `422` です。
 
 `GET /user/1/lists/2/export.csv` は `200` と `Content-Disposition: attachment; filename="watchlist-2-2026-11-25.csv"` を返します。UTF-8 BOM付きで、列は `symbol,name,tags,memo` の順です。企業名はキャッシュにあれば出力します。表計算ソフトで数式として解釈される値には、引用符の内側にタブを付けます。リストが見つからない場合は `404` です。
 
@@ -261,7 +264,7 @@ JWT の `ver` がアカウントのトークンバージョンと一致する間
 | `RATE_LIMIT_DATA_REQUESTS` | `600` | 株価・分析・為替・ウォッチリスト概要・バックテストの共通リクエスト上限 |
 | `RATE_LIMIT_DATA_WINDOW_SECONDS` | `60` | データリクエストを数える期間（秒） |
 
-回数・期間は正の整数を指定してください。データ取得ルートと `POST /backtest/run`、`POST /backtest/grid` は、有効なトークンがあればユーザー ID、なければ接続元 IP で同じ枠を使用します。キャッシュから応答した場合も枠を消費します。プロキシ経由で接続元 IP を判定するには `TRUSTED_PROXIES` を設定してください。接続元が取得できない場合は共通の `unknown` キーを使います。 [デプロイ手順](DEPLOY.md)
+回数・期間は正の整数を指定してください。データ取得ルートとバックテストの実行・探索ルートは、有効なトークンがあればユーザー ID、なければ接続元 IP で同じ枠を使用します。キャッシュから応答した場合も枠を消費します。プロキシ経由で接続元 IP を判定するには `TRUSTED_PROXIES` を設定してください。接続元が取得できない場合は共通の `unknown` キーを使います。 [デプロイ手順](DEPLOY.md)
 
 既定の60秒あたり600リクエストは乱用防止の上限です。ウォッチリストの再取得時に HTTP `429` が返った場合は、表示中の項目を保持します。
 状態はロックで保護したプロセス内メモリに保持し、リクエストと認証完了時に期限切れの時刻・空キーを削除します。再起動でリセットされ、複数ワーカー間では共有されません。並行して検証中のログインはまだ失敗に数えず、IP試行上限が同時実行数も制限します。
@@ -394,13 +397,38 @@ Web画面の取引CSVは全セルを二重引用符で囲み、セル内の二�
 ```
 
 上のレスポンス例は指標などを抜粋しています。グリッドの各行には順位、解決済みのパラメータ、戦略の指標が含まれます。
+応答の `equity_curve` は比較に使う首位の設定の曲線です。
+
+#### ポートフォリオとウォークフォワード
+
+| エンドポイント | リクエスト | 応答の追加項目 |
+|---|---|---|
+| `POST /backtest/portfolio` | 単一実行の `symbol` を `symbols`（重複のない2〜10銘柄の配列）に置き換え、`allocation`（`equal` または `equal_active`）、`rebalance_every`（正のバー数または `null`）、`rebalance_threshold_pct`（目標比率に対する許容乖離率、既定5）を指定 | `contributions` に銘柄別損益寄与、曲線各行の `holdings` に銘柄別評価額、取引の `reason` に `signal` または `rebalance` |
+| `POST /backtest/walkforward` | グリッド探索の項目に `folds`（2〜50、既定3）と `window`（`rolling` または `anchored`）を追加 | `folds` に学習・検証の期間、選択パラメータ、IS指標、OOS指標、先頭候補を使用したときの `warning`。`robustness` に利益が出たOOS分割の割合と指標の平均悪化幅 |
+
+両方の応答に `metrics`、`benchmark_metrics`、`trades`、`warnings`、`equity_curve` が含まれます。グリッドと両モードの曲線は最大2000点、約定は最大5000件です。ポートフォリオの履歴は最多3銘柄を並行取得し、取得できない場合は銘柄名を含む `422` を返します。判明した通貨が複数ある場合は通貨名と銘柄を含む `422`、通貨が不明な場合は警告を返します。ポートフォリオの決済統計はシグナルによる売りを対象とします。ウォークフォワードの曲線と全体指標はOOS期間を連結して計算します。 [計算方法とCLI](backtestCLI.md)
+
+#### 保存済みバックテスト
+
+Bearerトークンで保存したアカウントの結果を操作します。
+
+| 操作 | リクエスト・応答 |
+|---|---|
+| `POST /backtest/runs` | `kind`（`single`、`grid`、`portfolio`、`walkforward`）、`request`、`result`、任意の `name` と `note` を指定。成功時は `201` と概要 |
+| `GET /backtest/runs` | `runs` に新しい順の概要一覧 |
+| `GET /backtest/runs/{id}` | 概要に検証済みの `request` と保存用の `result` を加えた詳細 |
+| `PATCH /backtest/runs/{id}` | `name` または `note` を更新し、概要を返す。メモの消去は `{"note":null}` |
+| `DELETE /backtest/runs/{id}` | 削除して `204` |
+
+名前は最大120文字、メモは最大2000文字です。名前を省略すると、単一実行は銘柄・戦略・作成日、グリッド探索とウォークフォワードはさらに種類を含めて生成します。ポートフォリオは種類・銘柄数・戦略・作成日を使います。保存用曲線は最大500点、取引は先頭1000件です。保存後の結果の上限は512 KiBで、超過は `413`、件数超過は `409` です。別の利用者のIDや存在しないIDは `404` です。指標は実行応答からクライアントが送った値で、`metrics_source: "client"` がその出所を示します。
 
 | 環境変数 | 既定値 | 動作 |
 |---|---:|---|
 | `BACKTEST_MAX_SPAN_YEARS` | 20 | 開始日からの最大期間（暦年） |
 | `BACKTEST_GRID_MAX_COMBOS` | 100 | グリッドの組み合わせ上限（設定可能範囲1～500） |
 | `BACKTEST_TIMEOUT_SECONDS` | 30 | データ取得と計算を合わせた実行上限（秒） |
-| `BACKTEST_MAX_CONCURRENT_PER_USER` | 1 | 1プロセス内でのユーザーごとの同時実行上限。単一実行とグリッドで共有します |
+| `BACKTEST_MAX_CONCURRENT_PER_USER` | 1 | 1プロセス内のユーザーごとの同時実行上限。4つの実行・探索ルートで共有 |
+| `BACKTEST_MAX_SAVED_RUNS` | 50 | ユーザーごとの保存済みバックテストの件数上限 |
 
 認証エラーはHTTP `401`、入力や組み合わせ上限の違反は `422`（`detail` に検証エラー）、同時実行上限は `429`（`Retry-After` 付き）、時間超過は `504` です。
 

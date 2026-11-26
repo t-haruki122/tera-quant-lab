@@ -17,7 +17,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, TypedDict
 from urllib.parse import quote
@@ -49,6 +49,10 @@ from app.backtest import (  # noqa: E402
     Strategy as Strategy,
 )
 from app.backtest.grid import RANK_METRICS  # noqa: E402
+from app.backtest.portfolio import DEFAULT_REBALANCE_THRESHOLD_PCT, run_portfolio, validate_symbols  # noqa: E402
+from app.backtest.strategies import warmup_days  # noqa: E402
+from app.backtest.walkforward import run_walkforward, walkforward_combinations  # noqa: E402
+from app.validation import currency_code, normalize_symbol  # noqa: E402
 
 
 class APIClient:
@@ -162,6 +166,17 @@ class APIClient:
             cancel_check=cancel_check,
         )
 
+    def get_trading_currency(self, symbol: str) -> str | None:
+        root = f"/stock/{quote(symbol, safe='')}"
+        for path in (root, root + "/profile"):
+            try:
+                data = self._request("GET", path)
+            except (RuntimeError, ValueError, requests.RequestException):
+                continue
+            if code := currency_code(data.get("currency")):
+                return code
+        return None
+
     def get_financials(
         self,
         symbol: str,
@@ -199,7 +214,15 @@ def parse_args() -> argparse.Namespace:
 
     target_group = parser.add_mutually_exclusive_group(required=True)
     target_group.add_argument("--symbol", type=str, help="単一銘柄シンボル (例: AAPL)")
+    target_group.add_argument("--symbols", help="ポートフォリオの銘柄（カンマ区切り）")
     target_group.add_argument("--watchlist-id", type=int, help="ウォッチリストID")
+    parser.add_argument("--mode", default="single", choices=["single", "portfolio", "walkforward"])
+    parser.add_argument("--allocation", default="equal", choices=["equal", "equal_active"], help="ポートフォリオの配分方式")
+    parser.add_argument("--rebalance-every", type=int, help="リバランス間隔のバー数")
+    parser.add_argument("--rebalance-threshold-pct", type=float, default=DEFAULT_REBALANCE_THRESHOLD_PCT,
+                        help="リバランスを行う目標比率からの許容乖離率（%%、既定5、0で常に調整）")
+    parser.add_argument("--folds", type=int, default=3, help="ウォークフォワードの分割数")
+    parser.add_argument("--window", default="rolling", choices=["rolling", "anchored"], help="ウォークフォワードの学習期間方式")
 
     parser.add_argument("--user-id", type=int, help="ウォッチリスト取得用のユーザーID (--username 指定時は省略可)")
     auth_group = parser.add_mutually_exclusive_group()
@@ -264,11 +287,25 @@ def validate_args(args: argparse.Namespace) -> None:
     if not math.isfinite(args.fee_rate) or args.fee_rate < 0:
         raise ValueError("fee-rate は 0 以上を指定してください")
 
-    name, params, _ = strategy_options(args)
+    name, params, grid = strategy_options(args)
     Backtester(make_strategy(name, params), **engine_options(args, args.initial_capital))
     lag = getattr(args, "eps_lag_days", 90)
     if not isinstance(lag, int) or lag < 0:
-        raise ValueError("eps-lag-days must be a nonnegative integer")
+        raise ValueError("eps-lag-days は0以上の整数で指定してください")
+    mode = getattr(args, "mode", "single")
+    if getattr(args, "symbols", None) and mode != "portfolio":
+        raise ValueError("--symbols はポートフォリオで使用してください")
+    if mode == "portfolio":
+        if grid:
+            raise ValueError("ポートフォリオでは戦略パラメータを --param で指定してください")
+        if args.rebalance_every is not None and args.rebalance_every < 1:
+            raise ValueError("リバランス間隔は1以上にしてください")
+        if not math.isfinite(args.rebalance_threshold_pct) or args.rebalance_threshold_pct < 0:
+            raise ValueError("リバランスの許容乖離率は0以上の有限の数値を指定してください")
+    if mode == "walkforward":
+        if not args.symbol:
+            raise ValueError("ウォークフォワードには --symbol を指定してください")
+        walkforward_combinations(name, params, grid, args.rank_by, args.folds, args.window)
 
 
 def metrics_text(metrics: BacktestMetrics) -> str:
@@ -288,8 +325,10 @@ def save_metrics_csv(results, output_file):
     print(f"Metrics saved: {path}")
 
 
-def save_trades_csv(trades: list[dict[str, Any]], output_file: str) -> None:
+def save_trades_csv(trades: list[dict[str, Any]], output_file: str, *, include_reason=False) -> None:
     fields = ["symbol", "date", "signal_date", "side", "price", "shares", "fee", "slippage", "open_fallback", "pnl", "cash_after"]
+    if include_reason:
+        fields.append("理由")
     out_path = Path(output_file)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -297,7 +336,12 @@ def save_trades_csv(trades: list[dict[str, Any]], output_file: str) -> None:
         writer = csv.DictWriter(f, fieldnames=fields)
         writer.writeheader()
         for trade in trades:
-            writer.writerow(trade)
+            if include_reason:
+                row = {**trade, "理由": {"signal": "シグナル", "rebalance": "リバランス"}[trade["reason"]]}
+                del row["reason"]
+                writer.writerow(row)
+            else:
+                writer.writerow(trade)
 
     print(f"Trade history saved: {out_path}")
 
@@ -460,6 +504,8 @@ def run_single_symbol(
 
 
 def resolve_symbols(client: APIClient, args: argparse.Namespace) -> list[str]:
+    if getattr(args, "symbols", None):
+        return validate_symbols(args.symbols.split(","))
     if args.symbol:
         return [args.symbol.upper()]
 
@@ -487,6 +533,67 @@ def resolve_symbols(client: APIClient, args: argparse.Namespace) -> list[str]:
     return symbols
 
 
+def run_advanced(client, symbols, args):
+    name, params, grid = strategy_options(args)
+    combinations = grid_params(name, params, grid)
+    start = date.fromisoformat(args.start_date)
+    earliest = min(start, date(1900, 1, 1))
+    fetch_start = start - timedelta(days=min((start - earliest).days, warmup_days(args.interval, combinations)))
+    options = engine_options(args, args.initial_capital)
+    if args.mode == "portfolio":
+        symbols = validate_symbols(symbols)
+    else:
+        symbols = [normalize_symbol(symbols[0])]
+    frames, contexts = {}, {}
+    for symbol in symbols:
+        frames[symbol] = history_to_df(client.get_history(symbol, fetch_start.isoformat(), args.end_date, args.interval))
+        contexts[symbol] = {**fetch_context(client, symbol, args, params, grid), "start_date": args.start_date}
+    if args.mode == "portfolio":
+        result = run_portfolio(
+            frames, strategy=name, params=params, allocation=args.allocation, rebalance_every=args.rebalance_every,
+            rebalance_threshold_pct=args.rebalance_threshold_pct,
+            currencies={symbol: client.get_trading_currency(symbol) for symbol in symbols},
+            contexts=contexts, start_date=args.start_date, end_date=args.end_date, **options,
+        )
+        for symbol, pnl in result.contributions.items():
+            print(f"{symbol} の損益寄与 {pnl:,.2f}")
+    else:
+        symbol = symbols[0]
+        result = run_walkforward(
+            symbol, frames[symbol], strategy=name, params=params, grid=grid, rank_by=args.rank_by,
+            folds=args.folds, window=args.window, context=contexts[symbol], end_date=args.end_date, **options,
+        )
+        for fold in result.folds:
+            print(f"分割 {fold['fold']}　学習 {fold['train_start']} ～ {fold['train_end']}　"
+                  f"検証 {fold['test_start']} ～ {fold['test_end']}　設定 {fold['params']}　"
+                  f"IS {args.rank_by}={fold['is_metric']}　OOS リターン {fold['oos_metrics'].return_pct:.2f}%")
+            if fold["warning"]:
+                print(f"警告　{fold['warning']}")
+        print(f"利益が出た検証期間の割合 {result.robustness['profitable_share']:.1%}　"
+              f"{args.rank_by} の平均悪化幅 {result.robustness['metric_degradation']}")
+    for warning in result.warnings:
+        print(f"警告　{warning}")
+    print_metrics(result.metrics)
+    save_trades_csv(result.trades, args.trade_csv, include_reason=args.mode == "portfolio")
+    save_metrics_csv([result], args.metrics_csv)
+    if args.save_chart:
+        import matplotlib.pyplot as plt
+
+        curve = result.equity_curve
+        figure, axis = plt.subplots(figsize=(12, 5))
+        dates = pd.to_datetime(curve["date"])
+        axis.plot(dates, curve["equity"], label="Strategy")
+        axis.plot(dates, curve["benchmark_equity"], label="Buy and hold", linestyle="--")
+        axis.legend()
+        figure.autofmt_xdate()
+        file = Path(args.chart_file)
+        file.parent.mkdir(parents=True, exist_ok=True)
+        figure.savefig(file, dpi=150)
+        if args.show_chart:
+            plt.show()
+        plt.close(figure)
+
+
 def main() -> int:
     args = parse_args()
 
@@ -508,6 +615,14 @@ def main() -> int:
     except Exception as exc:
         print(f"Failed to resolve symbols: {exc}", file=sys.stderr)
         return 1
+
+    if args.mode != "single":
+        try:
+            run_advanced(client, symbols, args)
+        except (ValueError, RuntimeError, OSError) as exc:
+            print(f"バックテストに失敗しました。{exc}", file=sys.stderr)
+            return 1
+        return 0
 
     capital_per_symbol = args.initial_capital / len(symbols)
 

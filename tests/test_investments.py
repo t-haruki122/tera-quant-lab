@@ -442,7 +442,7 @@ def test_backup_roundtrip_version_one_and_account_deletion(client, users, settin
         assert copied[section] == backup[section]
     merged = client.post(path, headers=headers, json=backup).json()
     assert merged["imported"]["holdings"] == 0 and merged["imported"]["alerts"] == 0
-    legacy = {field: value for field, value in backup.items() if field not in ("holdings", "alerts")}
+    legacy = {field: value for field, value in backup.items() if field not in ("holdings", "alerts", "backtest_runs")}
     legacy["version"] = 1
     assert client.post(path + "?mode=replace", headers=headers, json=legacy).status_code == 200
     preserved = client.get(endpoint(bob, "export"), headers=headers).json()

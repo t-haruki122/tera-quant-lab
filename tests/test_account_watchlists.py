@@ -219,14 +219,14 @@ def test_backup_replace_round_trip(client, users):
     add_item(client, bob, "MSFT", ["obsolete"])
     put_memo(client, bob, "MSFT", "obsolete")
     backup = exported(client, alice)
-    assert set(backup) == {"version", "exported_at", "username", "lists", "memos", "holdings", "alerts"}
-    assert backup["version"] == 2 and backup["username"] == "alice"
+    assert set(backup) == {"version", "exported_at", "username", "lists", "memos", "holdings", "alerts", "backtest_runs"}
+    assert backup["version"] == 3 and backup["username"] == "alice"
     assert backup["exported_at"].endswith("Z")
     assert backup["lists"][0]["items"][0]["added_at"].endswith("Z")
     imported = client.post(prefix(bob) + "/import?mode=replace", headers=bob["headers"], json=backup)
     assert imported.status_code == 200
     assert imported.json() == {
-        "imported": {"lists": 2, "items": 2, "tags": 3, "memos": 2, "holdings": 0, "alerts": 0}, "skipped": [],
+        "imported": {"lists": 2, "items": 2, "tags": 3, "memos": 2, "holdings": 0, "alerts": 0, "backtest_runs": 0}, "skipped": [],
     }
     copy = exported(client, bob)
     assert copy["username"] == "bob"
@@ -253,13 +253,13 @@ def test_backup_merge_and_skipped_symbols(client, users):
     path = prefix(alice) + "/import"
     response = client.post(path, headers=alice["headers"], json=backup)
     assert response.status_code == 200
-    assert response.json()["imported"] == {"lists": 0, "items": 1, "tags": 1, "memos": 1, "holdings": 0, "alerts": 0}
+    assert response.json()["imported"] == {"lists": 0, "items": 1, "tags": 1, "memos": 1, "holdings": 0, "alerts": 0, "backtest_runs": 0}
     assert [entry["entry"] for entry in response.json()["skipped"]] == ["マイリスト / A/B", "  ", "メモ / M/S"]
     merged = exported(client, alice)
     assert [item["tags"] for item in merged["lists"][0]["items"]] == [["keep", "new"], []]
     assert [memo["memo"] for memo in merged["memos"]] == ["keep", "source"]
     assert client.post(path, headers=alice["headers"], json=backup).json()["imported"] == dict.fromkeys(
-        ("lists", "items", "tags", "memos", "holdings", "alerts"), 0,
+        ("lists", "items", "tags", "memos", "holdings", "alerts", "backtest_runs"), 0,
     )
 
 
@@ -271,7 +271,7 @@ def test_backup_size_and_schema(client, users, settings):
         response = client.post(path, headers=alice["headers"], content=payload)
         assert response.status_code == 422
         assert response.json()["detail"][0]["msg"] == "バックアップの形式が正しくありません"
-    for invalid in (dict(backup, version="1"), dict(backup, extra=True), dict(backup, version=3)):
+    for invalid in (dict(backup, version="1"), dict(backup, extra=True), dict(backup, version=4)):
         assert client.post(path, headers=alice["headers"], json=invalid).status_code == 422
     settings.user_import_max_bytes = 100
     response = client.post(path, headers=alice["headers"], content=iter([b"x" * 50, b"x" * 51]))

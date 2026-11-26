@@ -370,7 +370,7 @@ class YFinanceClient:
             "employees": info.get("fullTimeEmployees"),
             "summary": info.get("longBusinessSummary"),
             "market_cap": info.get("marketCap"),
-            "currency": info.get("currency", "USD"),
+            "currency": info.get("currency"),
             "website": info.get("website"),
             "country": info.get("country"),
         }

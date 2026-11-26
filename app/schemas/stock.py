@@ -15,6 +15,7 @@ class StockPriceResponse(CachedResponse):
     symbol: str
     price: float
     timestamp: str
+    currency: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 # --- 過去株価 ---

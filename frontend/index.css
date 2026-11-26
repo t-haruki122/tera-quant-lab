@@ -1752,6 +1752,19 @@ footer {
     white-space: nowrap;
 }
 
+#backtest-saved > summary {
+    cursor: pointer;
+    font-weight: 600;
+}
+
+#backtest-saved[open] > :not(summary) {
+    margin-block-start: var(--space-md);
+}
+
+#backtest-compare-table th {
+    white-space: normal;
+}
+
 .text-muted {
     color: var(--text-muted);
 }

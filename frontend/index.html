@@ -147,7 +147,7 @@
                     </section>
                     <form class="account-settings-section" id="account-delete-form">
                         <h4>アカウント削除</h4>
-                        <p class="text-muted">すべてのリスト、タグ、メモ、保有銘柄、価格アラートが削除されます。</p>
+                        <p class="text-muted">すべてのリスト、タグ、メモ、保有銘柄、価格アラート、保存済みバックテストが削除されます。</p>
                         <div class="form-group">
                             <label for="account-delete-username">確認のためユーザー名を入力</label>
                             <input id="account-delete-username" type="text" autocomplete="off" required>
@@ -171,7 +171,7 @@
                 <button class="modal-close" id="import-replace-close" type="button" aria-label="閉じる">✕</button>
             </div>
             <form class="modal-body" id="import-replace-form">
-                <p class="modal-message" id="import-replace-message" tabindex="-1">リスト、メモ、保有銘柄、価格アラートのうち、バックアップに含まれる種類のデータを置き換えますか？</p>
+                <p class="modal-message" id="import-replace-message" tabindex="-1">リスト、メモ、保有銘柄、価格アラート、保存済みバックテストのうち、バックアップに含まれる種類のデータを置き換えますか？</p>
                 <p class="auth-error hidden" id="import-replace-error" role="alert"></p>
                 <div class="modal-actions">
                     <button class="account-action" id="import-replace-cancel" type="button">キャンセル</button>
@@ -623,6 +623,27 @@
         </section>
     </div>
 
+    <div class="modal-overlay hidden" id="backtest-run-dialog">
+        <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="backtest-dialog-title" tabindex="-1">
+            <div class="modal-header">
+                <h3 id="backtest-dialog-title">バックテスト結果を保存</h3>
+                <button class="modal-close" id="backtest-dialog-close" type="button" aria-label="閉じる">✕</button>
+            </div>
+            <form class="modal-body" id="backtest-dialog-form">
+                <p id="backtest-dialog-message"></p>
+                <div id="backtest-dialog-fields">
+                    <label class="form-group">結果名<input id="backtest-dialog-name" maxlength="120"></label>
+                    <label class="form-group">メモ<textarea id="backtest-dialog-note" maxlength="2000"></textarea></label>
+                </div>
+                <p class="auth-error" id="backtest-dialog-error" role="alert"></p>
+                <div class="modal-actions">
+                    <button class="btn-secondary" id="backtest-dialog-cancel" type="button">キャンセル</button>
+                    <button class="btn-primary" id="backtest-dialog-submit" type="submit">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <div id="backtest-view" class="view">
         <section class="backtest-panel">
             <h2>バックテスト</h2>
@@ -635,7 +656,13 @@
             <form class="card card-body hidden" id="backtest-form">
                 <fieldset id="backtest-fields">
                     <div class="backtest-form-grid">
-                        <label class="form-group">銘柄
+                        <label class="form-group">分析モード
+                            <select id="backtest-kind">
+                                <option value="single">単一銘柄</option><option value="portfolio">ポートフォリオ</option>
+                                <option value="walkforward">ウォークフォワード</option>
+                            </select>
+                        </label>
+                        <label class="form-group" id="backtest-symbol-field">銘柄
                             <input id="backtest-symbol" list="backtest-symbols" maxlength="20" placeholder="AAPL" required>
                             <datalist id="backtest-symbols"></datalist>
                         </label>
@@ -657,8 +684,39 @@
                         <label class="form-group">初期資金
                             <input id="backtest-capital" type="number" min="0" step="any" value="1000000" required>
                         </label>
-                        <label class="form-group">実行モード
+                        <label class="form-group">EPS反映までの日数
+                            <input id="backtest-eps-lag" type="number" min="0" max="730" value="90" required>
+                        </label>
+                        <label class="form-group">年率無リスク金利（0.02 = 2%）
+                            <input id="backtest-risk-free" type="number" min="-0.5" max="1" step="any" value="0" required>
+                        </label>
+                        <label class="form-group" id="backtest-mode-field">実行モード
                             <select id="backtest-mode"><option value="run">単一バックテスト</option><option value="grid">グリッド探索</option></select>
+                        </label>
+                    </div>
+                    <div class="backtest-form-grid hidden" id="backtest-portfolio-options">
+                        <label class="form-group">銘柄（2〜10件、カンマ区切り）
+                            <input id="backtest-portfolio-symbols" maxlength="220" placeholder="AAPL, MSFT">
+                        </label>
+                        <div class="form-group">
+                            <label for="backtest-watchlist-symbol">ウォッチリストの候補</label>
+                            <select id="backtest-watchlist-symbol"></select>
+                            <button class="btn-secondary btn-sm" id="backtest-add-symbol" type="button">候補を追加</button>
+                        </div>
+                        <label class="form-group">配分
+                            <select id="backtest-allocation"><option value="equal">全銘柄に均等</option><option value="equal_active">買いシグナル有効銘柄に均等</option></select>
+                        </label>
+                        <label class="form-group">リバランス間隔（バー数、空欄で無効）
+                            <input id="backtest-rebalance" type="number" min="1" step="1" placeholder="21">
+                        </label>
+                        <label class="form-group">リバランスの許容乖離率（%、0で常に調整）
+                            <input id="backtest-rebalance-threshold" type="number" min="0" step="any" value="5" required>
+                        </label>
+                    </div>
+                    <div class="backtest-form-grid hidden" id="backtest-walk-options">
+                        <label class="form-group">分割数<input id="backtest-fold-count" type="number" min="2" max="50" value="3" required></label>
+                        <label class="form-group">学習期間
+                            <select id="backtest-window"><option value="rolling">ローリング</option><option value="anchored">アンカー（拡大型）</option></select>
                         </label>
                     </div>
                     <div class="backtest-form-grid" id="backtest-params"></div>
@@ -670,6 +728,10 @@
                     <button class="btn-primary btn-sm" id="backtest-submit" type="submit">バックテストを実行</button>
                 </fieldset>
             </form>
+            <div class="hidden" id="backtest-result-actions">
+                <button class="btn-primary btn-sm" id="backtest-save" type="button">結果を保存</button>
+                <p id="backtest-saved-label" role="status"></p>
+            </div>
             <section class="card card-body hidden" id="backtest-grid-result">
                 <h3>グリッド探索の結果</h3>
                 <div class="table-container" id="backtest-grid-table"></div>
@@ -678,6 +740,11 @@
                 <h3 id="backtest-result-title">バックテスト結果</h3>
                 <ul class="backtest-warnings hidden" id="backtest-warnings"></ul>
                 <div class="metrics-grid" id="backtest-metrics"></div>
+                <section class="card card-body hidden" id="backtest-advanced">
+                    <h4 id="backtest-advanced-title">詳細</h4>
+                    <p id="backtest-robustness"></p>
+                    <div class="table-container" id="backtest-advanced-table"></div>
+                </section>
                 <div class="chart-card">
                     <h3>資産推移</h3>
                     <div class="chart-container-line"><canvas id="backtest-chart" role="img" aria-label="バックテストの資産推移" aria-describedby="backtest-equity-summary"></canvas></div>
@@ -691,6 +758,17 @@
                     <div class="table-container" id="backtest-trades"></div>
                 </div>
             </section>
+            <details class="card card-body hidden" id="backtest-saved">
+                <summary>保存済みの結果</summary>
+                <div class="table-container" id="backtest-saved-table"></div>
+                <button class="btn-primary btn-sm" id="backtest-compare" type="button" disabled>選択した結果を比較（2〜5件）</button>
+                <section class="hidden" id="backtest-comparison">
+                    <h3>バックテスト結果の比較</h3>
+                    <div class="chart-container-line"><canvas id="backtest-compare-chart" role="img" aria-label="保存済みバックテストの資産推移の比較" aria-describedby="backtest-compare-summary"></canvas></div>
+                    <p id="backtest-compare-summary"></p>
+                    <div class="table-container" id="backtest-compare-table"></div>
+                </section>
+            </details>
         </section>
     </div>
 

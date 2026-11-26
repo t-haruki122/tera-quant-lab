@@ -30,6 +30,63 @@ def response(status, *, headers=None):
                            json=lambda: {"detail": "server detail"} if status >= 400 else {"ok": True})
 
 
+@pytest.mark.parametrize(("mode", "target", "specific", "message"), [
+    ("portfolio", ["--symbols", "AAA,BBB"], ["--rebalance-every", "3"], "BBB の損益寄与"),
+    ("walkforward", ["--symbol", "AAA"], ["--folds", "2", "--grid", "period=1,2"], "分割 2"),
+])
+def test_advanced_cli_uses_shared_engines_and_fetches_warmup(monkeypatch, tmp_path, capsys, mode, target, specific, message):
+    trades, metrics = tmp_path / "trades.csv", tmp_path / "metrics.csv"
+    args(monkeypatch, "--mode", mode, *target, "--strategy", "momentum", "--param", "period=1",
+         "--execution", "close", "--trade-csv", str(trades), "--metrics-csv", str(metrics), *specific)
+    requested = []
+
+    def history(self, symbol, start, end, interval):
+        requested.append((symbol, start))
+        return {"history": [{"date": f"2024-01-{i:02}", "close": 10 + i % 4} for i in range(1, 16)]}
+
+    monkeypatch.setattr(cli.APIClient, "get_history", history)
+    monkeypatch.setattr(cli.APIClient, "get_trading_currency", lambda self, symbol: "JPY")
+    assert cli.main() == 0
+    assert "2023-12-" in requested[0][1]
+    assert len(requested) == (2 if mode == "portfolio" else 1)
+    assert message in capsys.readouterr().out
+    assert "benchmark_return_pct" in metrics.read_text(encoding="utf-8")
+    csv = trades.read_text(encoding="utf-8")
+    assert "symbol,date,signal_date" in csv
+    if mode == "portfolio":
+        assert csv.splitlines()[0].endswith(",理由") and "シグナル" in csv
+
+
+@pytest.mark.parametrize("profile_currency", ["JPY", None])
+def test_portfolio_cli_checks_quote_and_profile_currencies(monkeypatch, tmp_path, capsys, profile_currency):
+    trades, metrics = tmp_path / "trades.csv", tmp_path / "metrics.csv"
+    args(monkeypatch, "--mode", "portfolio", "--symbols", "7203.T,AAPL", "--strategy", "momentum",
+         "--param", "period=1", "--trade-csv", str(trades), "--metrics-csv", str(metrics))
+    paths = []
+
+    def request(self, method, path, **kwargs):
+        paths.append(path)
+        if path.endswith("/history"):
+            return {"history": [{"date": f"2024-01-{i:02}", "close": 10 + i} for i in range(1, 8)]}
+        if path == "/stock/AAPL":
+            return {"currency": "USD"}
+        if path == "/stock/7203.T":
+            raise RuntimeError("quote unavailable")
+        assert path == "/stock/7203.T/profile"
+        return {"currency": profile_currency}
+
+    monkeypatch.setattr(cli.APIClient, "_request", request)
+    exit_code = cli.main()
+    output = capsys.readouterr()
+    assert "/stock/7203.T/profile" in paths and "/stock/AAPL/profile" not in paths
+    if profile_currency:
+        assert exit_code == 1 and "通貨が異なる銘柄（JPY: 7203.T / USD: AAPL）" in output.err
+        assert not trades.exists()
+    else:
+        assert exit_code == 0 and "7203.T の通貨を確認できなかった" in output.out
+        assert trades.exists()
+
+
 @pytest.fixture
 def sleep(monkeypatch):
     mocked = Mock()

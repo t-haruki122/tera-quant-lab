@@ -1,10 +1,11 @@
 """ユーザー・リスト・タグ関連のPydanticスキーマ"""
 
 from datetime import date, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
+from app.schemas.backtest import RunKind, RunName, RunNote
 from app.schemas.investments import AlertKind, Cost, Note, Shares, Threshold
 from app.schemas.stock import CachedResponse
 from app.validation import Symbol
@@ -171,6 +172,15 @@ class BackupAlert(BackupModel):
     armed: bool
 
 
+class BackupBacktestRun(BackupModel):
+    name: RunName
+    kind: RunKind
+    request: dict[str, Any]
+    result: dict[str, Any]
+    created_at: datetime
+    note: RunNote | None
+
+
 class UserBackup(BackupModel):
     version: StrictInt
     exported_at: datetime
@@ -179,6 +189,7 @@ class UserBackup(BackupModel):
     memos: list[BackupMemo]
     holdings: list[BackupHolding] = Field(default_factory=list)
     alerts: list[BackupAlert] = Field(default_factory=list)
+    backtest_runs: list[BackupBacktestRun] = Field(default_factory=list)
 
 
 class ImportCounts(BaseModel):
@@ -188,6 +199,7 @@ class ImportCounts(BaseModel):
     memos: int = 0
     holdings: int = 0
     alerts: int = 0
+    backtest_runs: int = 0
 
 
 class SkippedEntry(BaseModel):

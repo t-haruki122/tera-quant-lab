@@ -8,6 +8,12 @@ import numpy as np
 ANNUALISATION = {"1d": 252, "1wk": 52, "1mo": 12}
 
 
+def sample_curve(rows: list, limit: int) -> list:
+    if len(rows) <= limit:
+        return rows
+    return [rows[index * (len(rows) - 1) // (limit - 1)] for index in range(limit)]
+
+
 @dataclass
 class BacktestMetrics:
     symbol: str

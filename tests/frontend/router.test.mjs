@@ -6,6 +6,14 @@ globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ ra
 const { App } = await fromRepo('frontend/app.js');
 const { parseRoute, serializeRoute } = await fromRepo('frontend/js/router.js');
 
+test('backtest saved run deep links round-trip positive safe integer IDs', () => {
+    assert.deepEqual(parseRoute('#/backtest?run=7'), { view: 'backtest', run: 7 });
+    assert.equal(serializeRoute({ view: 'backtest', run: 7 }), '#/backtest?run=7');
+    for (const invalid of ['-1', '0', '1e3', '3.5', '9007199254740992', '%3Cscript%3E']) {
+        assert.deepEqual(parseRoute(`#/backtest?run=${invalid}`), { view: 'list' });
+    }
+});
+
 test('routes round-trip with encoded symbols and the documented periods', () => {
     for (const [hash, route] of [
         ['#/', { view: 'list' }],

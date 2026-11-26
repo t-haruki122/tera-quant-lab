@@ -85,8 +85,8 @@ export class App {
     }
 
     renderRoute(route) {
-        const { view, symbol, period } = route;
-        if (this.route?.view === view && this.route.symbol === symbol && this.route.period === period) return;
+        const { view, symbol, period, run } = route;
+        if (this.route?.view === view && this.route.symbol === symbol && this.route.period === period && this.route.run === run) return;
         const changedView = this.route && this.route.view !== view;
         this.route = route;
         this.currentView = view;
@@ -101,7 +101,7 @@ export class App {
         if (changedView) this.document.getElementById('main-content')?.focus();
         this.syncStatsPolling();
         this.refreshPortfolioSession(view === 'portfolio');
-        if (this.currentView === 'backtest') this.openBacktest(symbol);
+        if (this.currentView === 'backtest') this.openBacktest(symbol, { run });
         if (this.currentView === 'detail') {
             const periodChanged = period !== this.state.currentPeriod;
             this.state.currentPeriod = period;

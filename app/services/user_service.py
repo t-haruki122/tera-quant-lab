@@ -12,7 +12,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import require_authenticated_user
-from app.models.db_models import PortfolioHolding, PriceAlert, StockMemo, User, UserList, UserListItem
+from app.models.db_models import BacktestRun, PortfolioHolding, PriceAlert, StockMemo, User, UserList, UserListItem
 from app.timeutil import to_db
 
 ph = PasswordHasher()
@@ -82,7 +82,9 @@ async def delete_account(user: User, db: AsyncSession) -> bool:
     return True
 
 
-async def delete_user_data(user_id: int, db: AsyncSession, *, include_investments: bool = True) -> None:
+async def delete_user_data(
+    user_id: int, db: AsyncSession, *, include_investments: bool = True, include_backtests: bool = True,
+) -> None:
     # SQLite connections use the default foreign_keys=OFF.
     lists = select(UserList.id).where(UserList.user_id == user_id)
     await db.execute(delete(UserListItem).where(UserListItem.list_id.in_(lists)))
@@ -91,6 +93,8 @@ async def delete_user_data(user_id: int, db: AsyncSession, *, include_investment
     if include_investments:
         await db.execute(delete(PortfolioHolding).where(PortfolioHolding.user_id == user_id))
         await db.execute(delete(PriceAlert).where(PriceAlert.user_id == user_id))
+    if include_backtests:
+        await db.execute(delete(BacktestRun).where(BacktestRun.user_id == user_id))
 
 
 async def lock_user_data(user_id: int, db: AsyncSession) -> None:

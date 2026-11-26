@@ -28,9 +28,9 @@ def test_fresh_startup_and_second_upgrade_are_idempotent(async_db):
         assert not logger.disabled
         async with engine.connect() as connection:
             tables = await connection.run_sync(lambda conn: inspect(conn).get_table_names())
-            added = {"alembic_version", "api_stats_daily", "portfolio_holdings", "price_alerts"}
+            added = {"alembic_version", "api_stats_daily", "portfolio_holdings", "price_alerts", "backtest_runs"}
             assert set(tables) == set(LegacyBase.metadata.tables) | added
-            assert await connection.scalar(text("SELECT version_num FROM alembic_version")) == "0005"
+            assert await connection.scalar(text("SELECT version_num FROM alembic_version")) == "0006"
             columns = await connection.run_sync(lambda conn: inspect(conn).get_columns("users"))
             token_version = next(column for column in columns if column["name"] == "token_version")
             assert not token_version["nullable"]
@@ -148,6 +148,33 @@ def test_upgrade_0003_and_downgrade_0004_keep_users_and_watchlists(settings):
 
 def select_legacy_columns(table):
     return LegacyBase.metadata.tables[table].select()
+
+
+def test_upgrade_populated_0005_and_downgrade_0006(settings):
+    engine = create_engine(settings.database_url.replace("+aiosqlite", ""))
+    with engine.begin() as connection:
+        connection.exec_driver_sql("PRAGMA foreign_keys = ON")
+        upgrade(connection, "0005")
+        connection.execute(text("INSERT INTO users (id, username, password_hash, created_at) "
+                                "VALUES (1, 'keep', 'hash', CURRENT_TIMESTAMP), (2, 'remove', 'hash', CURRENT_TIMESTAMP)"))
+        connection.execute(text("INSERT INTO portfolio_holdings (user_id, symbol, shares, avg_cost, created_at, updated_at) "
+                                "VALUES (1, 'AAPL', 3, 100, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"))
+        before = connection.execute(text("SELECT * FROM portfolio_holdings")).all()
+        upgrade(connection)
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0006"
+        assert inspect(connection).get_foreign_keys("backtest_runs")[0]["options"]["ondelete"] == "CASCADE"
+        connection.execute(text("INSERT INTO backtest_runs (user_id, name, kind, request, summary, result, created_at) "
+                                "VALUES (2, 'run', 'single', '{}', '{}', '{}', CURRENT_TIMESTAMP)"))
+        connection.execute(text("DELETE FROM users WHERE id=2"))
+        assert connection.scalar(text("SELECT COUNT(*) FROM backtest_runs")) == 0
+        config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+        config.attributes["connection"] = connection
+        command.downgrade(config, "0005")
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0005"
+        assert not inspect(connection).has_table("backtest_runs")
+        assert connection.execute(text("SELECT * FROM portfolio_holdings")).all() == before
+        assert connection.scalar(text("SELECT username FROM users WHERE id=1")) == "keep"
+    engine.dispose()
 
 
 def test_upgrade_populated_0004_and_downgrade_0005(settings):

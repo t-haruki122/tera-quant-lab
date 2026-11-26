@@ -12,9 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.models.db_models import CompanyProfile, PortfolioHolding, PriceAlert, StockMemo, User, UserList, UserListItem
+from app.schemas.backtest import SaveRunRequest
 from app.schemas.investments import AlertResponse, HoldingResponse
 from app.schemas.user import (
     BackupAlert,
+    BackupBacktestRun,
     BackupHolding,
     BackupItem,
     BackupList,
@@ -24,12 +26,12 @@ from app.schemas.user import (
     SkippedEntry,
     UserBackup,
 )
-from app.services import portfolio_service, price_alert_service, user_service
+from app.services import backtest_runs_service, portfolio_service, price_alert_service, user_service
 from app.services.watchlist_service import get_list_memos
 from app.timeutil import to_db, utcnow
 from app.validation import normalize_symbol
 
-BACKUP_VERSION = 2
+BACKUP_VERSION = 3
 
 
 async def read_user_data(user_id: int, db: AsyncSession):
@@ -76,13 +78,22 @@ async def export_backup(user: User, db: AsyncSession) -> UserBackup:
             BackupAlert.model_validate(AlertResponse.model_validate(row).model_dump(exclude={"id"}))
             for row in await price_alert_service.alerts_for_user(user.id, db)
         ],
+        backtest_runs=[
+            BackupBacktestRun.model_validate(dict(
+                name=row.name, kind=row.kind, request=row.request, result=row.result,
+                created_at=row.created_at.replace(tzinfo=UTC), note=row.note,
+            ))
+            for row in await backtest_runs_service.list_runs(user.id, db, full=True)
+        ],
     )
 
 
 async def import_backup(user_id: int, backup: UserBackup, mode: str, db: AsyncSession) -> ImportResult:
     await user_service.lock_user_data(user_id, db)
     if mode == "replace":
-        await user_service.delete_user_data(user_id, db, include_investments=backup.version == BACKUP_VERSION)
+        await user_service.delete_user_data(
+            user_id, db, include_investments=backup.version >= 2, include_backtests=backup.version >= 3,
+        )
     lists, items, memos = await read_user_data(user_id, db)
     by_name = {}
     for lst in lists:
@@ -149,10 +160,33 @@ async def import_backup(user_id: int, backup: UserBackup, mode: str, db: AsyncSe
         counts.memos += 1
 
     result = ImportResult(imported=counts, skipped=skipped)
-    if backup.version == BACKUP_VERSION:
+    if backup.version >= 2:
         await import_investments(user_id, backup, result, db)
+    if backup.version >= 3:
+        await import_backtests(user_id, backup, result, db)
     await db.commit()
     return result
+
+
+async def import_backtests(user_id: int, backup: UserBackup, result: ImportResult, db: AsyncSession) -> None:
+    existing = await backtest_runs_service.list_runs(user_id, db, full=True)
+    maximum = get_settings().backtest_max_saved_runs
+    for source in backup.backtest_runs:
+        try:
+            validated = SaveRunRequest.model_validate(source.model_dump(exclude={"created_at"}))
+            row = backtest_runs_service.make_run(user_id, validated, created_at=source.created_at)
+        except ValueError:
+            result.skipped.append(SkippedEntry(entry=source.name, reason="バックテストの設定または結果の形式・サイズが正しくありません。"))
+            continue
+        if any((item.name, item.kind, item.created_at, item.note, item.request, item.result)
+               == (row.name, row.kind, row.created_at, row.note, row.request, row.result) for item in existing):
+            result.skipped.append(SkippedEntry(entry=row.name, reason="同じバックテストが保存済みです。"))
+        elif len(existing) >= maximum:
+            result.skipped.append(SkippedEntry(entry=row.name, reason="バックテストの保存上限に達しています。"))
+        else:
+            db.add(row)
+            existing.append(row)
+            result.imported.backtest_runs += 1
 
 
 def alert_key(alert: PriceAlert | BackupAlert) -> tuple[str, str, float, bool, str | None]:

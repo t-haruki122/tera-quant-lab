@@ -124,7 +124,7 @@ def test_run_warmup_benchmark_trades_eps_and_json_safety(client, users, services
     }).json()
     assert filtered["trades"] == []
     assert filtered["metrics"]["missing_eps_bars"] == 5
-    assert "Historical EPS" in filtered["warnings"][0]
+    assert "過去のEPS" in filtered["warnings"][0]
     eps.assert_awaited_once()
 
 

@@ -4,6 +4,7 @@ from datetime import date as UTCDate
 from datetime import datetime
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -20,6 +21,24 @@ from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from app.database import Base
 from app.timeutil import to_db
+
+
+class BacktestRun(Base):
+    __tablename__ = "backtest_runs"
+    __table_args__ = (
+        CheckConstraint("kind IN ('single', 'grid', 'portfolio', 'walkforward')", name="ck_backtest_run_kind"),
+        {"sqlite_autoincrement": True},
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    kind: Mapped[str] = mapped_column(String(12))
+    request: Mapped[dict] = mapped_column(JSON)
+    summary: Mapped[dict] = mapped_column(JSON)
+    result: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=to_db)
+    note: Mapped[str | None] = mapped_column(Text)
 
 
 class ApiStatsDaily(Base):
