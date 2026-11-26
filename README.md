@@ -24,6 +24,7 @@
 - バックエンドAPI詳細: [docs/API.md](docs/API.md)
 - ポートフォリオ、ウォークフォワード、結果の保存・比較とCLIの使い方は [バックテストの使い方](docs/backtestCLI.md) を参照してください。
 - LXC・systemd・Docker での運用: [docs/DEPLOY.md](docs/DEPLOY.md)
+- Claude Desktop・Claude Code からアプリのデータを参照する手順は [docs/MCP.md](docs/MCP.md) を参照してください。
 
 ## セットアップ
 

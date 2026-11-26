@@ -23,6 +23,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "basedpyright>=1.40.2",
+    "mcp>=2.3.0",
     "pre-commit>=4.7.0",
     "pytest",
     "ruff",
@@ -52,6 +53,6 @@ ignore = ["E501"]
 [tool.basedpyright]
 typeCheckingMode = "standard"
 pythonVersion = "3.12"
-include = ["app", "scripts", "migrations"]
+include = ["app", "scripts", "migrations", "tera_mcp"]
 venvPath = "."
 venv = ".venv"
