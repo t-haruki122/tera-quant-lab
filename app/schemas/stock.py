@@ -32,6 +32,12 @@ class HistoryEntry(BaseModel):
     sma_75: float | None = None
     sma_200: float | None = None
     rsi_14: float | None = None
+    macd: float | None = None
+    macd_signal: float | None = None
+    macd_hist: float | None = None
+    bb_upper: float | None = None
+    bb_middle: float | None = None
+    bb_lower: float | None = None
 
 
 class StockHistoryResponse(CachedResponse):

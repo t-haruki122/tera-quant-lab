@@ -100,7 +100,7 @@ for (const loggedIn of [true, false]) {
 test('rate arrival and changes re-render the visible detail quote and chart from loaded data', async () => {
     let rate = 160;
     const calls = [];
-    const app = makeApp({ fetchAPI: async path => {
+    const app = makeApp({ loadStock: symbol => { state.currentSymbol = symbol; }, fetchAPI: async path => {
         calls.push(path);
         return { rate };
     } });
@@ -109,7 +109,7 @@ test('rate arrival and changes re-render the visible detail quote and chart from
         constructor(_ctx, config) { this.data = config.data; }
         destroy() {}
     };
-    app.switchView('detail');
+    app.switchView('detail', 'AAPL');
     renderStockHeader({ symbol: 'AAPL', price: 354.05 }, { name: 'Apple', currency: 'USD' });
     showSection('stock-detail');
     state.currentChartHistory = [{ date: '2026-11-26', close: 350 }];

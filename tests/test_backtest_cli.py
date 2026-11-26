@@ -61,7 +61,7 @@ def test_sma_crossover_trades_fees_and_mark_to_market():
 def test_empty_history_insufficient_data_and_per_filter():
     strategy = cli.SmaCrossPerStrategy(2, 3, max_per=20)
     backtester = cli.Backtester(strategy, 1000)
-    with pytest.raises(ValueError, match="No price data"):
+    with pytest.raises(ValueError, match="株価データがありません"):
         backtester.run("X", pd.DataFrame())
     short = pd.DataFrame({"date": ["2024-01-01"], "close": [10]})
     assert backtester.run("X", short).metrics.final_asset == 1000

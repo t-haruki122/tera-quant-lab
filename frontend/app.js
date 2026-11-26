@@ -7,8 +7,10 @@ import { fetchAPI } from './js/api.js';
 import { fetchStats } from './js/stats.js';
 import { updateAccountUI, submitAuth, bindAuthEvents } from './js/auth.js';
 import { loadDefaultList, submitListAddFromModal, addTagFromInput, setListSearchQuery, bindListEvents, renderListTable } from './js/list.js';
-import { searchStock, bindDetailEvents, refreshDetailPrices } from './js/detail.js';
-import { bindChartEvents } from './js/chart.js';
+import { searchStock, loadStock, bindDetailEvents, refreshDetailPrices, refreshDetailHistory } from './js/detail.js';
+import { bindChartEvents, updatePeriodControls } from './js/chart.js';
+import { bindComparisonEvents } from './js/comparison.js';
+import { parseRoute, serializeRoute } from './js/router.js';
 import { bindFinancialChartEvents } from './js/financial-chart.js';
 import { bindBacktestEvents, openBacktest, refreshBacktestSession, updateBacktestSymbols } from './js/backtest.js';
 
@@ -30,34 +32,80 @@ export class App {
         this.setListSearchQuery = deps.setListSearchQuery ?? setListSearchQuery;
         this.submitAuth = deps.submitAuth ?? submitAuth;
         this.searchStock = deps.searchStock ?? searchStock;
+        this.loadStock = deps.loadStock ?? loadStock;
+        this.refreshDetailHistory = deps.refreshDetailHistory ?? refreshDetailHistory;
         this.bindAuthEvents = deps.bindAuthEvents ?? bindAuthEvents;
         this.bindListEvents = deps.bindListEvents ?? bindListEvents;
         this.bindDetailEvents = deps.bindDetailEvents ?? bindDetailEvents;
         this.bindChartEvents = deps.bindChartEvents ?? bindChartEvents;
+        this.bindComparisonEvents = deps.bindComparisonEvents ?? bindComparisonEvents;
         this.bindFinancialChartEvents = deps.bindFinancialChartEvents ?? bindFinancialChartEvents;
         this.bindBacktestEvents = deps.bindBacktestEvents ?? bindBacktestEvents;
         this.openBacktest = deps.openBacktest ?? openBacktest;
 
         this.document = deps.documentRef ?? document;
+        this.window = deps.windowRef ?? window;
         this.storage = deps.storage ?? localStorage;
         this.setIntervalFn = deps.setIntervalFn ?? window.setInterval.bind(window);
         this.clearIntervalFn = deps.clearIntervalFn ?? window.clearInterval.bind(window);
         this.statsPollingMs = deps.statsPollingMs ?? 10_000;
 
         this.currentView = 'list';
+        this.route = null;
+        this.detailUser = null;
         this.statsTimerId = null;
     }
 
-    switchView(view, symbol) {
-        this.currentView = ['detail', 'stats', 'backtest'].includes(view) ? view : 'list';
+    switchView(view, symbol, period) {
+        if (view === 'detail') {
+            symbol ??= this.state.currentSymbol;
+            period ??= this.state.currentPeriod;
+        }
+        const hash = serializeRoute({ view, symbol, period });
+        if (this.window.location && this.window.location.hash !== hash) this.window.location.hash = hash;
+        this.renderRoute(parseRoute(hash));
+    }
+
+    applyLocation() {
+        const { location, history } = this.window;
+        const hash = location?.hash ?? '';
+        const route = parseRoute(hash);
+        if (hash && hash !== '#/' && route.view === 'list') {
+            history.replaceState(history.state, '', '#/');
+        }
+        this.renderRoute(route);
+    }
+
+    renderRoute(route) {
+        const { view, symbol, period } = route;
+        if (this.route?.view === view && this.route.symbol === symbol && this.route.period === period) return;
+        const changedView = this.route && this.route.view !== view;
+        this.route = route;
+        this.currentView = view;
         this.document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
         this.document.getElementById(`${this.currentView}-view`)?.classList.add('active');
         for (const name of ['list', 'backtest']) {
-            this.document.getElementById(`btn-${name}-view`)?.classList.toggle('active', this.currentView === name);
+            const button = this.document.getElementById(`btn-${name}-view`);
+            button?.classList.toggle('active', view === name);
+            if (view === name) button?.setAttribute('aria-current', 'page');
+            else button?.removeAttribute('aria-current');
         }
+        if (changedView) this.document.getElementById('main-content')?.focus();
         this.syncStatsPolling();
         if (this.currentView === 'backtest') this.openBacktest(symbol);
-        if (this.currentView === 'detail') refreshDetailPrices();
+        if (this.currentView === 'detail') {
+            const periodChanged = period !== this.state.currentPeriod;
+            this.state.currentPeriod = period;
+            updatePeriodControls(period);
+            if (symbol !== this.state.currentSymbol || this.detailUser !== this.state.currentUser) this.loadDetail(symbol);
+            else if (periodChanged) this.refreshDetailHistory();
+            refreshDetailPrices();
+        }
+    }
+
+    loadDetail(symbol) {
+        this.detailUser = this.state.currentUser;
+        this.loadStock(symbol);
     }
 
     async fetchExchangeRate() {
@@ -77,6 +125,11 @@ export class App {
     }
 
     bindCoreEvents() {
+        this.window.addEventListener?.('hashchange', () => this.applyLocation());
+        this.document.getElementById('skip-link')?.addEventListener('click', e => {
+            e.preventDefault();
+            this.document.getElementById('main-content')?.focus();
+        });
         this.document.getElementById('search-input')?.addEventListener('keydown', e => {
             if (isSubmitEnter(e)) this.searchStock();
         });
@@ -101,9 +154,13 @@ export class App {
         this.document.getElementById('btn-list-view')?.addEventListener('click', () => this.switchView('list'));
         this.document.getElementById('btn-backtest-view')?.addEventListener('click', () => this.switchView('backtest'));
         this.document.getElementById('btn-detail-backtest')?.addEventListener('click', () => this.switchView('backtest', this.state.currentSymbol));
+        this.document.querySelectorAll('.period-btn[data-period]').forEach(button => {
+            button.addEventListener('click', () => this.switchView('detail', this.state.currentSymbol, button.dataset.period));
+        });
         this.document.addEventListener('visibilitychange', () => this.syncStatsPolling());
         this.document.addEventListener('accountchange', () => {
             if (this.currentView === 'backtest' || !this.state.currentUser) refreshBacktestSession();
+            if (this.currentView === 'detail' && this.route?.symbol) this.loadDetail(this.route.symbol);
         });
         this.document.addEventListener('watchlistchange', () => {
             if (this.currentView === 'backtest') updateBacktestSymbols();
@@ -113,6 +170,7 @@ export class App {
         this.bindListEvents();
         this.bindDetailEvents();
         this.bindChartEvents();
+        this.bindComparisonEvents();
         this.bindFinancialChartEvents();
         this.bindBacktestEvents();
     }
@@ -144,15 +202,16 @@ export class App {
 
     async init() {
         this.bindCoreEvents();
-        await Promise.all([this.restoreUserSession(), this.fetchExchangeRate()]);
+        const session = this.restoreUserSession();
+        this.applyLocation();
+        await Promise.all([session, this.fetchExchangeRate()]);
     }
 }
 
-export function switchView(view) {
-    if (!activeApp) return;
-    activeApp.switchView(view);
+export function switchView(view, symbol, period) {
+    activeApp?.switchView(view, symbol, period);
 }
 
 activeApp = new App();
-window.switchView = view => switchView(view);
+window.switchView = switchView;
 activeApp.init();

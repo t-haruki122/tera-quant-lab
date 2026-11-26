@@ -5,10 +5,13 @@
 import { state } from './state.js';
 import { fetchAPI } from './api.js';
 import { formatCurrency, formatLargeNumber, formatTimestamp, formatNewsDate, escapeHtml, safeHttpUrl, oldestStaleData, staleMessage, staleNotice } from './utils.js';
-import { loadChart, clearPriceAndRsiCharts, updateChartVisibility } from './chart.js';
+import { loadChart, resetPriceChart, updateChartVisibility } from './chart.js';
+import { renderComparison, resetComparison } from './comparison.js';
+import { normalizeSymbol } from './router.js';
 import { renderFinancialHistoryChart, renderDividendHistoryChart } from './financial-chart.js';
 
 let displayedQuote = null;
+let detailRequestId = 0;
 
 // ===== Search =====
 export function quickSearch(symbol) {
@@ -16,16 +19,24 @@ export function quickSearch(symbol) {
     searchStock();
 }
 
-export async function searchStock() {
+export function searchStock() {
     const input = document.getElementById('search-input');
-    const symbol = input.value.trim().toUpperCase();
-    if (!symbol) return;
+    const symbol = normalizeSymbol(input.value);
+    const error = document.getElementById('search-error');
+    error.textContent = symbol ? '' : '有効なティッカーを入力してください';
+    if (symbol) window.switchView('detail', symbol);
+}
 
+export async function loadStock(symbol) {
+    const requestId = ++detailRequestId;
+    const isCurrent = () => requestId === detailRequestId;
+    document.getElementById('search-input').value = symbol;
+    document.getElementById('search-error').textContent = '';
     state.currentSymbol = symbol;
     displayedQuote = null;
-    state.currentChartHistory = [];
-    state.currentChartCurrency = null;
-    clearPriceAndRsiCharts();
+    resetPriceChart();
+    resetComparison();
+    clearFinancialCharts();
     showSection('loading');
     document.getElementById('loading-text').textContent = `${symbol} のデータを取得中...`;
 
@@ -35,17 +46,32 @@ export async function searchStock() {
             fetchAPI(`/stock/${encodeURIComponent(symbol)}/profile`),
             fetchAPI(`/stock/${encodeURIComponent(symbol)}/indicators`),
         ]);
+        if (!isCurrent()) return;
 
         renderStockHeader(price, profile);
         renderProfile(profile);
         renderIndicators(indicators);
 
         showSection('stock-detail');
-        loadChart(symbol, state.currentPeriod, profile.currency);
-        loadFinancials(symbol, profile);
-        loadNews(symbol);
+        refreshDetailHistory();
+        loadFinancials(symbol, profile, isCurrent);
+        loadNews(symbol, isCurrent);
     } catch (err) {
-        showError('データ取得エラー', err.message);
+        if (isCurrent()) showError('データ取得エラー', err.message);
+    }
+}
+
+export function refreshDetailHistory() {
+    if (!displayedQuote) return;
+    const { currentSymbol, currentPeriod } = state;
+    loadChart(currentSymbol, currentPeriod, displayedQuote.currency);
+    renderComparison(currentSymbol, currentPeriod);
+}
+
+function clearFinancialCharts() {
+    for (const key of ['financialChartInstance', 'dividendChartInstance']) {
+        state[key]?.destroy();
+        state[key] = null;
     }
 }
 
@@ -207,7 +233,7 @@ export function renderIndicators(data) {
 }
 
 // ===== Load: Financials =====
-export async function loadFinancials(symbol, profile) {
+export async function loadFinancials(symbol, profile, isCurrent = () => true) {
     const body = document.getElementById('financials-body');
     body.innerHTML = '<div class="skeleton-lines"><div></div><div></div><div></div></div>';
 
@@ -219,6 +245,7 @@ export async function loadFinancials(symbol, profile) {
                 fetchAPI(`/stock/${encodeURIComponent(symbol)}/dividends/history?limit=20`),
             ]),
         ]);
+        if (!isCurrent()) return;
         let html = staleNotice(data);
         const rows = [
             ['売上高', data.revenue ? formatLargeNumber(data.revenue, profile?.currency) : null],
@@ -234,22 +261,24 @@ export async function loadFinancials(symbol, profile) {
                 <div class="mini-chart-header-row">
                     <div class="mini-chart-header">過去の財務推移（年次）</div>
                     <div class="metric-toggle" role="group" aria-label="財務指標の切り替え">
-                        <button class="metric-btn" id="metric-revenue" type="button" data-financial-metric="revenue">売上高</button>
-                        <button class="metric-btn active" id="metric-net-income" type="button" data-financial-metric="net_income">純利益</button>
+                        <button class="metric-btn" id="metric-revenue" type="button" data-financial-metric="revenue" aria-pressed="false">売上高</button>
+                        <button class="metric-btn active" id="metric-net-income" type="button" data-financial-metric="net_income" aria-pressed="true">純利益</button>
                     </div>
                 </div>
                 <div class="financial-history-chart-container">
-                    ${history.status === 'fulfilled' ? '<canvas id="financials-history-chart"></canvas>'
+                    ${history.status === 'fulfilled' ? '<canvas id="financials-history-chart" role="img" aria-label="年次財務の推移" aria-describedby="financial-chart-summary"></canvas>'
                         : `<p class="text-error">取得失敗: ${escapeHtml(history.reason.message)}</p>`}
                 </div>
+                <p class="visually-hidden" id="financial-chart-summary"></p>
             </div>
             <div class="financial-history-chart-wrap">
                 <div class="mini-chart-header">過去の配当推移（年利%）</div>
                 <div class="dividend-history-chart-container" id="dividend-history-chart-container">
-                    ${dividends.status === 'fulfilled' ? `<canvas id="dividend-history-chart"></canvas>
+                    ${dividends.status === 'fulfilled' ? `<canvas id="dividend-history-chart" role="img" aria-label="年間配当の推移" aria-describedby="dividend-chart-summary"></canvas>
                         <p class="mini-chart-empty hidden" id="dividend-history-empty">配当履歴データがありません</p>`
                         : `<p class="text-error">取得失敗: ${escapeHtml(dividends.reason.message)}</p>`}
                 </div>
+                <p class="visually-hidden" id="dividend-chart-summary"></p>
             </div>`;
         body.innerHTML = html || '<p class="text-muted">データなし</p>';
         state.currentFinancialHistory = history.value?.history || [];
@@ -257,25 +286,20 @@ export async function loadFinancials(symbol, profile) {
         renderFinancialHistoryChart(state.currentFinancialHistory, state.currentFinancialMetric);
         renderDividendHistoryChart(dividends.value?.history || [], profile?.currency);
     } catch (err) {
-        if (state.financialChartInstance) {
-            state.financialChartInstance.destroy();
-            state.financialChartInstance = null;
-        }
-        if (state.dividendChartInstance) {
-            state.dividendChartInstance.destroy();
-            state.dividendChartInstance = null;
-        }
+        if (!isCurrent()) return;
+        clearFinancialCharts();
         body.innerHTML = `<p class="text-error">取得失敗: ${escapeHtml(err.message)}</p>`;
     }
 }
 
 // ===== Load: News =====
-export async function loadNews(symbol) {
+export async function loadNews(symbol, isCurrent = () => true) {
     const body = document.getElementById('news-body');
     body.innerHTML = '<div class="skeleton-lines"><div></div><div></div><div></div></div>';
 
     try {
         const data = await fetchAPI(`/stock/${encodeURIComponent(symbol)}/news`);
+        if (!isCurrent()) return;
         if (!data.news || data.news.length === 0) {
             body.innerHTML = staleNotice(data) + '<p class="text-muted">ニュースが見つかりませんでした</p>';
             return;
@@ -299,7 +323,7 @@ export async function loadNews(symbol) {
         html += '</div>';
         body.innerHTML = html;
     } catch (err) {
-        body.innerHTML = `<p class="text-error">取得失敗: ${escapeHtml(err.message)}</p>`;
+        if (isCurrent()) body.innerHTML = `<p class="text-error">取得失敗: ${escapeHtml(err.message)}</p>`;
     }
 }
 
@@ -309,7 +333,7 @@ export function bindDetailEvents() {
     });
 
     document.getElementById('search-retry-btn')?.addEventListener('click', () => {
-        searchStock();
+        if (state.currentSymbol) loadStock(state.currentSymbol);
     });
 
     document.addEventListener('click', e => {

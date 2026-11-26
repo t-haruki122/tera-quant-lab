@@ -1,11 +1,13 @@
 import { downloadAPI, fetchAPI } from './api.js';
 import { createActionModal } from './action-modal.js';
-import { logoutUser, storeUserSession } from './auth.js';
+import { closeAccountMenu, logoutUser, storeUserSession } from './auth.js';
+import { createDialog } from './dialog.js';
 import { loadDefaultList, resetListSession } from './list.js';
 import { state } from './state.js';
 
 const byId = id => document.getElementById(id);
 const importReplaceModal = createActionModal('import-replace');
+const settingsDialog = createDialog('account-settings-overlay');
 
 function feedback(id, message = '') {
     const element = byId(id);
@@ -15,14 +17,13 @@ function feedback(id, message = '') {
 
 export function openAccountSettings() {
     if (!state.currentUser) return;
-    byId('account-menu').classList.add('hidden');
-    byId('account-settings-overlay').classList.remove('hidden');
-    byId('account-current-password').focus();
+    closeAccountMenu();
+    settingsDialog.open(byId('account-current-password'), { opener: byId('account-btn') });
 }
 
 export function closeAccountSettings() {
     importReplaceModal.close();
-    byId('account-settings-overlay').classList.add('hidden');
+    settingsDialog.close();
     for (const id of ['account-current-password', 'account-new-password', 'account-confirm-password',
         'account-delete-username', 'account-delete-password', 'account-import-file']) {
         byId(id).value = '';
@@ -125,12 +126,9 @@ function requestImport(event) {
 
 export function bindAccountSettingsEvents() {
     importReplaceModal.bind();
-    const overlay = byId('account-settings-overlay');
     byId('account-menu-settings').addEventListener('click', openAccountSettings);
     byId('account-settings-close').addEventListener('click', closeAccountSettings);
-    overlay.addEventListener('click', event => {
-        if (event.target === overlay) closeAccountSettings();
-    });
+    settingsDialog.bind(closeAccountSettings);
     byId('account-password-form').addEventListener('submit', submitPasswordChange);
     byId('account-delete-form').addEventListener('submit', submitAccountDeletion);
     byId('account-import-form').addEventListener('submit', requestImport);

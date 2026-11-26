@@ -7,8 +7,11 @@ import { formatLargeNumber, formatAbbreviatedNumber } from './utils.js';
 
 export function changeFinancialMetric(metric) {
     state.currentFinancialMetric = metric;
-    document.getElementById('metric-revenue')?.classList.toggle('active', metric === 'revenue');
-    document.getElementById('metric-net-income')?.classList.toggle('active', metric === 'net_income');
+    for (const [id, key] of [['metric-revenue', 'revenue'], ['metric-net-income', 'net_income']]) {
+        const button = document.getElementById(id);
+        button?.classList.toggle('active', metric === key);
+        button?.setAttribute('aria-pressed', String(metric === key));
+    }
     renderFinancialHistoryChart(state.currentFinancialHistory, state.currentFinancialMetric);
 }
 
@@ -20,6 +23,8 @@ export function renderFinancialHistoryChart(history, metric = 'net_income') {
 
     const canvas = document.getElementById('financials-history-chart');
     if (!canvas || !history || history.length === 0) {
+        const summary = document.getElementById('financial-chart-summary');
+        if (summary) summary.textContent = '年次財務データがありません';
         return;
     }
 
@@ -27,6 +32,8 @@ export function renderFinancialHistoryChart(history, metric = 'net_income') {
     const isRevenue = metric === 'revenue';
     const series = history.map(item => item[metric]);
     const label = isRevenue ? '売上高' : '純利益';
+    document.getElementById('financial-chart-summary').textContent =
+        `${labels.at(-1)}年 ${label} ${series.at(-1) ?? '—'}`;
     const barColor = isRevenue
         ? 'rgba(59, 130, 246, 0.65)'
         : series.map(v => (v != null && v < 0 ? 'rgba(239, 68, 68, 0.75)' : 'rgba(16, 185, 129, 0.65)'));
@@ -110,6 +117,7 @@ export function renderDividendHistoryChart(history, currency) {
     const labels = records.map(item => item.date);
     const perShareSeries = records.map(item => item.dividend_per_share != null ? Number(item.dividend_per_share) : null);
     const yieldSeries = records.map(item => item.dividend_yield != null ? Number(item.dividend_yield) : null);
+    document.getElementById('dividend-chart-summary').textContent = `${labels.at(-1)} 年間1株配当 ${perShareSeries.at(-1) ?? '—'} ${currency ?? ''}、利回り ${yieldSeries.at(-1) == null ? '—' : `${yieldSeries.at(-1)}%`}`;
 
     let currencyPrefix = `${currency || ''} `;
     if (!currency || currency === 'USD') currencyPrefix = '$';

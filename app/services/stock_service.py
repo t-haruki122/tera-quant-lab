@@ -1,6 +1,7 @@
 """株価サービス - キャッシュ付き株価データ取得"""
 
 from datetime import date, datetime, timedelta
+from math import sqrt
 from weakref import WeakKeyDictionary
 
 from sqlalchemy import select
@@ -33,6 +34,47 @@ def _calculate_sma(closes: list[float], period: int) -> list[float | None]:
         window = closes[i - period + 1 : i + 1]
         sma.append(sum(window) / period)
     return sma
+
+
+def _calculate_ema(values: list[float], period: int) -> list[float]:
+    """最初の期間の単純平均を初期値とする EMA。未確定の先頭部分は返さない。"""
+    if len(values) < period:
+        return []
+    weight = 2 / (period + 1)
+    ema = [sum(values[:period]) / period]
+    for value in values[period:]:
+        ema.append(ema[-1] + weight * (value - ema[-1]))
+    return ema
+
+
+def _calculate_macd(closes: list[float]) -> dict[str, list[float | None]]:
+    fast_period, slow_period, signal_period = 12, 26, 9
+    fast = _calculate_ema(closes, fast_period)
+    slow = _calculate_ema(closes, slow_period)
+    macd = [short - long for short, long in zip(fast[slow_period - fast_period:], slow, strict=True)]
+    signal = _calculate_ema(macd, signal_period)
+    histogram = [value - average for value, average in zip(macd[signal_period - 1:], signal, strict=True)]
+    return {
+        "macd": [None] * (len(closes) - len(macd)) + macd,
+        "macd_signal": [None] * (len(closes) - len(signal)) + signal,
+        "macd_hist": [None] * (len(closes) - len(histogram)) + histogram,
+    }
+
+
+def _calculate_bollinger(closes: list[float], period: int = 20) -> dict[str, list[float | None]]:
+    middle = _calculate_sma(closes, period)
+    upper: list[float | None] = []
+    lower: list[float | None] = []
+    for index, mean in enumerate(middle):
+        if mean is None:
+            upper.append(None)
+            lower.append(None)
+            continue
+        window = closes[index - period + 1:index + 1]
+        deviation = 2 * sqrt(sum((value - mean) ** 2 for value in window) / period)
+        upper.append(mean + deviation)
+        lower.append(mean - deviation)
+    return {"bb_upper": upper, "bb_middle": middle, "bb_lower": lower}
 
 
 def _calculate_rsi(closes: list[float], period: int = 14) -> list[float | None]:
@@ -311,6 +353,9 @@ async def get_history(
         ):
             for record, value in zip(records, values, strict=True):
                 record[key] = round(value, 2) if value is not None else None
+        for key, values in (_calculate_macd(closes) | _calculate_bollinger(closes)).items():
+            for record, value in zip(records, values, strict=True):
+                record[key] = round(value, 4) if value is not None else None
 
     # 要求されたオリジナル期間でフィルタリング
     if return_start_date:

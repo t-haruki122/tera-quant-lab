@@ -10,16 +10,24 @@ const events = () => {
         },
         dispatchEvent(event) {
             if (!event.target) Object.defineProperty(event, 'target', { value: this });
+            Object.defineProperty(event, 'currentTarget', { value: this, configurable: true });
             for (const listener of listeners.get(event.type) ?? []) listener(event);
+            if (event.bubbles && !event.cancelBubble) this.parentElement?.dispatchEvent(event);
         },
     };
 };
 
 const element = () => {
     const classes = new Set(['hidden']);
+    const attrs = new Map();
     return {
         ...events(),
-        value: '', textContent: '', innerHTML: '', disabled: false, isConnected: true,
+        value: '', textContent: '', innerHTML: '', disabled: false, isConnected: true, tabIndex: 0, dataset: {},
+        getAttribute: name => attrs.get(name) ?? null,
+        setAttribute: (name, value) => attrs.set(name, String(value)),
+        removeAttribute: name => attrs.delete(name),
+        getClientRects: () => [1],
+        matches(selector) { return selector === ':disabled' && this.disabled; },
         classList: {
             add: name => classes.add(name), remove: name => classes.delete(name),
             contains: name => classes.has(name),
@@ -30,12 +38,13 @@ const element = () => {
             },
         },
         children: [],
-        appendChild(child) { this.children.push(child); },
+        appendChild(child) { this.children.push(child); child.parentElement = this; },
+        contains(child) { return child === this || this.children.some(node => node.contains(child)); },
         focus() { document.activeElement = this; },
         closest(selector) { return selector === 'button' && this.tagName === 'BUTTON' ? this : null; },
         querySelector: () => element(),
         querySelectorAll: () => [],
-        click() { if (!this.disabled) this.dispatchEvent(new Event('click')); },
+        click() { if (!this.disabled) this.dispatchEvent(new Event('click', { bubbles: true, cancelable: true })); },
         requestSubmit() { this.dispatchEvent(new Event('submit', { cancelable: true })); },
     };
 };

@@ -1,5 +1,11 @@
+from datetime import date
+from itertools import groupby
+from statistics import fmean, pstdev
+
+import pandas as pd
 import pytest
 
+from app.services import stock_service
 from app.services.stock_service import _aggregate_history, _calculate_rsi, _calculate_sma
 
 
@@ -57,3 +63,63 @@ def test_aggregation_empty_and_missing_fields(interval):
 def test_daily_aggregation_is_passthrough():
     rows = [record("2024-01-01", 1, 3, 0, 2, 5)]
     assert _aggregate_history(rows, "1d") is rows
+
+
+def reference_ema(values, period):
+    seed = fmean(values[:period])
+    alpha = 2 / (period + 1)
+    decay = 1 - alpha
+    return [
+        seed * decay**i + alpha * sum(value * decay**age for age, value in enumerate(reversed(values[period:period + i])))
+        for i in range(len(values) - period + 1)
+    ]
+
+
+@pytest.mark.parametrize("interval", ["1d", "1wk"])
+@pytest.mark.parametrize("use_start", [True, False])
+def test_history_macd_and_bollinger_against_reference(client, monkeypatch, interval, use_start):
+    start, end = "2024-01-02", "2024-02-15"
+    fetched = []
+
+    def history(symbol, from_date, to_date, source):
+        assert symbol == "TEST" and source == "1d" and to_date == end
+        assert (from_date is not None and from_date < start) if use_start else from_date is None
+        days = pd.date_range(from_date or "2023-05-01", end, freq="B")
+        for i, day in enumerate(days):
+            close = 100 + 0.13 * i + 0.7 * (i % 13) + 0.4 * (i % 7)
+            fetched.append(record(day.date().isoformat(), close - 1, close + 2, close - 2, close, 100))
+        return fetched.copy()
+
+    monkeypatch.setattr(stock_service._client, "get_history", history)
+    url = f"/stock/TEST/history?end_date={end}&interval={interval}"
+    response = client.get(f"{url}&start_date={start}" if use_start else url)
+    assert response.status_code == 200, response.text
+
+    def week(row):
+        return date.fromisoformat(row["date"]).isocalendar()[:2]
+
+    bars = fetched if interval == "1d" else [list(rows)[-1] for _, rows in groupby(fetched, week)]
+    closes = [row["close"] for row in bars]
+    fast, slow = reference_ema(closes, 12), reference_ema(closes, 26)
+    macd = [short - long for short, long in zip(fast[14:], slow, strict=True)]
+    signal = reference_ema(macd, 9)
+    expected_bars = [row for row in bars if not use_start or row["date"] >= start]
+    result = response.json()["history"]
+    assert result and [row["date"] for row in result] == [row["date"] for row in expected_bars]
+    offset = len(bars) - len(result)
+
+    for i, row in enumerate(result, offset):
+        window = closes[max(0, i - 19):i + 1]
+        middle = fmean(window)
+        sigma = pstdev(window)
+        expected = {
+            "bb_middle": middle if i >= 19 else None,
+            "bb_upper": middle + 2 * sigma if i >= 19 else None,
+            "bb_lower": middle - 2 * sigma if i >= 19 else None,
+            "macd": macd[i - 25] if i >= 25 else None,
+            "macd_signal": signal[i - 33] if i >= 33 else None,
+            "macd_hist": macd[i - 25] - signal[i - 33] if i >= 33 else None,
+        }
+        for field, value in expected.items():
+            assert row[field] == (round(value, 4) if value is not None else None)
+    assert all(result[0][field] is not None for field in expected) == use_start

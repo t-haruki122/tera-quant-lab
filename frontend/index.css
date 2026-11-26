@@ -113,7 +113,7 @@ body {
 }
 
 .logo-home-btn:focus-visible {
-    outline: 2px solid var(--accent-blue);
+    outline: 2px solid #fbbf24;
     outline-offset: 4px;
     border-radius: var(--radius-sm);
 }
@@ -139,6 +139,7 @@ body {
     font-family: inherit;
     font-size: 0.875rem;
     font-weight: 500;
+    white-space: nowrap;
     cursor: pointer;
     transition: all var(--transition-base);
 }
@@ -211,7 +212,6 @@ body {
     flex: 1;
     background: none;
     border: none;
-    outline: none;
     color: var(--text-primary);
     font-family: inherit;
     font-size: 1rem;
@@ -583,6 +583,100 @@ body {
 .period-selector {
     display: flex;
     gap: var(--space-xs);
+    flex-wrap: wrap;
+}
+
+.chart-type-selector {
+    display: flex;
+    gap: var(--space-xs);
+    margin-inline-end: var(--space-sm);
+}
+
+.macd-container {
+    height: 180px;
+}
+
+.compare-form {
+    display: flex;
+    align-items: end;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+}
+
+.compare-form .form-group {
+    flex: 0 1 18rem;
+    margin: 0;
+}
+
+.compare-series {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+    list-style: none;
+}
+
+.compare-series:not(:empty),
+.compare-messages:not(:empty),
+#compare-status:not(:empty),
+#compare-input-error:not(:empty) {
+    margin-top: var(--space-sm);
+}
+
+.compare-series li {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.compare-messages {
+    padding-inline-start: var(--space-lg);
+}
+
+#comparison-table th.sortable button {
+    background: transparent;
+    color: inherit;
+    border: 0;
+    font: inherit;
+    cursor: pointer;
+}
+
+.table-ticker a {
+    color: inherit;
+    text-underline-offset: 0.2em;
+}
+
+.visually-hidden,
+.skip-link:not(:focus) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+.skip-link:focus {
+    position: fixed;
+    z-index: 1100;
+    inset: var(--space-sm) auto auto var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+:focus-visible {
+    outline: 2px solid #fbbf24;
+    outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation: none !important;
+        transition: none !important;
+        scroll-behavior: auto !important;
+    }
 }
 
 .period-btn {
@@ -929,7 +1023,6 @@ button.account-action:not(:disabled):hover {
     color: var(--text-primary);
     font-family: inherit;
     font-size: 0.9rem;
-    outline: none;
     transition: all var(--transition-base);
     width: 220px;
 }
@@ -1150,6 +1243,18 @@ footer {
         padding: var(--space-md);
     }
 
+    .header-nav {
+        max-width: 100%;
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+
+    #stock-detail > .chart-card > .card-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--space-sm);
+    }
+
     .view {
         padding: var(--space-md);
     }
@@ -1182,6 +1287,23 @@ footer {
     .list-add-form input {
         flex: 1;
         width: auto;
+    }
+}
+
+@media (max-width: 480px) {
+    .header-nav .nav-btn {
+        padding-inline: var(--space-sm);
+    }
+
+    #btn-list-view > svg,
+    #account-btn > svg:first-child {
+        display: none;
+    }
+
+    #account-btn-label {
+        max-width: 12ch;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 }
 
@@ -1394,7 +1516,6 @@ footer {
     color: var(--text-primary);
     font-family: inherit;
     font-size: 0.95rem;
-    outline: none;
     transition: all var(--transition-base);
 }
 
@@ -1649,7 +1770,6 @@ footer {
     color: var(--text-primary);
     font-family: inherit;
     font-size: 0.9rem;
-    outline: none;
     transition: all var(--transition-base);
 }
 
@@ -1999,7 +2119,11 @@ footer {
    ======================================== */
 @media (max-width: 768px) {
     .account-menu {
-        right: -16px;
+        right: 0;
+    }
+
+    .account-menu-username {
+        overflow-wrap: anywhere;
     }
 
     .list-controls {

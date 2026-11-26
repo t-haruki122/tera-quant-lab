@@ -62,14 +62,15 @@ def test_backtest_routes_use_generic_upstream_errors(client, users, services):
     ({"start_date": "2000-01-01"}, "最大 20 年"),
     ({"interval": "1h"}, "1d、1wk、1mo のいずれか"),
     ({"symbol": "bad/path"}, "symbol"),
-    ({"strategy": "missing"}, "Unknown strategy"),
-    ({"params": {"unspecified": 1}}, "Unknown params"),
-    ({"params": {"period": 0}}, "period must be positive"),
+    ({"strategy": "missing"}, "不明な戦略"),
+    ({"params": {"unspecified": 1}}, "不明なパラメータ"),
+    ({"params": {"period": 0}}, "period は正の数値"),
+    ({"params": {"period": "invalid"}}, "period は int 型"),
     ({"fee_rate": 0.11}, "0.1"),
-    ({"slippage_bps": -1}, "greater than or equal to 0"),
-    ({"initial_capital": 0}, "greater than 0"),
+    ({"slippage_bps": -1}, "0 以上"),
+    ({"initial_capital": 0}, "0 より大きい"),
     ({"eps_lag_days": 731}, "730"),
-    ({"risk_free": 2}, "less than or equal to 1"),
+    ({"risk_free": 2}, "1 以下"),
 ])
 def test_validation(client, users, services, changes, message):
     response = client.post("/backtest/run", headers=users[0]["headers"], json={**BODY, **changes})
@@ -86,7 +87,7 @@ def test_override_calendar_span_and_nonfinite_input(client, users, monkeypatch, 
     accepted = client.post("/backtest/run", headers=headers, json={
         **BODY, "start_date": "2024-02-29", "end_date": "2025-02-28",
     })
-    assert accepted.status_code == 422 and "No price data in the requested period" in accepted.json()["detail"]
+    assert accepted.status_code == 422 and "指定期間に株価データがありません" in accepted.json()["detail"]
     nonfinite = client.post("/backtest/run", headers={**headers, "Content-Type": "application/json"},
                             content='{"symbol":"X","start_date":"2024-01-01","end_date":"2024-01-02","initial_capital":1e500}')
     assert nonfinite.status_code == 422
@@ -130,7 +131,7 @@ def test_run_warmup_benchmark_trades_eps_and_json_safety(client, users, services
 def test_grid_limits_validation_ranking_and_data_reuse(client, users, services, settings, monkeypatch):
     headers = users[0]["headers"]
     oversize = client.post("/backtest/grid", headers=headers, json={**BODY, "grid": {"threshold": [0] * 101}})
-    assert oversize.status_code == 422 and "maximum is 100" in oversize.json()["detail"][0]["msg"]
+    assert oversize.status_code == 422 and "上限は 100 件" in oversize.json()["detail"][0]["msg"]
     monkeypatch.setattr(settings, "backtest_grid_max_combos", 2)
     for grid, rank in [({"threshold": [0, 1, 2]}, "sharpe"), ({"unknown": [1]}, "sharpe"),
                        ({"threshold": []}, "sharpe"), ({}, "bad")]:
@@ -236,5 +237,5 @@ def test_per_user_concurrency_across_routes_and_release_after_error(client, user
             assert client.post("/backtest/run", headers=bob, json=BODY).status_code == 200
         finally:
             release.set()
-        assert slow.result(timeout=5).json() == {"detail": "test engine error"}
+        assert slow.result(timeout=5).json() == {"detail": "バックテストを計算できませんでした。入力値と期間を確認してください。"}
     assert client.post("/backtest/run", headers=alice, json=BODY).status_code == 200

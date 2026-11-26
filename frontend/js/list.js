@@ -5,14 +5,19 @@
 import { state } from './state.js';
 import { downloadAPI, fetchAPI } from './api.js';
 import { createActionModal } from './action-modal.js';
+import { createDialog } from './dialog.js';
 import { showToast, formatCurrency, formatLargeNumber, escapeHtml, escapeAttr, normalizeTagHue, oldestStaleData, staleNotice } from './utils.js';
-import { getMarketCapCategory, getMixIndexRating, getRatingSymbol, searchStock } from './detail.js';
+import { getMarketCapCategory, getMixIndexRating, getRatingSymbol } from './detail.js';
+import { DEFAULT_PERIOD, serializeRoute } from './router.js';
 
 const RATE_LIMIT_MESSAGE = 'アクセスが集中しています。しばらくしてから再試行してください。';
 
 let summaryRequest = 0;
 const watchlistModal = createActionModal('watchlist-action');
 const memoModal = createActionModal('memo-edit');
+const addDialog = createDialog('list-add-modal-overlay');
+const filterDialog = createDialog('filter-modal-overlay');
+const tagDialog = createDialog('tag-modal-overlay');
 
 function listRoot(user = state.currentUser) {
     return `/user/${encodeURIComponent(user.id)}/lists`;
@@ -282,20 +287,18 @@ class ListSearchQueryParser {
 
 const listSearchParser = new ListSearchQueryParser();
 
-export function quickAddToList(symbol) {
-    openListAddModal(symbol);
+export function quickAddToList(symbol, opener) {
+    openListAddModal(symbol, opener);
 }
 
-export function openListAddModal(prefill = '') {
-    const modal = document.getElementById('list-add-modal-overlay');
+export function openListAddModal(prefill = '', opener) {
     const input = document.getElementById('list-add-modal-input');
     input.value = (prefill || '').toUpperCase();
-    modal.classList.remove('hidden');
-    setTimeout(() => input.focus(), 30);
+    addDialog.open(input, { opener, fallbackFocus: document.getElementById('list-add-btn') });
 }
 
 export function closeListAddModal() {
-    document.getElementById('list-add-modal-overlay').classList.add('hidden');
+    addDialog.close();
 }
 
 export async function submitListAddFromModal() {
@@ -343,6 +346,7 @@ async function addSymbolToList(symbol) {
     if (!fields.loadError || rateLimited) {
         Object.assign(item, fields, { loading: false });
         renderListTable();
+        document.dispatchEvent(new Event('watchlistchange'));
         return true;
     }
 
@@ -362,6 +366,7 @@ async function removeFromList(symbol) {
         state.pendingDeleteTimer = null;
     }
     renderListTable();
+    document.dispatchEvent(new Event('watchlistchange'));
 
     // サーバーからも削除
     if (state.currentUser && state.currentListId) {
@@ -439,11 +444,15 @@ function updateFilterButtonState() {
 export function renderListTable() {
     const emptyEl = document.getElementById('list-empty');
     const tableEl = document.getElementById('list-table-section');
+    const tbody = document.getElementById('comparison-tbody');
+    const active = document.activeElement;
+    const focusedAction = active && tbody.contains(active) ? active.dataset : null;
 
     if (state.listItems.length === 0) {
         emptyEl.classList.remove('hidden');
         tableEl.classList.add('hidden');
         updateFilterButtonState();
+        if (focusedAction?.action) document.getElementById('list-add-btn')?.focus();
         return;
     }
 
@@ -469,13 +478,14 @@ export function renderListTable() {
         th.classList.toggle('sort-active', key === state.sortKey);
         const arrow = th.querySelector('.sort-arrow');
         if (key === state.sortKey) {
+            th.setAttribute('aria-sort', state.sortAsc ? 'ascending' : 'descending');
             arrow.textContent = state.sortAsc ? ' ▲' : ' ▼';
         } else {
+            th.removeAttribute('aria-sort');
             arrow.textContent = '';
         }
     });
 
-    const tbody = document.getElementById('comparison-tbody');
     if (sorted.length === 0) {
         tbody.innerHTML = '<tr class="row-loading"><td colspan="9" class="text-muted">検索条件に一致する銘柄がありません</td></tr>';
         return;
@@ -484,13 +494,19 @@ export function renderListTable() {
     let html = '';
 
     sorted.forEach(item => {
+        const name = escapeHtml(item.symbol);
+        const route = serializeRoute({ view: 'detail', symbol: item.symbol });
+        const ticker = `<a href="${escapeAttr(route)}">${name}</a>`;
+        const isPendingDelete = state.pendingDeleteSymbol === item.symbol;
+        const deleteLabel = isPendingDelete ? '削除を確定' : '削除';
+        const removeButton = `<button class="btn-remove ${isPendingDelete ? 'confirm' : ''}" type="button"
+            data-action="remove-item" data-symbol="${name}" aria-label="${deleteLabel}（${name}）">${deleteLabel}</button>`;
         if (item.loading) {
-            const isPendingDelete = state.pendingDeleteSymbol === item.symbol;
             html += `
                 <tr class="row-loading" data-symbol="${escapeHtml(item.symbol)}">
-                    <td class="table-ticker">${escapeHtml(item.symbol)}</td>
+                    <td class="table-ticker">${ticker}</td>
                     <td colspan="7" class="text-muted">読み込み中...</td>
-                    <td><button class="btn-remove ${isPendingDelete ? 'confirm' : ''}" type="button" data-action="remove-item" data-symbol="${escapeHtml(item.symbol)}">${isPendingDelete ? 'OK?' : '削除'}</button></td>
+                    <td>${removeButton}</td>
                 </tr>`;
             return;
         }
@@ -502,7 +518,7 @@ export function renderListTable() {
                 tagsHtml += `<span class="tag-chip small" data-tag-hue="${color}">${escapeHtml(tag)}</span>`;
             });
         }
-        tagsHtml += `<button class="btn-tag-edit" type="button" data-action="open-tag-modal" data-symbol="${escapeHtml(item.symbol)}" title="タグ編集">🏷️</button>`;
+        tagsHtml += `<button class="btn-tag-edit" type="button" data-action="open-tag-modal" data-symbol="${name}" aria-label="${name} のタグを編集" title="タグ編集">🏷️</button>`;
 
         const memoPreview = item.memo
             ? escapeHtml(item.memo.length > 24 ? `${item.memo.slice(0, 24)}...` : item.memo)
@@ -511,7 +527,6 @@ export function renderListTable() {
         const marketCapCategory = getMarketCapCategory(item.market_cap, item.currency);
         const mixRating = getMixIndexRating(item.mix_index);
         const mixBadge = mixRating ? `<span class="indicator-badge ${mixRating}">${getRatingSymbol(mixRating)}</span>` : '';
-        const isPendingDelete = state.pendingDeleteSymbol === item.symbol;
         const price = item.price == null ? '—' : item.currency
             ? formatCurrency(item.price, item.currency) : item.price.toLocaleString('ja-JP');
         const loadError = item.loadError ? `<br><small class="text-muted">${escapeHtml(item.loadError)}</small>` : '';
@@ -522,26 +537,30 @@ export function renderListTable() {
 
         html += `
             <tr data-symbol="${escapeHtml(item.symbol)}">
-                <td class="table-ticker">${escapeHtml(item.symbol)}</td>
+                <td class="table-ticker">${ticker}</td>
                 <td class="table-company">${escapeHtml(item.name || '—')}${loadError}${notice}</td>
                 <td class="numeric">${escapeHtml(price)}</td>
                 <td class="table-market-cap" title="${item.market_cap != null ? escapeAttr(formatLargeNumber(item.market_cap, item.currency)) : ''}">${marketCapCategory || '—'}</td>
                 <td class="numeric">${item.mix_index != null ? item.mix_index.toFixed(2) : '—'} ${mixBadge}</td>
                 <td class="numeric">${item.dividend_yield != null ? item.dividend_yield.toFixed(2) + '%' : '—'}</td>
                 <td class="table-tags">${tagsHtml}</td>
-                <td class="table-memo"><button class="btn-memo" type="button" data-action="edit-memo" data-symbol="${escapeHtml(item.symbol)}">📝</button><span class="memo-preview" title="${memoTitle}">${memoPreview}</span></td>
-                <td><button class="btn-remove ${isPendingDelete ? 'confirm' : ''}" type="button" data-action="remove-item" data-symbol="${escapeHtml(item.symbol)}">${isPendingDelete ? 'OK?' : '削除'}</button></td>
+                <td class="table-memo"><button class="btn-memo" type="button" data-action="edit-memo" data-symbol="${name}" aria-label="${name} のメモを編集">📝</button><span class="memo-preview" title="${memoTitle}">${memoPreview}</span></td>
+                <td>${removeButton}</td>
             </tr>`;
     });
 
     tbody.innerHTML = html;
     applyTagHues(tbody);
+    if (focusedAction?.action) {
+        const { action, symbol } = focusedAction;
+        const replacement = [...tbody.querySelectorAll('button[data-action]')]
+            .find(button => button.dataset.action === action && button.dataset.symbol === symbol);
+        (replacement ?? document.getElementById('list-add-btn'))?.focus();
+    }
 }
 
 export function goToDetail(symbol) {
-    document.getElementById('search-input').value = symbol;
-    window.switchView('detail');
-    searchStock();
+    window.switchView('detail', symbol, DEFAULT_PERIOD);
 }
 
 // ===== Filter Modal =====
@@ -567,11 +586,11 @@ export function openFilterModal() {
         applyTagHues(container);
     }
 
-    document.getElementById('filter-modal-overlay').classList.remove('hidden');
+    filterDialog.open(document.getElementById('filter-modal-close'));
 }
 
 export function closeFilterModal() {
-    document.getElementById('filter-modal-overlay').classList.add('hidden');
+    filterDialog.close();
 }
 
 export function selectFilterTag(tag) {
@@ -596,16 +615,16 @@ export function clearTagFilter() {
 }
 
 // ===== Tag Management =====
-export function openTagModal(symbol) {
+export function openTagModal(symbol, opener) {
     state.tagEditSymbol = symbol;
     document.getElementById('tag-modal-symbol').textContent = symbol;
     document.getElementById('tag-input').value = '';
     renderCurrentTags();
-    document.getElementById('tag-modal-overlay').classList.remove('hidden');
+    tagDialog.open(document.getElementById('tag-input'), { opener, fallbackFocus: document.getElementById('list-search-input') });
 }
 
 export function closeTagModal() {
-    document.getElementById('tag-modal-overlay').classList.add('hidden');
+    tagDialog.close();
     state.tagEditSymbol = null;
 }
 
@@ -622,7 +641,7 @@ function renderCurrentTags() {
         const color = getTagColor(tag);
         html += `<span class="tag-chip editable" data-tag-hue="${color}">
             ${escapeHtml(tag)}
-            <button class="tag-remove-btn" type="button" data-action="remove-tag" data-tag="${escapeAttr(tag)}" title="削除">✕</button>
+            <button class="tag-remove-btn" type="button" data-action="remove-tag" data-tag="${escapeAttr(tag)}" aria-label="${escapeAttr(tag)} タグを削除" title="削除">✕</button>
         </span>`;
     });
     container.innerHTML = html;
@@ -706,7 +725,7 @@ export function bindListEvents() {
         button?.addEventListener('click', () => editWatchlist(action, button));
     }
     document.getElementById('watchlist-csv')?.addEventListener('click', downloadWatchlist);
-    document.getElementById('list-add-btn')?.addEventListener('click', () => openListAddModal());
+    document.getElementById('list-add-btn')?.addEventListener('click', event => openListAddModal('', event.currentTarget));
     document.getElementById('list-add-modal-submit')?.addEventListener('click', submitListAddFromModal);
     document.getElementById('active-filter-clear')?.addEventListener('click', clearTagFilter);
 
@@ -717,33 +736,24 @@ export function bindListEvents() {
         });
     });
 
-    const listAddOverlay = document.getElementById('list-add-modal-overlay');
-    listAddOverlay?.addEventListener('click', e => {
-        if (e.target === listAddOverlay) closeListAddModal();
-    });
+    addDialog.bind(closeListAddModal);
     document.getElementById('list-add-modal-close')?.addEventListener('click', closeListAddModal);
 
-    const filterOverlay = document.getElementById('filter-modal-overlay');
-    filterOverlay?.addEventListener('click', e => {
-        if (e.target === filterOverlay) closeFilterModal();
-    });
+    filterDialog.bind(closeFilterModal);
     document.getElementById('filter-modal-close')?.addEventListener('click', closeFilterModal);
     document.getElementById('filter-clear-btn')?.addEventListener('click', () => {
         clearTagFilter();
         closeFilterModal();
     });
 
-    const tagOverlay = document.getElementById('tag-modal-overlay');
-    tagOverlay?.addEventListener('click', e => {
-        if (e.target === tagOverlay) closeTagModal();
-    });
+    tagDialog.bind(closeTagModal);
     document.getElementById('tag-modal-close')?.addEventListener('click', closeTagModal);
     document.getElementById('tag-add-btn')?.addEventListener('click', addTagFromInput);
 
     document.addEventListener('click', e => {
         const quickAddEl = e.target.closest('[data-quick-add]');
         if (quickAddEl) {
-            quickAddToList(quickAddEl.dataset.quickAdd);
+            quickAddToList(quickAddEl.dataset.quickAdd, quickAddEl);
             return;
         }
 
@@ -770,7 +780,7 @@ export function bindListEvents() {
                 return;
             }
             if (action === 'open-tag-modal' && symbol) {
-                openTagModal(symbol);
+                openTagModal(symbol, actionBtn);
                 return;
             }
             if (action === 'edit-memo' && symbol) {
@@ -778,13 +788,14 @@ export function bindListEvents() {
                 return;
             }
             if (action === 'remove-tag' && tag) {
+                document.getElementById('tag-input').focus();
                 removeTag(tag);
                 return;
             }
         }
 
         const row = e.target.closest('#comparison-tbody tr[data-symbol]');
-        if (row && !e.target.closest('button')) {
+        if (row && !e.target.closest('button, a')) {
             const symbol = row.dataset.symbol;
             if (symbol) goToDetail(symbol);
         }

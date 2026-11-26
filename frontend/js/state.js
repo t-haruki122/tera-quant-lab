@@ -13,6 +13,8 @@ export const state = {
     currentSymbol: null,
     priceChart: null,
     rsiChartInstance: null,
+    volumeChartInstance: null,
+    macdChartInstance: null,
     financialChartInstance: null,
     dividendChartInstance: null,
     currentFinancialHistory: [],

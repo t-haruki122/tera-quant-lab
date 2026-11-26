@@ -133,39 +133,43 @@ def param_help(name):
 
 def validate_params(name, params=None):
     if name not in REGISTRY:
-        raise ValueError(f"Unknown strategy {name!r}; valid strategies: {', '.join(REGISTRY)}")
+        raise ValueError(f"不明な戦略 {name!r}。次のいずれかを指定してください: {', '.join(REGISTRY)}")
     schema = REGISTRY[name]
     try:
         extra = set(params or {}) - schema.keys()
         if extra:
-            raise ValueError(f"Unknown params: {', '.join(sorted(extra))}")
+            raise ValueError(f"不明なパラメータ: {', '.join(sorted(extra))}")
         values = {}
         for key, (kind, default) in schema.items():
             raw = (params or {}).get(key, default)
             if raw is None:
                 if default is not None:
-                    raise ValueError(f"{key} must be {kind.__name__}")
+                    raise ValueError(f"{key} は {kind.__name__} 型の値を指定してください")
                 values[key] = None
                 continue
-            if isinstance(raw, bool) or (kind is int and str(raw) != str(int(raw))):
-                raise ValueError(f"{key} must be {kind.__name__}")
-            value = kind(raw)
-            if kind in (int, float) and number(value) is None:
-                raise ValueError(f"{key} must be finite")
+            try:
+                value = kind(raw)
+                finite = kind not in (int, float) or number(value) is not None
+            except (ValueError, TypeError, OverflowError) as exc:
+                raise ValueError(f"{key} は {kind.__name__} 型の値を指定してください") from exc
+            if isinstance(raw, bool) or (kind is int and str(raw) != str(value)):
+                raise ValueError(f"{key} は {kind.__name__} 型の値を指定してください")
+            if not finite:
+                raise ValueError(f"{key} は有限の数値を指定してください")
             values[key] = value
         for key in sorted(POSITIVE_PARAMS & values.keys()):
             if key in values and values[key] is not None and values[key] <= 0:
-                raise ValueError(f"{key} must be positive")
+                raise ValueError(f"{key} は正の数値を指定してください")
         if name == "sma_cross" and values["short_window"] >= values["long_window"]:
-            raise ValueError("short_window must be smaller than long_window")
+            raise ValueError("short_window は long_window より小さい値を指定してください")
         if name == "rsi_reversion" and not 0 <= values["lower"] < values["upper"] <= 100:
-            raise ValueError("require 0 <= lower < upper <= 100")
+            raise ValueError("0 <= lower < upper <= 100 を満たす値を指定してください")
         if name == "bollinger" and values["exit"] not in EXIT_CHOICES:
-            raise ValueError("exit must be middle|upper")
+            raise ValueError("exit は middle または upper を指定してください")
         if name == "momentum" and values["exit_threshold"] > values["threshold"]:
-            raise ValueError("exit_threshold must be <= threshold")
-    except (ValueError, TypeError, OverflowError) as exc:
-        raise ValueError(f"{name}: {exc}. Valid params: {param_help(name)}") from exc
+            raise ValueError("exit_threshold は threshold 以下の値を指定してください")
+    except ValueError as exc:
+        raise ValueError(f"{name}: {exc}。指定できるパラメータ: {param_help(name)}") from exc
     return values
 
 

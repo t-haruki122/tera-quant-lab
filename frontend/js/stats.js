@@ -85,6 +85,8 @@ export function updateCharts(data) {
     // Hit Rate (Pie Chart)
     const hitCtx = document.getElementById('hitRateChart');
     if (hitCtx) {
+        document.getElementById('stats-cache-summary').textContent =
+            `キャッシュヒット ${data.cache_hits ?? 0} 回、外部API呼び出し ${data.api_calls ?? 0} 回`;
         if (!state.hitRateChartInstance) {
             state.hitRateChartInstance = new Chart(hitCtx, {
                 type: 'doughnut',
@@ -97,7 +99,7 @@ export function updateCharts(data) {
                     }]
                 },
                 options: {
-                    responsive: true, maintainAspectRatio: false,
+                    responsive: true, maintainAspectRatio: false, animation: false,
                     plugins: { legend: { position: 'bottom', labels: { color: textColor } } }
                 }
             });
@@ -110,6 +112,9 @@ export function updateCharts(data) {
     // Endpoints (Bar Chart)
     const epCtx = document.getElementById('endpointChart');
     if (epCtx && data.top_endpoints) {
+        const top = data.top_endpoints[0];
+        document.getElementById('stats-endpoint-summary').textContent =
+            top ? `最多 ${top.endpoint}、${top.count} 回` : 'アクセスデータがありません';
         const labels = data.top_endpoints.map(e => e.endpoint.substring(0, 15) + (e.endpoint.length > 15 ? '...' : ''));
         const counts = data.top_endpoints.map(e => e.count);
 
@@ -126,7 +131,7 @@ export function updateCharts(data) {
                     }]
                 },
                 options: {
-                    responsive: true, maintainAspectRatio: false,
+                    responsive: true, maintainAspectRatio: false, animation: false,
                     plugins: { legend: { display: false } },
                     scales: {
                         x: { ticks: { color: textColor, font: { size: 10 }, maxRotation: 45, minRotation: 45 }, grid: { display: false } },
@@ -146,6 +151,8 @@ export function updateCharts(data) {
     if (rtCtx) {
         const labels = statsHistory.map(h => h.timestamp);
         const avgTimes = statsHistory.map(h => h.avg_response_time_ms || 0);
+        document.getElementById('stats-response-summary').textContent = labels.length
+            ? `${labels.at(-1)} 平均 ${avgTimes.at(-1).toFixed(1)} ms` : '応答時間データがありません';
 
         if (!state.responseTimeChartInstance) {
             state.responseTimeChartInstance = new Chart(rtCtx, {

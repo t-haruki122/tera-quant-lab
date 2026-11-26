@@ -123,6 +123,15 @@ def test_yfinance_and_news_no_data_are_404(monkeypatch):
         client.get_news("aapl")
 
 
+def test_missing_symbol_response_is_localized_on_detail_and_history(client, monkeypatch):
+    ticker = SimpleNamespace(info={}, history=lambda **kwargs: pd.DataFrame())
+    monkeypatch.setattr(yfinance_client.yf, "Ticker", lambda symbol: ticker)
+    for path in ("/stock/ZZZZNOTREAL", "/stock/ZZZZNOTREAL/history"):
+        response = client.get(path)
+        assert response.status_code == 404
+        assert response.json() == {"detail": "銘柄が見つかりません: ZZZZNOTREAL", "status_code": 404}
+
+
 @pytest.mark.parametrize(("status", "detail"), [
     (429, UPSTREAM_RATE_LIMIT), (503, UPSTREAM_UNAVAILABLE), (502, UPSTREAM_ERROR),
 ])

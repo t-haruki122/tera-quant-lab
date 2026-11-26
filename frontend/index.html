@@ -13,6 +13,7 @@
     <link rel="stylesheet" href="/static/index.css">
 </head>
 <body>
+    <a class="skip-link" id="skip-link" href="#main-content">メインコンテンツへ移動</a>
     <!-- 統計ステータスバー -->
     <div id="stats-bar" class="stats-bar hidden">
         <div class="stats-item" title="外部APIから取得した回数">
@@ -29,36 +30,37 @@
     <!-- ヘッダー -->
     <header id="app-header">
         <div class="header-left">
-            <button class="logo logo-home-btn" id="logo-home-btn" type="button" aria-label="ダッシュボードへ移動">
+            <button class="logo logo-home-btn" id="logo-home-btn" type="button" aria-label="Stock Analyzer、ダッシュボードへ移動">
                 <span class="logo-icon">📈</span>
                 <span>Stock Analyzer</span>
             </button>
         </div>
         <nav class="header-nav">
-            <button class="nav-btn active" id="btn-list-view" type="button">
+            <button class="nav-btn active" id="btn-list-view" type="button" aria-current="page">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
                 ダッシュボード
             </button>
             <button class="nav-btn" id="btn-backtest-view" type="button">バックテスト</button>
             <!-- アカウントボタン -->
             <div class="account-section">
-                <button class="nav-btn account-btn" id="account-btn" type="button">
+                <button class="nav-btn account-btn" id="account-btn" type="button" aria-label="ログイン、ユーザーメニュー"
+                    aria-haspopup="menu" aria-expanded="false" aria-controls="account-menu">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
                     <span id="account-btn-label">ログイン</span>
                     <svg class="account-menu-trigger-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
                 </button>
                 <!-- アカウントメニュー -->
-                <div class="account-menu hidden" id="account-menu">
-                    <div class="account-menu-user hidden" id="account-menu-user">
+                <div class="account-menu hidden" id="account-menu" role="menu" aria-label="ユーザーメニュー">
+                    <div class="account-menu-user hidden" id="account-menu-user" aria-hidden="true">
                         <div class="account-menu-username" id="account-menu-username"></div>
                     </div>
-                    <div class="account-menu-guest" id="account-menu-guest">
-                        <button class="account-menu-item" type="button" data-auth-mode="login">ログイン</button>
-                        <button class="account-menu-item" type="button" data-auth-mode="register">新規登録</button>
+                    <div class="account-menu-guest" id="account-menu-guest" role="presentation">
+                        <button class="account-menu-item" type="button" data-auth-mode="login" role="menuitem" tabindex="-1">ログイン</button>
+                        <button class="account-menu-item" type="button" data-auth-mode="register" role="menuitem" tabindex="-1">新規登録</button>
                     </div>
-                    <button class="account-menu-item" id="account-menu-stats" type="button">システム統計</button>
-                    <button class="account-menu-item hidden" id="account-menu-settings" type="button">アカウント設定</button>
-                    <button class="account-menu-item danger hidden" id="account-menu-logout" type="button">ログアウト</button>
+                    <button class="account-menu-item" id="account-menu-stats" type="button" role="menuitem" tabindex="-1">システム統計</button>
+                    <button class="account-menu-item hidden" id="account-menu-settings" type="button" role="menuitem" tabindex="-1">アカウント設定</button>
+                    <button class="account-menu-item danger hidden" id="account-menu-logout" type="button" role="menuitem" tabindex="-1">ログアウト</button>
                 </div>
             </div>
         </nav>
@@ -66,10 +68,10 @@
 
     <!-- ログイン/登録モーダル -->
     <div class="modal-overlay hidden" id="auth-modal-overlay">
-        <div class="modal">
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title" tabindex="-1">
             <div class="modal-header">
                 <h3 id="auth-modal-title">ログイン</h3>
-                <button class="modal-close" id="auth-modal-close" type="button">✕</button>
+                <button class="modal-close" id="auth-modal-close" type="button" aria-label="閉じる">✕</button>
             </div>
             <div class="modal-body">
                 <div class="form-group">
@@ -80,7 +82,7 @@
                     <label for="auth-password">パスワード</label>
                     <input type="password" id="auth-password" placeholder="パスワードを入力" autocomplete="current-password">
                 </div>
-                <div class="auth-error hidden" id="auth-error"></div>
+                <div class="auth-error hidden" id="auth-error" role="alert"></div>
                 <button class="btn-primary" id="auth-submit-btn" type="button">ログイン</button>
                 <div class="auth-toggle">
                     <span id="auth-toggle-text">アカウントをお持ちでない方は</span>
@@ -91,13 +93,13 @@
     </div>
 
     <div class="modal-overlay hidden" id="account-settings-overlay">
-        <div class="modal account-settings" role="dialog" aria-modal="true" aria-labelledby="account-settings-title">
+        <div class="modal account-settings" role="dialog" aria-modal="true" aria-labelledby="account-settings-title" tabindex="-1">
             <div class="modal-header">
                 <h3 id="account-settings-title">アカウント設定</h3>
                 <button class="modal-close" id="account-settings-close" type="button" aria-label="閉じる">✕</button>
             </div>
             <div class="modal-body">
-                <fieldset class="account-settings-fields" id="account-settings-fields" aria-labelledby="account-settings-title">
+                <fieldset class="account-settings-fields" id="account-settings-fields" aria-labelledby="account-settings-title" tabindex="-1">
                     <form class="account-settings-section" id="account-password-form">
                         <h4>パスワード変更</h4>
                         <div class="form-group">
@@ -162,7 +164,7 @@
     </div>
 
     <div class="modal-overlay hidden" id="import-replace-overlay">
-        <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="import-replace-title" aria-describedby="import-replace-message">
+        <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="import-replace-title" tabindex="-1" aria-describedby="import-replace-message">
             <div class="modal-header">
                 <h3 id="import-replace-title">リストとメモの置き換え</h3>
                 <button class="modal-close" id="import-replace-close" type="button" aria-label="閉じる">✕</button>
@@ -179,7 +181,7 @@
     </div>
 
     <div class="modal-overlay hidden" id="watchlist-action-overlay">
-        <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="watchlist-action-title" aria-describedby="watchlist-action-message">
+        <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="watchlist-action-title" tabindex="-1" aria-describedby="watchlist-action-message">
             <div class="modal-header">
                 <h3 id="watchlist-action-title">リストの管理</h3>
                 <button class="modal-close" id="watchlist-action-close" type="button" aria-label="閉じる">✕</button>
@@ -200,7 +202,7 @@
     </div>
 
     <div class="modal-overlay hidden" id="memo-edit-overlay">
-        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="memo-edit-title">
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="memo-edit-title" tabindex="-1">
             <div class="modal-header">
                 <h3 id="memo-edit-title">銘柄メモを編集</h3>
                 <button class="modal-close" id="memo-edit-close" type="button" aria-label="閉じる">✕</button>
@@ -222,14 +224,15 @@
 
     <!-- タグ編集モーダル -->
     <div class="modal-overlay hidden" id="tag-modal-overlay">
-        <div class="modal modal-sm">
+        <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="tag-modal-title" tabindex="-1">
             <div class="modal-header">
-                <h3>🏷️ タグ編集 — <span id="tag-modal-symbol"></span></h3>
-                <button class="modal-close" id="tag-modal-close" type="button">✕</button>
+                <h3 id="tag-modal-title">🏷️ タグ編集 — <span id="tag-modal-symbol"></span></h3>
+                <button class="modal-close" id="tag-modal-close" type="button" aria-label="閉じる">✕</button>
             </div>
             <div class="modal-body">
                 <div class="tag-current" id="tag-current-tags"></div>
                 <div class="tag-input-row">
+                    <label class="visually-hidden" for="tag-input">新しいタグ</label>
                     <input type="text" id="tag-input" placeholder="新しいタグを入力..." autocomplete="off">
                     <button class="btn-primary btn-sm" id="tag-add-btn" type="button">追加</button>
                 </div>
@@ -251,10 +254,10 @@
 
     <!-- フィルタ設定モーダル -->
     <div class="modal-overlay hidden" id="filter-modal-overlay">
-        <div class="modal modal-sm">
+        <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="filter-modal-title" tabindex="-1">
             <div class="modal-header">
-                <h3>🔍 タグで絞り込み</h3>
-                <button class="modal-close" id="filter-modal-close" type="button">✕</button>
+                <h3 id="filter-modal-title">🔍 タグで絞り込み</h3>
+                <button class="modal-close" id="filter-modal-close" type="button" aria-label="閉じる">✕</button>
             </div>
             <div class="modal-body">
                 <div id="filter-tags-container">
@@ -269,10 +272,10 @@
 
     <!-- 銘柄追加モーダル -->
     <div class="modal-overlay hidden" id="list-add-modal-overlay">
-        <div class="modal modal-sm">
+        <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="list-add-modal-title" tabindex="-1">
             <div class="modal-header">
-                <h3>➕ 銘柄を追加</h3>
-                <button class="modal-close" id="list-add-modal-close" type="button">✕</button>
+                <h3 id="list-add-modal-title">➕ 銘柄を追加</h3>
+                <button class="modal-close" id="list-add-modal-close" type="button" aria-label="閉じる">✕</button>
             </div>
             <div class="modal-body">
                 <div class="form-group">
@@ -284,20 +287,24 @@
         </div>
     </div>
 
+    <main id="main-content" tabindex="-1">
     <!-- 詳細ビュー -->
-    <main id="detail-view" class="view">
+    <div id="detail-view" class="view">
         <!-- 検索バー -->
         <section class="search-section">
             <div class="search-container">
                 <div class="search-input-wrapper">
                     <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                    <input type="text" id="search-input" placeholder="ティッカーを入力（例: AAPL, TSLA, 7203.T）" autocomplete="off">
-                    <button id="search-btn" type="button">
+                    <label class="visually-hidden" for="search-input">銘柄のティッカー</label>
+                    <input type="text" id="search-input" aria-describedby="search-error" placeholder="ティッカーを入力（例: AAPL, TSLA, 7203.T）" autocomplete="off">
+                    <button id="search-btn" type="button" aria-label="銘柄を検索">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
                     </button>
                 </div>
             </div>
         </section>
+
+        <p class="text-error" id="search-error" role="alert"></p>
 
         <!-- ウェルカムメッセージ（初期状態） -->
         <section id="welcome-section" class="welcome-section">
@@ -306,11 +313,11 @@
                 <h2>銘柄を検索しましょう</h2>
                 <p>上の検索バーにティッカーシンボルを入力すると、<br>株価・財務情報・投資指数などの詳細情報を確認できます。</p>
                 <div class="welcome-examples">
-                    <span class="example-chip" data-quick-search="AAPL">AAPL</span>
-                    <span class="example-chip" data-quick-search="GOOGL">GOOGL</span>
-                    <span class="example-chip" data-quick-search="MSFT">MSFT</span>
-                    <span class="example-chip" data-quick-search="TSLA">TSLA</span>
-                    <span class="example-chip" data-quick-search="7203.T">7203.T</span>
+                    <button type="button" class="example-chip" data-quick-search="AAPL">AAPL</button>
+                    <button type="button" class="example-chip" data-quick-search="GOOGL">GOOGL</button>
+                    <button type="button" class="example-chip" data-quick-search="MSFT">MSFT</button>
+                    <button type="button" class="example-chip" data-quick-search="TSLA">TSLA</button>
+                    <button type="button" class="example-chip" data-quick-search="7203.T">7203.T</button>
                 </div>
             </div>
         </section>
@@ -318,7 +325,7 @@
         <!-- ローディング -->
         <section id="loading-section" class="loading-section hidden">
             <div class="spinner"></div>
-            <p id="loading-text">データを取得中...</p>
+            <p id="loading-text" role="status">データを取得中...</p>
         </section>
 
         <!-- エラー表示 -->
@@ -326,7 +333,7 @@
             <div class="error-content">
                 <div class="error-icon">⚠️</div>
                 <h3 id="error-title">エラー</h3>
-                <p id="error-message"></p>
+                <p id="error-message" role="alert"></p>
                 <button class="btn-retry" id="search-retry-btn" type="button">再試行</button>
             </div>
         </section>
@@ -354,7 +361,7 @@
             <div class="card chart-card">
                 <div class="card-header">
                     <h3>📊 株価チャート</h3>
-                    <div class="period-selector">
+                    <div class="period-selector" role="group" aria-label="表示期間">
                         <button class="period-btn" data-period="1mo" type="button">1M</button>
                         <button class="period-btn active" data-period="3mo" type="button">3M</button>
                         <button class="period-btn" data-period="6mo" type="button">6M</button>
@@ -364,12 +371,20 @@
                     </div>
                 </div>
                 <div class="indicator-toggles">
+                    <div class="chart-type-selector" role="group" aria-label="チャートの種類">
+                        <button class="period-btn active" data-chart-type="line" type="button" aria-pressed="true">ライン</button>
+                        <button class="period-btn" data-chart-type="candlestick" type="button" aria-pressed="false">ローソク足</button>
+                    </div>
                     <label class="toggle-label"><input type="checkbox" id="toggle-sma25"> SMA 25</label>
                     <label class="toggle-label"><input type="checkbox" id="toggle-sma50" checked> SMA 50</label>
                     <label class="toggle-label"><input type="checkbox" id="toggle-sma75"> SMA 75</label>
                     <label class="toggle-label"><input type="checkbox" id="toggle-sma200" checked> SMA 200</label>
                     <label class="toggle-label"><input type="checkbox" id="toggle-rsi" checked> RSI 14</label>
+                    <label class="toggle-label"><input type="checkbox" id="toggle-volume"> 出来高</label>
+                    <label class="toggle-label"><input type="checkbox" id="toggle-bollinger"> ボリンジャーバンド</label>
+                    <label class="toggle-label"><input type="checkbox" id="toggle-macd"> MACD</label>
                 </div>
+                <small id="chart-history-status" class="stale-notice text-muted" role="status"></small>
                 <small id="history-stale" class="stale-notice text-muted"></small>
                 <div class="chart-stage">
                     <div class="chart-loading-overlay hidden" id="chart-loading-overlay" aria-live="polite" aria-busy="true">
@@ -379,13 +394,47 @@
                         </div>
                     </div>
                     <div class="chart-container">
-                        <canvas id="price-chart"></canvas>
+                        <canvas id="price-chart" role="img" aria-label="株価の推移" aria-describedby="price-chart-summary"></canvas>
                     </div>
-                    <div class="chart-container rsi-container" id="rsi-container">
-                        <canvas id="rsi-chart"></canvas>
+                    <div class="chart-container rsi-container hidden" id="volume-container">
+                        <canvas id="volume-chart" role="img" aria-label="出来高の推移" aria-describedby="volume-chart-summary"></canvas>
                     </div>
+                    <div class="chart-container rsi-container hidden" id="rsi-container">
+                        <canvas id="rsi-chart" role="img" aria-label="RSIの推移" aria-describedby="rsi-chart-summary"></canvas>
+                    </div>
+                    <div class="chart-container rsi-container macd-container hidden" id="macd-container">
+                        <canvas id="macd-chart" role="img" aria-label="MACDの推移" aria-describedby="macd-chart-summary"></canvas>
+                    </div>
+                    <p class="visually-hidden" id="price-chart-summary"></p>
+                    <p class="visually-hidden" id="volume-chart-summary"></p>
+                    <p class="visually-hidden" id="rsi-chart-summary"></p>
+                    <p class="visually-hidden" id="macd-chart-summary"></p>
                 </div>
             </div>
+
+            <section class="card chart-card" aria-labelledby="compare-title">
+                <div class="card-header"><h3 id="compare-title">騰落率の比較</h3></div>
+                <div class="card-body">
+                    <form id="compare-form" class="compare-form">
+                        <div class="form-group">
+                            <label for="compare-symbol">比較する銘柄（最大4件）</label>
+                            <input id="compare-symbol" list="compare-symbols" maxlength="20" autocomplete="off"
+                                placeholder="例: AAPL, 7203.T" aria-describedby="compare-input-error" required>
+                            <datalist id="compare-symbols"></datalist>
+                        </div>
+                        <button class="btn-primary btn-sm" type="submit">比較に追加</button>
+                    </form>
+                    <p class="text-error" id="compare-input-error" role="alert"></p>
+                    <ul class="compare-series" id="compare-series" aria-label="追加した比較銘柄"></ul>
+                    <p class="text-muted" id="compare-status" role="status"></p>
+                    <ul class="compare-messages text-error" id="compare-errors" role="alert"></ul>
+                    <ul class="compare-messages text-muted" id="compare-notices"></ul>
+                    <div class="chart-container-line hidden" id="compare-plot">
+                        <canvas id="compare-chart" role="img" aria-label="銘柄別の騰落率" aria-describedby="compare-summary"></canvas>
+                    </div>
+                    <p class="visually-hidden" id="compare-summary"></p>
+                </div>
+            </section>
 
             <!-- カードグリッド -->
             <div class="card-grid">
@@ -422,15 +471,16 @@
                 </div>
             </div>
         </section>
-    </main>
+    </div>
 
     <!-- ダッシュボードビュー -->
-    <main id="list-view" class="view active">
+    <div id="list-view" class="view active">
         <section class="list-header-section">
             <div class="list-header-row">
                 <h2>📋 銘柄ダッシュボード</h2>
                 <div class="list-controls">
                     <div class="list-add-form">
+                        <label class="visually-hidden" for="list-search-input">ウォッチリスト内の銘柄を検索</label>
                         <input type="text" id="list-search-input" placeholder="ティッカーを検索（#でタグ）..." autocomplete="off">
                         <button id="list-add-btn" type="button">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -466,11 +516,11 @@
                 <h3>銘柄を追加しましょう</h3>
                 <p>上のフォームからティッカーを追加すると、比較テーブルが表示されます。</p>
                 <div class="welcome-examples">
-                    <span class="example-chip" data-quick-add="AAPL">AAPL</span>
-                    <span class="example-chip" data-quick-add="GOOGL">GOOGL</span>
-                    <span class="example-chip" data-quick-add="MSFT">MSFT</span>
-                    <span class="example-chip" data-quick-add="AMZN">AMZN</span>
-                    <span class="example-chip" data-quick-add="TSLA">TSLA</span>
+                    <button type="button" class="example-chip" data-quick-add="AAPL">AAPL</button>
+                    <button type="button" class="example-chip" data-quick-add="GOOGL">GOOGL</button>
+                    <button type="button" class="example-chip" data-quick-add="MSFT">MSFT</button>
+                    <button type="button" class="example-chip" data-quick-add="AMZN">AMZN</button>
+                    <button type="button" class="example-chip" data-quick-add="TSLA">TSLA</button>
                 </div>
             </div>
         </section>
@@ -481,12 +531,12 @@
                 <table id="comparison-table">
                     <thead>
                         <tr>
-                            <th class="sortable" data-sort="symbol">ティッカー <span class="sort-arrow"></span></th>
-                            <th class="sortable" data-sort="name">会社名 <span class="sort-arrow"></span></th>
-                            <th class="sortable numeric" data-sort="price">株価 <span class="sort-arrow"></span></th>
-                            <th class="sortable numeric" data-sort="market_cap">会社規模 <span class="sort-arrow"></span></th>
-                            <th class="sortable numeric" data-sort="mix_index">ミックス指数 <span class="sort-arrow"></span></th>
-                            <th class="sortable numeric" data-sort="dividend_yield">配当利回り <span class="sort-arrow"></span></th>
+                            <th class="sortable" data-sort="symbol" aria-sort="ascending"><button type="button">ティッカー <span class="sort-arrow" aria-hidden="true"></span></button></th>
+                            <th class="sortable" data-sort="name"><button type="button">会社名 <span class="sort-arrow" aria-hidden="true"></span></button></th>
+                            <th class="sortable numeric" data-sort="price"><button type="button">株価 <span class="sort-arrow" aria-hidden="true"></span></button></th>
+                            <th class="sortable numeric" data-sort="market_cap"><button type="button">会社規模 <span class="sort-arrow" aria-hidden="true"></span></button></th>
+                            <th class="sortable numeric" data-sort="mix_index"><button type="button">ミックス指数 <span class="sort-arrow" aria-hidden="true"></span></button></th>
+                            <th class="sortable numeric" data-sort="dividend_yield"><button type="button">配当利回り <span class="sort-arrow" aria-hidden="true"></span></button></th>
                             <th>タグ</th>
                             <th>メモ</th>
                             <th>操作</th>
@@ -496,9 +546,9 @@
                 </table>
             </div>
         </section>
-    </main>
+    </div>
 
-    <main id="backtest-view" class="view">
+    <div id="backtest-view" class="view">
         <section class="backtest-panel">
             <h2>バックテスト</h2>
             <div class="card card-body hidden" id="backtest-login">
@@ -555,7 +605,8 @@
                 <div class="metrics-grid" id="backtest-metrics"></div>
                 <div class="chart-card">
                     <h3>資産推移</h3>
-                    <div class="chart-container-line"><canvas id="backtest-chart"></canvas></div>
+                    <div class="chart-container-line"><canvas id="backtest-chart" role="img" aria-label="バックテストの資産推移" aria-describedby="backtest-equity-summary"></canvas></div>
+                    <p class="visually-hidden" id="backtest-equity-summary"></p>
                 </div>
                 <div class="card card-body">
                     <div class="card-header">
@@ -566,10 +617,10 @@
                 </div>
             </section>
         </section>
-    </main>
+    </div>
 
     <!-- システム統計ビュー -->
-    <main id="stats-view" class="view">
+    <div id="stats-view" class="view">
         <section class="stats-dashboard">
             <div class="stats-header">
                 <h2>📈 システム統計モニター</h2>
@@ -605,24 +656,27 @@
                     <h3>キャッシュヒット率</h3>
                     <p id="dash-cache-hit-rate">—</p>
                     <div class="chart-container-pie">
-                        <canvas id="hitRateChart"></canvas>
+                        <canvas id="hitRateChart" role="img" aria-label="キャッシュ利用率" aria-describedby="stats-cache-summary"></canvas>
                     </div>
+                    <p class="visually-hidden" id="stats-cache-summary"></p>
                 </div>
 
                 <!-- エンドポイント別棒グラフ -->
                 <div class="chart-card">
                     <h3>アクセスランキング</h3>
                     <div class="chart-container-bar">
-                        <canvas id="endpointChart"></canvas>
+                        <canvas id="endpointChart" role="img" aria-label="アクセス上位のエンドポイント" aria-describedby="stats-endpoint-summary"></canvas>
                     </div>
+                    <p class="visually-hidden" id="stats-endpoint-summary"></p>
                 </div>
 
                 <!-- レスポンスタイム推移 -->
                 <div class="chart-card card-wide-stats">
                     <h3>サーバー平均レスポンスタイム推移</h3>
                     <div class="chart-container-line">
-                        <canvas id="responseTimeChart"></canvas>
+                        <canvas id="responseTimeChart" role="img" aria-label="平均応答時間の推移" aria-describedby="stats-response-summary"></canvas>
                     </div>
+                    <p class="visually-hidden" id="stats-response-summary"></p>
                 </div>
             </div>
             <div class="chart-card stats-daily">
@@ -635,6 +689,8 @@
                 </div>
             </div>
         </section>
+    </div>
+
     </main>
 
     <!-- トースト通知 -->

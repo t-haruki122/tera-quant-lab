@@ -197,7 +197,7 @@ def test_strategy_signals(name, params, prices, expected):
     ("momentum", {"exit_threshold": 1}), ("momentum", {"period": True}),
 ])
 def test_param_errors_include_types_and_defaults(name, params):
-    with pytest.raises(ValueError, match="Valid params:.*(int|float).*default="):
+    with pytest.raises(ValueError, match="指定できるパラメータ:.*(int|float).*default="):
         validate_params(name, params)
 
 
@@ -216,7 +216,7 @@ def test_grid_ranking_cap_progress_and_cancel():
     lower = run_grid("X", prices, "momentum", dict(period=1), dict(threshold=[0, .5]),
                      rank_by="max_drawdown", initial_capital=100)
     assert lower[0].params["threshold"] == .5
-    with pytest.raises(ValueError, match="501.*maximum is 500"):
+    with pytest.raises(ValueError, match="501.*上限は 500 件"):
         run_grid("X", prices, grid=dict(short_window=list(range(501))), initial_capital=100)
     assert len(grid_params("momentum", dict(period=1), dict(threshold=[.5] * 500))) == 500
     with pytest.raises(ValueError, match="rank metric"):
@@ -246,9 +246,9 @@ def test_cancel_during_single_and_grid_execution():
 def test_partial_history_open_and_validation():
     df = history_to_df({"history": [dict(date="2024-01-02", close="12"), dict(date="2024-01-01", close=10)]})
     assert df.close.tolist() == [10, 12] and df.open.isna().all()
-    with pytest.raises(ValueError, match="positive"):
+    with pytest.raises(ValueError, match="正の数値"):
         Backtester(Signals([0]), 100).run("X", frame([0]))
-    with pytest.raises(ValueError, match="increasing"):
+    with pytest.raises(ValueError, match="昇順"):
         Backtester(Signals([0, 0]), 100).run("X", frame([1, 2], dates=["b", "a"]))
 
 

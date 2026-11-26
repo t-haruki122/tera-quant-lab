@@ -10,6 +10,10 @@ from .pit import number
 from .strategies import Strategy
 
 
+class BacktestInputError(ValueError):
+    """バックテストの設定や価格データに関する入力エラー。"""
+
+
 @dataclass
 class BacktestResult:
     symbol: str
@@ -27,7 +31,7 @@ def history_to_df(payload):
         return pd.DataFrame(columns=["date", "open", "close"])
     df = pd.DataFrame(rows)
     if "date" not in df or "close" not in df:
-        raise ValueError("history response format is invalid")
+        raise BacktestInputError("株価履歴の形式が正しくありません")
     df["date"] = pd.to_datetime(df["date"], errors="coerce", utc=True)
     df["close"] = pd.to_numeric(df["close"], errors="coerce")
     df = df.dropna(subset=["date", "close"]).sort_values("date").reset_index(drop=True)
@@ -43,11 +47,11 @@ class Backtester:
         for key, value in dict(initial_capital=initial_capital, fee_rate=fee_rate,
                                slippage_bps=slippage_bps, risk_free=risk_free).items():
             if number(value) is None:
-                raise ValueError(f"{key} must be finite")
+                raise BacktestInputError(f"{key} は有限の数値を指定してください")
         if initial_capital <= 0 or not 0 <= fee_rate < 1 or not 0 <= slippage_bps < 10000 or risk_free <= -1:
-            raise ValueError("require capital > 0, 0 <= fee_rate < 1, 0 <= slippage_bps < 10000, risk_free > -1")
+            raise BacktestInputError("条件を満たす値を指定してください（initial_capital > 0、0 <= fee_rate < 1、0 <= slippage_bps < 10000、risk_free > -1）")
         if execution not in ("next_open", "close") or interval not in ANNUALISATION:
-            raise ValueError("invalid execution or interval")
+            raise BacktestInputError("約定タイミングまたはデータ間隔が正しくありません")
         self.strategy, self.initial_capital, self.fee_rate = strategy, initial_capital, fee_rate
         self.execution, self.slippage_bps, self.interval, self.risk_free = execution, slippage_bps, interval, risk_free
 
@@ -55,17 +59,17 @@ class Backtester:
         if cancel_check and cancel_check():
             raise RuntimeError("Cancelled")
         if price_df.empty:
-            raise ValueError(f"No price data for {symbol}")
+            raise BacktestInputError(f"{symbol} の株価データがありません")
         if any(number(value) is None or float(value) <= 0 for value in price_df["close"]):
-            raise ValueError("close must be finite and positive")
+            raise BacktestInputError("終値は有限の正の数値である必要があります")
         if price_df["date"].duplicated().any() or not price_df["date"].is_monotonic_increasing:
-            raise ValueError("price bars must have unique, increasing dates")
+            raise BacktestInputError("株価データの日付は重複がなく、昇順である必要があります")
         context = context or {}
         df = self.strategy.prepare(price_df.reset_index(drop=True), context)
         if (start_date := context.get("start_date")) is not None:
             df = df.loc[df["date"] >= start_date].reset_index(drop=True)
             if df.empty:
-                raise ValueError(f"No price data in the requested period for {symbol}")
+                raise BacktestInputError(f"{symbol} の指定期間に株価データがありません")
         curve, trades, fallbacks = self._simulate(symbol, df, progress_callback, cancel_check)
         benchmark = df.copy()
         benchmark["signal"] = 0

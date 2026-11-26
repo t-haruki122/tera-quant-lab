@@ -1,7 +1,10 @@
 /** Wire the shared dialog keyboard, focus and submit behavior. */
 
+import { createDialog } from './dialog.js';
+
 export function createActionModal(id) {
     const part = name => document.getElementById(`${id}-${name}`);
+    const dialog = createDialog(`${id}-overlay`);
     let active = null;
 
     function setError(message = '') {
@@ -12,20 +15,16 @@ export function createActionModal(id) {
 
     function close() {
         if (!active) return;
-        const { opener, fallbackFocus, onClose } = active;
+        const { onClose } = active;
         active = null;
-        part('overlay').classList.add('hidden');
-        onClose?.();
-        const focusTarget = opener?.isConnected && !opener.disabled ? opener : fallbackFocus;
-        focusTarget?.focus();
+        dialog.close(onClose);
     }
 
     function open({ focus, opener = document.activeElement, fallbackFocus, onSubmit, onClose }) {
-        active = { opener, fallbackFocus, onSubmit, onClose };
+        active = { onSubmit, onClose };
         setError();
         part('submit').disabled = false;
-        part('overlay').classList.remove('hidden');
-        focus.focus();
+        dialog.open(focus, { opener, fallbackFocus });
     }
 
     async function submit(event) {
@@ -50,30 +49,13 @@ export function createActionModal(id) {
         part('close').addEventListener('click', close);
         part('cancel').addEventListener('click', close);
         part('form').addEventListener('submit', submit);
-        overlay.addEventListener('click', event => {
-            if (event.target === overlay) close();
-        });
+        dialog.bind(close);
         overlay.addEventListener('keydown', event => {
-            if (!active || event.isComposing) return;
-            if (event.key === 'Escape') {
-                event.preventDefault();
-                close();
-            } else if (event.key === 'Enter' && !event.target.closest('button') &&
+            if (!active || event.isComposing || event.keyCode === 229) return;
+            if (event.key === 'Enter' && !event.target.closest('button') &&
                 !(event.target.tagName === 'TEXTAREA' && event.shiftKey)) {
                 event.preventDefault();
                 part('form').requestSubmit();
-            } else if (event.key === 'Tab') {
-                const stops = [...overlay.querySelectorAll('button, input, textarea')]
-                    .filter(element => !element.disabled && element.getClientRects().length);
-                const first = stops[0];
-                const last = stops.at(-1);
-                if (event.shiftKey && event.target === first) {
-                    event.preventDefault();
-                    last.focus();
-                } else if (!event.shiftKey && event.target === last) {
-                    event.preventDefault();
-                    first.focus();
-                }
             }
         });
     }

@@ -206,13 +206,18 @@ export function renderRunResult(data, symbol) {
 
     byId('result').classList.remove('hidden');
     chart?.destroy();
+    const final = data.equity_curve.at(-1);
+    byId('equity-summary').textContent = final
+        ? `${final.date} の資産　戦略 ${displayMetric('equity', final.equity)}、買い持ち ${displayMetric('equity', final.benchmark_equity)}`
+        : '資産推移データがありません';
     chart = new Chart(byId('chart'), {
         type: 'line',
         data: {
             labels: data.equity_curve.map(row => row.date),
             datasets: [
                 { label: '戦略', data: data.equity_curve.map(row => row.equity), borderColor: '#3b82f6', pointRadius: 0 },
-                { label: '買い持ち', data: data.equity_curve.map(row => row.benchmark_equity), borderColor: '#10b981', pointRadius: 0 },
+                { label: '買い持ち', data: data.equity_curve.map(row => row.benchmark_equity), borderColor: '#10b981',
+                    borderDash: [5, 3], pointRadius: 0 },
             ],
         },
         options: { responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false } },
@@ -278,7 +283,7 @@ async function runBacktest(body) {
 }
 
 export function bindBacktestEvents() {
-    byId('login-btn').addEventListener('click', () => openAuthModal('login'));
+    byId('login-btn').addEventListener('click', event => openAuthModal('login', event.currentTarget));
     byId('strategy').addEventListener('change', renderParams);
     byId('mode').addEventListener('change', event => {
         const grid = event.target.value === 'grid';

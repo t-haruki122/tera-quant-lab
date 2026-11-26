@@ -4,19 +4,27 @@
 
 import { state } from './state.js';
 
+const percentFormatter = new Intl.NumberFormat('ja-JP', { maximumFractionDigits: 2, minimumFractionDigits: 2, signDisplay: 'exceptZero' });
+
 export function showToast(message, type = 'info') {
     const container = document.getElementById('toast-container');
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
+    toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
+    if (type !== 'error') toast.setAttribute('aria-live', 'polite');
+    container.appendChild(toast);
 
     const icons = { success: '✓', error: '✕', warning: '⚠', info: 'ℹ' };
-    toast.innerHTML = `<span class="toast-icon">${escapeHtml(icons[type] || 'ℹ')}</span><span class="toast-message">${escapeHtml(message)}</span>`;
+    toast.innerHTML = `<span class="toast-icon" aria-hidden="true">${escapeHtml(icons[type] || 'ℹ')}</span><span class="toast-message">${escapeHtml(message)}</span>`;
 
-    container.appendChild(toast);
     setTimeout(() => {
         toast.classList.add('toast-hide');
         setTimeout(() => toast.remove(), 300);
     }, 3000);
+}
+
+export function formatPercent(value) {
+    return percentFormatter.format(value) + '%';
 }
 
 export function formatCurrency(value, currency) {

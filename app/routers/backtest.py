@@ -1,6 +1,7 @@
 """Web backtests using the cached services and the shared simulation engine."""
 
 import asyncio
+import logging
 import math
 from collections import Counter
 from dataclasses import asdict
@@ -12,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.backtest import REGISTRY, Backtester, grid_params, history_to_df, make_strategy, run_grid, validate_params
+from app.backtest.engine import BacktestInputError
 from app.backtest.grid import RANK_METRICS
 from app.backtest.strategies import param_schema
 from app.config import get_settings
@@ -23,6 +25,7 @@ from app.services import finance_service, stock_service
 from app.validation import HistoryInterval, ISODate, Symbol, shift_years
 
 router = APIRouter(prefix="/backtest", tags=["backtest"])
+logger = logging.getLogger(__name__)
 _active_jobs: Counter[int] = Counter()
 _jobs_lock = Lock()
 
@@ -141,8 +144,11 @@ async def _run_job(body: RunRequest, user_id: int, db: AsyncSession):
                 context["financial_history"] = await finance_service.get_financial_history(body.symbol, db, limit=10)
             try:
                 return await asyncio.to_thread(_simulate, body, history, context, cancelled.is_set)
-            except (ValueError, OverflowError) as exc:
+            except BacktestInputError as exc:
                 raise HTTPException(422, str(exc)) from exc
+            except (ValueError, OverflowError) as exc:
+                logger.warning("Backtest calculation failed: %s", exc)
+                raise HTTPException(422, "バックテストを計算できませんでした。入力値と期間を確認してください。") from exc
     except TimeoutError as exc:
         if not deadline.expired():
             raise

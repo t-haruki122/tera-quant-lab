@@ -22,10 +22,10 @@ class GridResult:
 
 def grid_params(strategy, base_params, grid, *, max_combos=MAX_GRID_COMBOS):
     if any(not values for values in grid.values()):
-        raise ValueError("Grid values must not be empty")
+        raise ValueError("グリッドには各パラメータの候補を1件以上指定してください")
     count = prod(len(values) for values in grid.values())
     if count > max_combos:
-        raise ValueError(f"Grid has {count} combinations; maximum is {max_combos}")
+        raise ValueError(f"グリッドの組み合わせが {count} 件あります。上限は {max_combos} 件です")
     return [validate_params(strategy, {**base_params, **dict(zip(grid, values, strict=True))})
             for values in product(*grid.values())]
 

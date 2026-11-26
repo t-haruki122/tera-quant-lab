@@ -14,6 +14,23 @@ INTERNAL_ERROR = "サーバー内部でエラーが発生しました。しば�
 UPSTREAM_ERROR = "データ提供元からデータを取得できませんでした。しばらくしてから再試行してください。"
 UPSTREAM_UNAVAILABLE = "データ提供元に接続できませんでした。しばらくしてから再試行してください。"
 UPSTREAM_RATE_LIMIT = "データ提供元の利用上限に達しました。しばらくしてから再試行してください。"
+HTTP_DETAILS_JA = {"Not Found": "リクエストされたリソースが見つかりません", "Method Not Allowed": "この操作は許可されていません"}
+VALIDATION_LIMITS = {
+    "greater_than": ("gt", "より大きい"),
+    "greater_than_equal": ("ge", "以上の"),
+    "less_than": ("lt", "未満の"),
+    "less_than_equal": ("le", "以下の"),
+}
+VALIDATION_TYPES_JA = {
+    "dict_type": "オブジェクト",
+    "list_type": "配列",
+    "string_type": "文字列",
+    "float_parsing": "数値",
+    "float_type": "数値",
+    "int_parsing": "整数",
+    "int_type": "整数",
+    "finite_number": "有限の数値",
+}
 logger = logging.getLogger(__name__)
 
 
@@ -34,14 +51,14 @@ class SymbolNotFoundError(Exception):
 
     def __init__(self, symbol: str):
         self.symbol = symbol
-        self.message = f"Symbol not found: {symbol}"
+        self.message = f"銘柄が見つかりません: {symbol}"
         super().__init__(self.message)
 
 
 class RateLimitError(Exception):
     """APIレート制限 (429)"""
 
-    def __init__(self, message: str = "API rate limit exceeded"):
+    def __init__(self, message: str = UPSTREAM_RATE_LIMIT):
         self.message = message
         super().__init__(self.message)
 
@@ -49,7 +66,7 @@ class RateLimitError(Exception):
 class ExternalAPIError(Exception):
     """外部APIエラー (502)"""
 
-    def __init__(self, message: str = "External API error", *, allow_stale: bool = True):
+    def __init__(self, message: str = UPSTREAM_ERROR, *, allow_stale: bool = True):
         self.message = message
         self.allow_stale = allow_stale
         super().__init__(self.message)
@@ -57,6 +74,9 @@ class ExternalAPIError(Exception):
 
 class UpstreamUnavailableError(ExternalAPIError):
     """Network failures and timeouts (503)."""
+
+    def __init__(self, message: str = UPSTREAM_UNAVAILABLE, *, allow_stale: bool = True):
+        super().__init__(message, allow_stale=allow_stale)
 
 
 def json_safe(value):
@@ -77,22 +97,38 @@ def register_exception_handlers(app: FastAPI):
         errors = []
         for error in exc.errors():
             field = error["loc"][-1] if error["loc"] else None
-            message = error["msg"]
-            if error["type"] == "value_error":
-                message = message.removeprefix("Value error, ")
+            kind = error["type"]
+            context = error.get("ctx", {})
+            if kind == "value_error":
+                message = error["msg"].removeprefix("Value error, ")
             elif field in {"start_date", "end_date"}:
                 message = f"{field} は YYYY-MM-DD 形式の実在する日付を指定してください"
             elif field == "interval":
                 message = "interval は 1d、1wk、1mo のいずれかを指定してください"
             elif field == "limit":
-                bound = error.get("ctx", {}).get("ge") or error.get("ctx", {}).get("le")
-                operator = "以上" if error["type"] == "greater_than_equal" else "以下"
+                bound = context.get("ge") or context.get("le")
+                operator = "以上" if kind == "greater_than_equal" else "以下"
                 message = f"limit は {bound} {operator}の整数を指定してください" if bound else "limit は整数を指定してください"
             elif field in {"user_id", "list_id"}:
                 message = f"{field} は 1 以上の有効な整数 ID を指定してください"
             elif field == "symbol":
                 message = "symbol は銘柄を表す文字列を指定してください"
-            errors.append({"type": error["type"], "loc": error["loc"], "msg": message, "input": error.get("input")})
+            elif kind in VALIDATION_LIMITS:
+                key, comparison = VALIDATION_LIMITS[kind]
+                bound = str(context[key]).removesuffix(".0")
+                message = f"{field} は {bound} {comparison}数値を指定してください"
+            elif kind in VALIDATION_TYPES_JA:
+                message = f"{field} は{VALIDATION_TYPES_JA[kind]}を指定してください"
+            elif kind == "missing":
+                message = f"{field} は必須です"
+            elif kind == "json_invalid":
+                message = "JSON の形式が正しくありません"
+            elif kind == "literal_error":
+                choices = context["expected"].replace(" or ", " または ")
+                message = f"{field} は次のいずれかを指定してください: {choices}"
+            else:
+                message = f"{field} の値が正しくありません" if isinstance(field, str) else "入力内容が正しくありません"
+            errors.append({"type": kind, "loc": error["loc"], "msg": message, "input": error.get("input")})
         return JSONResponse(status_code=422, content={"detail": json_safe(jsonable_encoder(errors))})
 
     @app.exception_handler(HTTPException)
@@ -100,6 +136,8 @@ def register_exception_handlers(app: FastAPI):
         if exc.status_code == 500:
             # Route this through the same logging and response path as other internal errors.
             raise exc
+        if isinstance(exc.detail, str) and exc.detail in HTTP_DETAILS_JA:
+            exc = HTTPException(exc.status_code, HTTP_DETAILS_JA[exc.detail], headers=exc.headers)
         return await http_exception_handler(request, exc)
 
     @app.exception_handler(SymbolNotFoundError)
