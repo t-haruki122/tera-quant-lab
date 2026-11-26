@@ -4,29 +4,37 @@
 
 import { state } from './state.js';
 
+const percentFormatter = new Intl.NumberFormat('ja-JP', { maximumFractionDigits: 2, minimumFractionDigits: 2, signDisplay: 'exceptZero' });
+
 export function showToast(message, type = 'info') {
     const container = document.getElementById('toast-container');
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
+    toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
+    if (type !== 'error') toast.setAttribute('aria-live', 'polite');
+    container.appendChild(toast);
 
     const icons = { success: '✓', error: '✕', warning: '⚠', info: 'ℹ' };
-    toast.innerHTML = `<span class="toast-icon">${icons[type] || 'ℹ'}</span><span class="toast-message">${escapeHtml(message)}</span>`;
+    toast.innerHTML = `<span class="toast-icon" aria-hidden="true">${escapeHtml(icons[type] || 'ℹ')}</span><span class="toast-message">${escapeHtml(message)}</span>`;
 
-    container.appendChild(toast);
     setTimeout(() => {
         toast.classList.add('toast-hide');
         setTimeout(() => toast.remove(), 300);
     }, 3000);
 }
 
-export function formatCurrency(value, currency) {
+export function formatPercent(value) {
+    return percentFormatter.format(value) + '%';
+}
+
+export function formatCurrency(value, currency, { convertUSD = true } = {}) {
     if (value == null) return '—';
     try {
         let displayValue = value;
         let displayCurrency = currency || 'USD';
 
         // USDの場合は円換算する
-        if (displayCurrency === 'USD' && state.exchangeRateUSDJPY) {
+        if (convertUSD && displayCurrency === 'USD' && state.exchangeRateUSDJPY) {
             displayValue = value * state.exchangeRateUSDJPY;
             displayCurrency = 'JPY';
         }
@@ -43,41 +51,32 @@ export function formatCurrency(value, currency) {
     }
 }
 
-export function formatLargeNumber(value, currency) {
+export function formatLargeNumber(value, currency, { convertUSD = true } = {}) {
     if (value == null) return '—';
 
-    let displayValue = value;
-    let isJPY = currency === 'JPY';
-
-    // USDの場合は円換算
-    if ((!currency || currency === 'USD') && state.exchangeRateUSDJPY) {
-        displayValue = value * state.exchangeRateUSDJPY;
-        isJPY = true;
+    if (convertUSD && currency === 'USD' && state.exchangeRateUSDJPY) {
+        value *= state.exchangeRateUSDJPY;
+        currency = 'JPY';
     }
 
-    const abs = Math.abs(displayValue);
-
-    if (isJPY) {
-        if (abs >= 1e12) return '¥' + (displayValue / 1e12).toFixed(2) + '兆';
-        if (abs >= 1e8) return '¥' + (displayValue / 1e8).toFixed(2) + '億';
-        if (abs >= 1e4) return '¥' + (displayValue / 1e4).toFixed(2) + '万';
-        return '¥' + displayValue.toLocaleString();
-    } else {
-        if (abs >= 1e12) return '$' + (displayValue / 1e12).toFixed(2) + 'T';
-        if (abs >= 1e9) return '$' + (displayValue / 1e9).toFixed(2) + 'B';
-        if (abs >= 1e6) return '$' + (displayValue / 1e6).toFixed(2) + 'M';
-        if (abs >= 1e3) return '$' + (displayValue / 1e3).toFixed(1) + 'K';
-        return '$' + displayValue.toLocaleString();
+    const abs = Math.abs(value);
+    if (currency === 'JPY') {
+        if (abs >= 1e12) return `¥${yenUnits.format(value / 1e12)}兆`;
+        if (abs >= 1e8) return `¥${yenUnits.format(value / 1e8)}億`;
+        if (abs >= 1e4) return `¥${yenUnits.format(value / 1e4)}万`;
+        return `¥${value.toLocaleString('ja-JP')}`;
     }
+    if (currency === 'USD') {
+        if (abs >= 1e12) return `$${(value / 1e12).toFixed(2)}T`;
+        if (abs >= 1e9) return `$${(value / 1e9).toFixed(2)}B`;
+        if (abs >= 1e6) return `$${(value / 1e6).toFixed(2)}M`;
+        if (abs >= 1e3) return `$${(value / 1e3).toFixed(1)}K`;
+        return `$${value.toLocaleString('en-US')}`;
+    }
+    return currency ? `${currency} ${value.toLocaleString('ja-JP')}` : value.toLocaleString('ja-JP');
 }
 
-export function formatAbbreviatedNumber(value) {
-    const abs = Math.abs(Number(value));
-    if (abs >= 1_000_000_000_000) return `${(value / 1_000_000_000_000).toFixed(1)}T`;
-    if (abs >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`;
-    if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-    return Number(value).toLocaleString();
-}
+const yenUnits = new Intl.NumberFormat('ja-JP', { maximumFractionDigits: 2 });
 
 export function formatTimestamp(ts) {
     try {
@@ -88,31 +87,55 @@ export function formatTimestamp(ts) {
     }
 }
 
-export function formatNewsDate(dateStr) {
+const localDateTime = new Intl.DateTimeFormat('ja-JP', {
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+});
+
+export function formatNewsDate(value) {
+    if (!value) return '';
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? localDateTime.format(date) : '';
+}
+
+export function oldestStaleData(...sources) {
+    return sources.filter(data => data?.stale === true && typeof data.cached_at === 'string')
+        .reduce((oldest, data) => !oldest || data.cached_at < oldest.cached_at ? data : oldest, null);
+}
+
+export function staleMessage(data) {
+    if (!data?.stale || !data.cached_at) return '';
+    const date = formatNewsDate(data.cached_at) || data.cached_at;
+    return `最新データを取得できなかったため、${date} 時点のデータを表示しています`;
+}
+
+export function staleNotice(data) {
+    const message = staleMessage(data);
+    return message ? `<small class="stale-notice text-muted">${escapeHtml(message)}</small>` : '';
+}
+
+export function escapeHtml(value) {
+    const entities = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    return String(value ?? '').replace(/[&<>"']/g, char => entities[char]);
+}
+
+// Attribute values must be quoted; event handlers use data attributes/listeners.
+export function escapeAttr(value) {
+    return escapeHtml(value);
+}
+
+export function safeHttpUrl(value) {
     try {
-        const date = new Date(dateStr);
-        if (isNaN(date.getTime())) return dateStr;
-        return date.toLocaleDateString('ja-JP', { year: 'numeric', month: 'short', day: 'numeric' });
+        const url = new URL(String(value ?? ''));
+        return ['http:', 'https:'].includes(url.protocol) ? url.href : null;
     } catch {
-        return dateStr;
+        return null;
     }
-}
-
-export function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-}
-
-export function escapeAttr(str) {
-    return str.replace(/'/g, "\\'").replace(/\"/g, '&quot;');
 }
 
 Object.assign(window, {
     showToast,
     formatCurrency,
     formatLargeNumber,
-    formatAbbreviatedNumber,
     formatTimestamp,
     formatNewsDate,
     escapeHtml,

@@ -1,16 +1,42 @@
 """Pydantic レスポンススキーマ"""
 
-from pydantic import BaseModel
-from datetime import datetime
+
+from pydantic import BaseModel, Field
+
+from app.market_indicators import MarketUnit
+
+
+class CachedResponse(BaseModel):
+    stale: bool | None = Field(default=None, exclude_if=lambda value: value is None)
+    cached_at: str | None = Field(default=None, exclude_if=lambda value: value is None)
+
+
+class StockSnapshot(CachedResponse):
+    symbol: str
+    name: str | None = None
+    country: str | None = None
+    sector: str | None = None
+    price: float | None = None
+    currency: str | None = None
+    market_cap: int | float | None = None
+    mix_index: float | None = None
+    dividend_yield: float | None = None
+    per: float | None = None
+    pbr: float | None = None
+    pending: bool = False
+    error: str | None = None
 
 
 # --- 株価 ---
 
-class StockPriceResponse(BaseModel):
+class StockPriceResponse(CachedResponse):
     """現在株価レスポンス"""
     symbol: str
     price: float
     timestamp: str
+    currency: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    name: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    unit: MarketUnit | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 # --- 過去株価 ---
@@ -28,19 +54,27 @@ class HistoryEntry(BaseModel):
     sma_75: float | None = None
     sma_200: float | None = None
     rsi_14: float | None = None
+    macd: float | None = None
+    macd_signal: float | None = None
+    macd_hist: float | None = None
+    bb_upper: float | None = None
+    bb_middle: float | None = None
+    bb_lower: float | None = None
 
 
-class StockHistoryResponse(BaseModel):
+class StockHistoryResponse(CachedResponse):
     """過去株価レスポンス"""
     symbol: str
     history: list[HistoryEntry]
+    unit: MarketUnit | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 # --- 財務情報 ---
 
-class FinancialResponse(BaseModel):
+class FinancialResponse(CachedResponse):
     """財務情報レスポンス"""
     symbol: str
+    currency: str | None = Field(default=None, description="売上高・純利益の財務報告通貨。不明なら取引通貨")
     revenue: int | None = None
     net_income: int | None = None
     eps: float | None = None
@@ -50,6 +84,9 @@ class FinancialResponse(BaseModel):
 class FinancialHistoryEntry(BaseModel):
     """過去財務情報の1レコード"""
     period: str
+    period_end: str | None = None
+    eps: float | None = None
+    shares: float | None = None
     revenue: int | None = None
     net_income: int | None = None
 
@@ -57,6 +94,7 @@ class FinancialHistoryEntry(BaseModel):
 class FinancialHistoryResponse(BaseModel):
     """過去財務情報レスポンス"""
     symbol: str
+    currency: str | None = Field(default=None, description="売上高・純利益の財務報告通貨。不明なら取引通貨")
     history: list[FinancialHistoryEntry]
 
 
@@ -81,9 +119,11 @@ class NewsEntry(BaseModel):
     title: str
     url: str
     published_at: str | None = None
+    publisher: str | None = None
+    source: str | None = None
 
 
-class NewsResponse(BaseModel):
+class NewsResponse(CachedResponse):
     """ニュースレスポンス"""
     symbol: str
     news: list[NewsEntry]
@@ -91,7 +131,7 @@ class NewsResponse(BaseModel):
 
 # --- 会社プロフィール ---
 
-class CompanyProfileResponse(BaseModel):
+class CompanyProfileResponse(CachedResponse):
     """会社プロフィールレスポンス"""
     symbol: str
     name: str
@@ -107,7 +147,7 @@ class CompanyProfileResponse(BaseModel):
 
 # --- 投資指数 ---
 
-class IndicatorsResponse(BaseModel):
+class IndicatorsResponse(CachedResponse):
     """投資指数レスポンス"""
     symbol: str
     roe: float | None = None
@@ -118,7 +158,7 @@ class IndicatorsResponse(BaseModel):
     dividend_yield: float | None = None
     mix_index: float | None = None
     profit_margin: float | None = None
-    debt_to_equity: float | None = None
+    debt_to_equity: float | None = Field(default=None, description="D/Eレシオ（%）。133.16 は 133.16%")
 
 
 # --- エラー ---

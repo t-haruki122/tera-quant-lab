@@ -1,98 +1,148 @@
-"""アプリケーションのシステム統計情報管理"""
+"""Process counters and persisted UTC daily request totals."""
 
-from datetime import datetime
+import asyncio
+import logging
 from collections import defaultdict
+from dataclasses import asdict, dataclass
+from datetime import date, timedelta
+
+from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.sqlite import insert
+
+from app import database
+from app.models.db_models import ApiStatsDaily
+from app.timeutil import utcnow
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class Totals:
+    hits: int = 0
+    errors: int = 0
+    total_ms: float = 0.0
+
+    def add(self, hits: int, errors: int, total_ms: float):
+        self.hits += hits
+        self.errors += errors
+        self.total_ms += total_ms
+
 
 class AppStats:
     def __init__(self):
-        # 外部API (yfinance etc) とキャッシュの統計
         self.api_calls = 0
         self.cache_hits = 0
-        
-        # サーバーリクエストの統計
         self.total_requests = 0
         self.total_response_time = 0.0
         self.errors = 0
         self.endpoint_hits = defaultdict(int)
-        
-        self.started_at = datetime.utcnow()
+        self.started_at = utcnow()
+
+        self._pending: defaultdict[tuple[date, str], Totals] = defaultdict(Totals)
+        self._db_lock = asyncio.Lock()
 
     def log_api_call(self):
-        """外部APIへのアクセスを記録"""
         self.api_calls += 1
 
     def log_cache_hit(self):
-        """キャッシュからのデータ取得を記録"""
         self.cache_hits += 1
 
     def log_request(self, endpoint: str, response_time: float, status_code: int):
-        """APIサーバーへのリクエストを記録"""
+        errors = int(status_code >= 400)
         self.total_requests += 1
         self.total_response_time += response_time
-        
-        # パスパラメータを正規化 (例: /stock/AAPL -> /stock/{symbol})
-        base_endpoint = "/" + endpoint.strip("/").split("/")[0] if endpoint != "/" else "/"
-        if endpoint.startswith("/stock/") and len(endpoint.split("/")) >= 3:
-             parts = endpoint.split("/")
-             if len(parts) == 4:
-                 base_endpoint = f"/stock/{{symbol}}/{parts[3]}"
-             else:
-                 base_endpoint = f"/stock/{{symbol}}"
-        elif endpoint.startswith("/user/") and len(endpoint.split("/")) >= 3:
-             parts = endpoint.split("/")
-             if len(parts) >= 4 and parts[3] == "lists":
-                 base_endpoint = "/user/{id}/lists/..."
-             else:
-                 base_endpoint = "/user/{id}"
-        else:
-             base_endpoint = endpoint
+        self.endpoint_hits[endpoint] += 1
+        self.errors += errors
+        self._pending[utcnow().date(), endpoint].add(1, errors, response_time * 1000)
 
-        self.endpoint_hits[base_endpoint] += 1
-        
-        if status_code >= 400:
-            self.errors += 1
+    async def flush(self):
+        # Let an in-progress transaction finish before propagating cancellation.
+        task = asyncio.create_task(self._flush())
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            await task
+            raise
+
+    async def _flush(self):
+        async with self._db_lock:
+            pending, self._pending = self._pending, defaultdict(Totals)
+            committed = False
+            try:
+                async with database.AsyncSessionLocal() as db:
+                    if pending:
+                        stmt = insert(ApiStatsDaily)
+                        stmt = stmt.on_conflict_do_update(
+                            index_elements=[ApiStatsDaily.date, ApiStatsDaily.endpoint],
+                            set_={name: getattr(ApiStatsDaily, name) + getattr(stmt.excluded, name)
+                                  for name in ("hits", "errors", "total_ms")},
+                        )
+                        await db.execute(stmt, [
+                            {"date": day, "endpoint": endpoint, **asdict(totals)}
+                            for (day, endpoint), totals in pending.items()
+                        ])
+                    cutoff = utcnow().date() - timedelta(days=90)
+                    await db.execute(delete(ApiStatsDaily).where(ApiStatsDaily.date < cutoff))
+                    await db.commit()
+                    committed = True
+            except Exception:
+                logger.exception("Could not flush daily API statistics")
+            finally:
+                if not committed:
+                    for key, totals in pending.items():
+                        self._pending[key].add(totals.hits, totals.errors, totals.total_ms)
+            return committed
+
+    async def flush_periodically(self, seconds):
+        while True:
+            await asyncio.sleep(seconds)
+            await self.flush()
+
+    async def daily_stats(self):
+        today = utcnow().date()
+        days = {today - timedelta(days=i): Totals() for i in range(6, -1, -1)}
+        async with self._db_lock, database.AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(ApiStatsDaily.date, func.sum(ApiStatsDaily.hits),
+                       func.sum(ApiStatsDaily.errors), func.sum(ApiStatsDaily.total_ms))
+                .where(ApiStatsDaily.date.between(next(iter(days)), today))
+                .group_by(ApiStatsDaily.date)
+            )
+            for day, hits, errors, total_ms in result:
+                days[day].add(hits, errors, total_ms)
+            for (day, _), totals in self._pending.items():
+                if day in days:
+                    days[day].add(totals.hits, totals.errors, totals.total_ms)
+
+        last_7_days = [{"date": day.isoformat(), **asdict(totals)} for day, totals in days.items()]
+        return {"today": last_7_days[-1], "last_7_days": last_7_days}
 
     def get_stats(self) -> dict:
-        """現在の統計情報を取得"""
-        # データ取得におけるキャッシュヒット率
-        # (過去の互換性のためtotal_requestsと混同しないよう注意)
         data_total = self.api_calls + self.cache_hits
-        hit_rate = 0.0
-        if data_total > 0:
-            hit_rate = round((self.cache_hits / data_total) * 100, 1)
-
-        # 平均レスポンスタイム (ms)
+        hit_rate = self.cache_hits / data_total if data_total else None
         avg_response_time = 0.0
-        if self.total_requests > 0:
-            avg_response_time = round((self.total_response_time / self.total_requests) * 1000, 2)
-            
-        # エラー率
         error_rate = 0.0
-        if self.total_requests > 0:
-            error_rate = round((self.errors / self.total_requests) * 100, 1)
-
-        # アクセス数の多いエンドポイント上位5件
+        if self.total_requests:
+            avg_response_time = round(self.total_response_time / self.total_requests * 1000, 2)
+            error_rate = round(self.errors / self.total_requests * 100, 1)
         top_endpoints = sorted(
-            [{"endpoint": k, "count": v} for k, v in self.endpoint_hits.items()],
-            key=lambda x: x["count"],
-            reverse=True
+            [{"endpoint": endpoint, "count": count} for endpoint, count in self.endpoint_hits.items()],
+            key=lambda item: item["count"],
+            reverse=True,
         )[:5]
-
-        # 既存プロパティ名の互換性を維持しつつ拡張
         return {
             "api_calls": self.api_calls,
             "cache_hits": self.cache_hits,
-            "total_requests": data_total, # 既存フロントエンド互換用
-            "hit_rate_percent": hit_rate,
-            
+            "total_requests": data_total,
+            "hit_rate_percent": round((hit_rate or 0.0) * 100, 1),
+            "cache_hit_rate": hit_rate,
             "server_requests": self.total_requests,
             "server_errors": self.errors,
             "error_rate_percent": error_rate,
             "avg_response_time_ms": avg_response_time,
             "top_endpoints": top_endpoints,
-            
-            "uptime_seconds": int((datetime.utcnow() - self.started_at).total_seconds())
+            "uptime_seconds": int((utcnow() - self.started_at).total_seconds()),
         }
 
-# グローバルな統計インスタンス
+
 stats = AppStats()

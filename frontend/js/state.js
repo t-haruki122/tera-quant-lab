@@ -13,9 +13,11 @@ export const state = {
     currentSymbol: null,
     priceChart: null,
     rsiChartInstance: null,
+    volumeChartInstance: null,
+    macdChartInstance: null,
     financialChartInstance: null,
     dividendChartInstance: null,
-    currentFinancialHistory: [],
+    currentFinancialHistory: null,
     currentFinancialMetric: 'net_income',
     currentPeriod: '3mo',
     currentChartHistory: [],
@@ -27,20 +29,23 @@ export const state = {
     responseTimeChartInstance: null,
 
     exchangeRateUSDJPY: null,
+    exchangeRateCachedAt: null,
 
     listItems: [],
+    listCash: null,
+    listPortfolio: null,
     sortKey: 'symbol',
     sortAsc: true,
 
     currentUser: null,
     currentListId: null,
+    watchlists: [],
+    defaultListId: null,
 
     pendingDeleteSymbol: null,
     pendingDeleteTimer: null,
 
-    activeTagFilter: null,
     listSearchQuery: '',
-    tagEditSymbol: null,
 
     authMode: 'login',
 };

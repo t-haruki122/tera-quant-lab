@@ -6,12 +6,12 @@ Run:
 
 from __future__ import annotations
 
+import sys
 import threading
 import tkinter as tk
 from argparse import Namespace
 from datetime import datetime
 from pathlib import Path
-import sys
 from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
@@ -23,7 +23,15 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from scripts.backtest_cli import APIClient, create_result_figure, run_single_symbol
+# Direct script execution needs the sys.path bootstrap above before this import.
+from app.backtest import REGISTRY, BacktestResult  # noqa: E402
+from scripts.backtest_cli import (  # noqa: E402
+    APIClient,
+    create_result_figure,
+    metrics_text,
+    run_single_symbol,
+    validate_args,
+)
 
 
 class BacktestGUI:
@@ -34,7 +42,7 @@ class BacktestGUI:
 
         self.worker: threading.Thread | None = None
         self.cancel_event = threading.Event()
-        self.result = None
+        self.result: BacktestResult | None = None
         self.trades: list[dict] = []
         self.chart_canvas: FigureCanvasTkAgg | None = None
         self.trade_table: ttk.Treeview | None = None
@@ -60,6 +68,10 @@ class BacktestGUI:
         self.short_var = tk.StringVar(value="20")
         self.long_var = tk.StringVar(value="60")
         self.max_per_var = tk.StringVar(value="")
+        self.strategy_var = tk.StringVar(value="sma_cross")
+        self.params_var = tk.StringVar(value="")
+        self.execution_var = tk.StringVar(value="next_open")
+        self.slippage_var = tk.StringVar(value="0")
         self.base_url_var = tk.StringVar(value="http://localhost:8000")
         self.timeout_var = tk.StringVar(value="10")
         self.retries_var = tk.StringVar(value="3")
@@ -85,6 +97,13 @@ class BacktestGUI:
         self._labeled_entry(row3, "Base URL", self.base_url_var, width=28)
         self._labeled_entry(row3, "Timeout", self.timeout_var, width=8)
         self._labeled_entry(row3, "Retries", self.retries_var, width=8)
+
+        row4 = ttk.Frame(form)
+        row4.pack(fill=tk.X, pady=2)
+        self._labeled_combo(row4, "Strategy", self.strategy_var, list(REGISTRY), width=16)
+        self._labeled_entry(row4, "Params (key=value, key=value)", self.params_var, width=38)
+        self._labeled_combo(row4, "Execution", self.execution_var, ["next_open", "close"], width=12)
+        self._labeled_entry(row4, "Slippage bps", self.slippage_var, width=10)
 
         action_row = ttk.Frame(outer)
         action_row.pack(fill=tk.X, pady=(10, 6))
@@ -116,11 +135,16 @@ class BacktestGUI:
         body.add(right, weight=3)
 
         ttk.Label(left, text="Metrics", style="Header.TLabel").pack(anchor=tk.W)
-        self.metrics_text = tk.Text(left, width=38, height=12, state=tk.DISABLED)
-        self.metrics_text.pack(fill=tk.BOTH, expand=False, pady=(6, 12))
+        metrics_wrap = ttk.Frame(left)
+        metrics_wrap.pack(fill=tk.X, pady=(6, 12))
+        self.metrics_text = tk.Text(metrics_wrap, width=38, height=12, state=tk.DISABLED)
+        metrics_scroll = ttk.Scrollbar(metrics_wrap, orient=tk.VERTICAL, command=self.metrics_text.yview)
+        self.metrics_text.configure(yscrollcommand=metrics_scroll.set)
+        self.metrics_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        metrics_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
         ttk.Label(left, text="Run Log", style="Header.TLabel").pack(anchor=tk.W)
-        self.log_text = tk.Text(left, width=38, height=10, state=tk.DISABLED)
+        self.log_text = tk.Text(left, width=38, height=6, state=tk.DISABLED)
         self.log_text.pack(fill=tk.BOTH, expand=False, pady=(6, 10))
 
         ttk.Label(left, text="Trade Details", style="Header.TLabel").pack(anchor=tk.W)
@@ -302,7 +326,7 @@ class BacktestGUI:
 
         short_window = int(self.short_var.get().strip())
         long_window = int(self.long_var.get().strip())
-        if short_window >= long_window:
+        if self.strategy_var.get() == "sma_cross" and short_window >= long_window:
             raise ValueError("SMA short must be < SMA long")
 
         max_per_raw = self.max_per_var.get().strip()
@@ -319,8 +343,13 @@ class BacktestGUI:
             long_window=long_window,
             max_per=max_per,
             fetch_financial_history=False,
+            strategy=self.strategy_var.get(),
+            param=[item.strip() for item in self.params_var.get().split(",") if item.strip()],
+            execution=self.execution_var.get(),
+            slippage_bps=float(self.slippage_var.get()),
         )
 
+        validate_args(args)
         client = APIClient(
             base_url=self.base_url_var.get().strip(),
             timeout=float(self.timeout_var.get().strip()),
@@ -387,17 +416,9 @@ class BacktestGUI:
         self.result = result
         self.trades = list(result.trades)
 
-        m = result.metrics
-        metrics_text = (
-            f"Symbol: {m.symbol}\n"
-            f"Initial Capital: {m.initial_capital:,.2f}\n"
-            f"Final Asset: {m.final_asset:,.2f}\n"
-            f"Return: {m.return_pct:.2f}%\n"
-            f"Total Trades: {m.total_trades}\n"
-            f"Win Rate: {m.win_rate:.2f}%\n"
-            f"Max Drawdown: {m.max_drawdown:.2f}%"
-        )
-        self._set_metrics(metrics_text)
+        self._set_metrics(metrics_text(result.metrics))
+        for warning in result.warnings:
+            self._append_log(f"WARNING: {warning}")
         self._populate_trade_table(result)
         self._render_chart(result)
 

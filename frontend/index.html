@@ -8,10 +8,12 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"
+        integrity="sha384-vsrfeLOOY6KuIYKDlmVH5UiBmgIdB1oEf7p01YgWHuqmOHfZr374+odEv96n9tNC" crossorigin="anonymous"></script>
     <link rel="stylesheet" href="/static/index.css">
 </head>
 <body>
+    <a class="skip-link" id="skip-link" href="#main-content">メインコンテンツへ移動</a>
     <!-- 統計ステータスバー -->
     <div id="stats-bar" class="stats-bar hidden">
         <div class="stats-item" title="外部APIから取得した回数">
@@ -28,34 +30,38 @@
     <!-- ヘッダー -->
     <header id="app-header">
         <div class="header-left">
-            <button class="logo logo-home-btn" id="logo-home-btn" type="button" aria-label="ダッシュボードへ移動">
+            <button class="logo logo-home-btn" id="logo-home-btn" type="button" aria-label="Stock Analyzer、ダッシュボードへ移動">
                 <span class="logo-icon">📈</span>
                 <span>Stock Analyzer</span>
             </button>
         </div>
         <nav class="header-nav">
-            <button class="nav-btn active" id="btn-list-view" type="button">
+            <button class="nav-btn active" id="btn-list-view" type="button" aria-current="page">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
                 ダッシュボード
             </button>
+            <button class="nav-btn" id="btn-market-view" type="button">経済指標</button>
+            <button class="nav-btn" id="btn-backtest-view" type="button">バックテスト</button>
             <!-- アカウントボタン -->
             <div class="account-section">
-                <button class="nav-btn account-btn" id="account-btn" type="button">
+                <button class="nav-btn account-btn" id="account-btn" type="button" aria-label="ログイン、ユーザーメニュー"
+                    aria-haspopup="menu" aria-expanded="false" aria-controls="account-menu">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
                     <span id="account-btn-label">ログイン</span>
                     <svg class="account-menu-trigger-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
                 </button>
                 <!-- アカウントメニュー -->
-                <div class="account-menu hidden" id="account-menu">
-                    <div class="account-menu-user hidden" id="account-menu-user">
+                <div class="account-menu hidden" id="account-menu" role="menu" aria-label="ユーザーメニュー">
+                    <div class="account-menu-user hidden" id="account-menu-user" aria-hidden="true">
                         <div class="account-menu-username" id="account-menu-username"></div>
                     </div>
-                    <div class="account-menu-guest" id="account-menu-guest">
-                        <button class="account-menu-item" type="button" data-auth-mode="login">ログイン</button>
-                        <button class="account-menu-item" type="button" data-auth-mode="register">新規登録</button>
+                    <div class="account-menu-guest" id="account-menu-guest" role="presentation">
+                        <button class="account-menu-item" type="button" data-auth-mode="login" role="menuitem" tabindex="-1">ログイン</button>
+                        <button class="account-menu-item" type="button" data-auth-mode="register" role="menuitem" tabindex="-1">新規登録</button>
                     </div>
-                    <button class="account-menu-item" id="account-menu-stats" type="button">システム統計</button>
-                    <button class="account-menu-item danger hidden" id="account-menu-logout" type="button">ログアウト</button>
+                    <button class="account-menu-item" id="account-menu-stats" type="button" role="menuitem" tabindex="-1">システム統計</button>
+                    <button class="account-menu-item hidden" id="account-menu-settings" type="button" role="menuitem" tabindex="-1">アカウント設定</button>
+                    <button class="account-menu-item danger hidden" id="account-menu-logout" type="button" role="menuitem" tabindex="-1">ログアウト</button>
                 </div>
             </div>
         </nav>
@@ -63,10 +69,10 @@
 
     <!-- ログイン/登録モーダル -->
     <div class="modal-overlay hidden" id="auth-modal-overlay">
-        <div class="modal">
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title" tabindex="-1">
             <div class="modal-header">
                 <h3 id="auth-modal-title">ログイン</h3>
-                <button class="modal-close" id="auth-modal-close" type="button">✕</button>
+                <button class="modal-close" id="auth-modal-close" type="button" aria-label="閉じる">✕</button>
             </div>
             <div class="modal-body">
                 <div class="form-group">
@@ -77,7 +83,7 @@
                     <label for="auth-password">パスワード</label>
                     <input type="password" id="auth-password" placeholder="パスワードを入力" autocomplete="current-password">
                 </div>
-                <div class="auth-error hidden" id="auth-error"></div>
+                <div class="auth-error hidden" id="auth-error" role="alert"></div>
                 <button class="btn-primary" id="auth-submit-btn" type="button">ログイン</button>
                 <div class="auth-toggle">
                     <span id="auth-toggle-text">アカウントをお持ちでない方は</span>
@@ -87,84 +93,261 @@
         </div>
     </div>
 
-    <!-- タグ編集モーダル -->
-    <div class="modal-overlay hidden" id="tag-modal-overlay">
-        <div class="modal modal-sm">
+    <div class="modal-overlay hidden" id="account-settings-overlay">
+        <div class="modal account-settings" role="dialog" aria-modal="true" aria-labelledby="account-settings-title" tabindex="-1">
             <div class="modal-header">
-                <h3>🏷️ タグ編集 — <span id="tag-modal-symbol"></span></h3>
-                <button class="modal-close" id="tag-modal-close" type="button">✕</button>
+                <h3 id="account-settings-title">アカウント設定</h3>
+                <button class="modal-close" id="account-settings-close" type="button" aria-label="閉じる">✕</button>
             </div>
             <div class="modal-body">
-                <div class="tag-current" id="tag-current-tags"></div>
-                <div class="tag-input-row">
-                    <input type="text" id="tag-input" placeholder="新しいタグを入力..." autocomplete="off">
-                    <button class="btn-primary btn-sm" id="tag-add-btn" type="button">追加</button>
-                </div>
-                <div class="tag-presets">
-                    <span class="tag-preset-label">プリセット:</span>
-                    <button class="tag-preset" type="button" data-preset-tag="テック">テック</button>
-                    <button class="tag-preset" type="button" data-preset-tag="高配当">高配当</button>
-                    <button class="tag-preset" type="button" data-preset-tag="バリュー">バリュー</button>
-                    <button class="tag-preset" type="button" data-preset-tag="グロース">グロース</button>
-                    <button class="tag-preset" type="button" data-preset-tag="ディフェンシブ">ディフェンシブ</button>
-                    <button class="tag-preset" type="button" data-preset-tag="小型株">小型株</button>
-                    <button class="tag-preset" type="button" data-preset-tag="大型株">大型株</button>
-                    <button class="tag-preset" type="button" data-preset-tag="日本株">日本株</button>
-                    <button class="tag-preset" type="button" data-preset-tag="米国株">米国株</button>
-                </div>
+                <fieldset class="account-settings-fields" id="account-settings-fields" aria-labelledby="account-settings-title" tabindex="-1">
+                    <form class="account-settings-section" id="account-password-form">
+                        <h4>パスワード変更</h4>
+                        <div class="form-group">
+                            <label for="account-current-password">現在のパスワード</label>
+                            <input id="account-current-password" type="password" autocomplete="current-password" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="account-new-password">新しいパスワード（8文字以上）</label>
+                            <input id="account-new-password" type="password" autocomplete="new-password" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="account-confirm-password">新しいパスワードを再入力</label>
+                            <input id="account-confirm-password" type="password" autocomplete="new-password" required>
+                        </div>
+                        <p class="auth-error hidden" id="account-password-error" role="alert"></p>
+                        <p class="hidden" id="account-password-status" role="status"></p>
+                        <button class="btn-primary" type="submit">パスワードを変更</button>
+                    </form>
+                    <section class="account-settings-section">
+                        <h4>ログイン中の端末</h4>
+                        <p class="text-muted">このブラウザーを含むすべての端末で再ログインが必要になります。</p>
+                        <p class="auth-error hidden" id="account-logout-error" role="alert"></p>
+                        <button class="account-action" id="account-logout-all" type="button">他の端末からログアウト</button>
+                    </section>
+                    <section class="account-settings-section">
+                        <h4>ウォッチリストとメモ</h4>
+                        <button class="account-action" id="account-export" type="button">JSONをエクスポート</button>
+                        <form id="account-import-form" novalidate>
+                            <div class="form-group">
+                                <label for="account-import-file">インポートするJSONファイル</label>
+                                <input id="account-import-file" type="file" accept=".json,application/json" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="account-import-mode">取り込み方法</label>
+                                <select id="account-import-mode" class="account-action">
+                                    <option value="merge">既存データに追加</option>
+                                    <option value="replace">すべて置き換え</option>
+                                </select>
+                            </div>
+                            <button class="account-action" id="account-import-submit" type="submit">インポート</button>
+                        </form>
+                        <p class="auth-error hidden" id="account-data-error" role="alert"></p>
+                        <p class="account-import-result hidden" id="account-import-result" role="status"></p>
+                    </section>
+                    <section class="account-settings-section" aria-labelledby="account-tokens-title">
+                        <h4 id="account-tokens-title">Claude 連携（APIトークン）</h4>
+                        <p class="text-muted">Claude はウォッチリスト、保有資産、アラート、株価データを参照し、結果を保存せずにバックテストを実行できます。データや設定は変更できません。トークンの全文は作成時に一度だけ表示されます。漏えいした場合はここで無効化してください。</p>
+                        <form id="account-token-form">
+                            <div class="form-group">
+                                <label for="account-token-name">トークン名</label>
+                                <input id="account-token-name" type="text" value="Claude Code" maxlength="50" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="account-token-expiry">有効期限</label>
+                                <select id="account-token-expiry">
+                                    <option value="">なし</option>
+                                    <option value="30">30日</option>
+                                    <option value="90" selected>90日</option>
+                                    <option value="365">365日</option>
+                                </select>
+                            </div>
+                            <button class="account-action" id="account-token-create" type="submit">トークンを作成</button>
+                        </form>
+                        <p id="account-token-status" role="status"></p>
+                        <p class="auth-error hidden" id="account-token-error" role="alert"></p>
+                        <div class="account-token-once hidden" id="account-token-once">
+                            <div class="form-group">
+                                <label for="account-token-value">APIトークン</label>
+                                <input id="account-token-value" type="text" readonly autocomplete="off" spellcheck="false">
+                                <button class="account-action" id="account-token-copy" type="button">トークンをコピー</button>
+                            </div>
+                            <div class="form-group">
+                                <label for="account-token-command">Claude Code の登録コマンド</label>
+                                <textarea id="account-token-command" rows="4" readonly spellcheck="false"></textarea>
+                                <button class="account-action" id="account-token-command-copy" type="button">コマンドをコピー</button>
+                                <button class="account-action" id="account-token-prompt-copy" type="button">Claude Code への依頼文をコピー</button>
+                            </div>
+                            <div class="form-group hidden" id="account-token-prompt-fallback">
+                                <label for="account-token-prompt">Claude Code への依頼文</label>
+                                <textarea id="account-token-prompt" rows="5" readonly spellcheck="false"></textarea>
+                            </div>
+                            <p class="text-muted">トークンは Claude Code の設定（<code>~/.claude.json</code>）に平文で保存されます。共有 PC で使った場合や漏えいした場合はここで無効化してください。設定後は Claude Code を再起動し、<code>/mcp</code> で接続を確認してください。</p>
+                            <button class="account-action" id="account-token-dismiss" type="button">トークン表示を閉じる</button>
+                        </div>
+                        <ul class="account-token-list" id="account-token-list" aria-label="APIトークン一覧"></ul>
+                        <p class="text-muted hidden" id="account-token-empty">APIトークンはありません。</p>
+                    </section>
+                    <form class="account-settings-section" id="account-delete-form">
+                        <h4>アカウント削除</h4>
+                        <p class="text-muted">すべてのリスト、タグ、メモ、保有株数と現金、価格アラート、保存済みバックテスト、APIトークンが削除されます。</p>
+                        <div class="form-group">
+                            <label for="account-delete-username">確認のためユーザー名を入力</label>
+                            <input id="account-delete-username" type="text" autocomplete="off" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="account-delete-password">現在のパスワード</label>
+                            <input id="account-delete-password" type="password" autocomplete="current-password" required>
+                        </div>
+                        <p class="auth-error hidden" id="account-delete-error" role="alert"></p>
+                        <button class="account-action account-action-danger" type="submit">アカウントを削除</button>
+                    </form>
+                </fieldset>
             </div>
         </div>
     </div>
 
-    <!-- フィルタ設定モーダル -->
-    <div class="modal-overlay hidden" id="filter-modal-overlay">
-        <div class="modal modal-sm">
+    <div class="modal-overlay hidden" id="import-replace-overlay">
+        <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="import-replace-title" tabindex="-1" aria-describedby="import-replace-message">
             <div class="modal-header">
-                <h3>🔍 タグで絞り込み</h3>
-                <button class="modal-close" id="filter-modal-close" type="button">✕</button>
+                <h3 id="import-replace-title">アカウントデータの置き換え</h3>
+                <button class="modal-close" id="import-replace-close" type="button" aria-label="閉じる">✕</button>
             </div>
-            <div class="modal-body">
-                <div id="filter-tags-container">
-                    <p class="filter-empty-note">タグが設定された銘柄がありません</p>
+            <form class="modal-body" id="import-replace-form">
+                <p class="modal-message" id="import-replace-message" tabindex="-1">リスト（保有株数と現金を含む）、メモ、価格アラート、保存済みバックテストのうち、バックアップに含まれる種類のデータを置き換えますか？</p>
+                <p class="auth-error hidden" id="import-replace-error" role="alert"></p>
+                <div class="modal-actions">
+                    <button class="account-action" id="import-replace-cancel" type="button">キャンセル</button>
+                    <button class="account-action account-action-danger" id="import-replace-submit" type="submit">置き換える</button>
                 </div>
-                <div class="filter-actions">
-                    <button class="btn-outline-danger" id="filter-clear-btn" type="button">フィルタ解除</button>
-                </div>
-            </div>
+            </form>
         </div>
     </div>
+
+    <div class="modal-overlay hidden" id="revoke-token-overlay">
+        <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="revoke-token-title" tabindex="-1" aria-describedby="revoke-token-message">
+            <div class="modal-header">
+                <h3 id="revoke-token-title">APIトークンの無効化</h3>
+                <button class="modal-close" id="revoke-token-close" type="button" aria-label="閉じる">✕</button>
+            </div>
+            <form class="modal-body" id="revoke-token-form">
+                <p class="modal-message" id="revoke-token-message" tabindex="-1"></p>
+                <p class="auth-error hidden" id="revoke-token-error" role="alert"></p>
+                <div class="modal-actions">
+                    <button class="account-action" id="revoke-token-cancel" type="button">キャンセル</button>
+                    <button class="account-action account-action-danger" id="revoke-token-submit" type="submit">無効化</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay hidden" id="watchlist-action-overlay">
+        <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="watchlist-action-title" tabindex="-1" aria-describedby="watchlist-action-message">
+            <div class="modal-header">
+                <h3 id="watchlist-action-title">リストの管理</h3>
+                <button class="modal-close" id="watchlist-action-close" type="button" aria-label="閉じる">✕</button>
+            </div>
+            <form class="modal-body" id="watchlist-action-form">
+                <div class="form-group" id="watchlist-action-fields">
+                    <label for="watchlist-action-name">リスト名（1〜50文字）</label>
+                    <input id="watchlist-action-name" type="text" autocomplete="off" aria-required="true" aria-describedby="watchlist-action-error">
+                </div>
+                <p class="modal-message hidden" id="watchlist-action-message" tabindex="-1"></p>
+                <p class="auth-error hidden" id="watchlist-action-error" role="alert"></p>
+                <div class="modal-actions">
+                    <button class="account-action" id="watchlist-action-cancel" type="button">キャンセル</button>
+                    <button class="account-action" id="watchlist-action-submit" type="submit">作成</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay hidden" id="alert-editor-overlay">
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="alert-editor-title" tabindex="-1">
+            <div class="modal-header">
+                <h3 id="alert-editor-title">価格アラートを追加</h3>
+                <button class="modal-close" id="alert-editor-close" type="button" aria-label="閉じる">✕</button>
+            </div>
+            <form class="modal-body" id="alert-editor-form" novalidate>
+                <label class="form-group">ティッカー<input id="alert-symbol" maxlength="20" autocomplete="off" required></label>
+                <label class="form-group">条件
+                    <select id="alert-kind">
+                        <option value="above">指定価格以上</option>
+                        <option value="below">指定価格以下</option>
+                        <option value="change_pct">当日の騰落率（絶対値）</option>
+                    </select>
+                </label>
+                <label class="form-group"><span id="alert-threshold-label">基準価格（銘柄の通貨）</span>
+                    <input id="alert-threshold" type="number" min="0" step="any" required>
+                </label>
+                <label class="toggle-label"><input id="alert-enabled" type="checkbox">有効</label>
+                <label class="form-group">メモ（任意）<textarea id="alert-note" rows="2" maxlength="2000"></textarea></label>
+                <p class="auth-error hidden" id="alert-editor-error" role="alert"></p>
+                <div class="modal-actions">
+                    <button class="account-action" id="alert-editor-cancel" type="button">キャンセル</button>
+                    <button class="account-action" id="alert-editor-submit" type="submit">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay hidden" id="alert-delete-overlay">
+        <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="alert-delete-title" tabindex="-1">
+            <div class="modal-header">
+                <h3 id="alert-delete-title">削除を確認</h3>
+                <button class="modal-close" id="alert-delete-close" type="button" aria-label="閉じる">✕</button>
+            </div>
+            <form class="modal-body" id="alert-delete-form">
+                <p class="modal-message" id="alert-delete-message" tabindex="-1"></p>
+                <p class="auth-error hidden" id="alert-delete-error" role="alert"></p>
+                <div class="modal-actions">
+                    <button class="account-action" id="alert-delete-cancel" type="button">キャンセル</button>
+                    <button class="account-action account-action-danger" id="alert-delete-submit" type="submit">削除する</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
 
     <!-- 銘柄追加モーダル -->
     <div class="modal-overlay hidden" id="list-add-modal-overlay">
-        <div class="modal modal-sm">
+        <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="list-add-modal-title" tabindex="-1">
             <div class="modal-header">
-                <h3>➕ 銘柄を追加</h3>
-                <button class="modal-close" id="list-add-modal-close" type="button">✕</button>
+                <h3 id="list-add-modal-title">➕ 銘柄を追加</h3>
+                <button class="modal-close" id="list-add-modal-close" type="button" aria-label="閉じる">✕</button>
             </div>
             <div class="modal-body">
-                <div class="form-group">
-                    <label for="list-add-modal-input">ティッカー</label>
-                    <input type="text" id="list-add-modal-input" placeholder="例: AAPL, 7203.T" autocomplete="off">
+                <div class="form-group symbol-combobox">
+                    <label for="list-add-modal-input">会社名・ティッカー</label>
+                    <input type="text" id="list-add-modal-input" placeholder="例: トヨタ、AAPL" autocomplete="off"
+                        role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="list-add-symbol-options">
+                    <div class="symbol-options" id="list-add-symbol-options" role="listbox" aria-label="追加する銘柄の候補" hidden></div>
                 </div>
                 <button class="btn-primary" id="list-add-modal-submit" type="button">リストへ追加</button>
             </div>
         </div>
     </div>
 
+    <main id="main-content" tabindex="-1">
     <!-- 詳細ビュー -->
-    <main id="detail-view" class="view">
+    <div id="detail-view" class="view">
         <!-- 検索バー -->
         <section class="search-section">
             <div class="search-container">
-                <div class="search-input-wrapper">
+                <div class="search-input-wrapper symbol-combobox">
                     <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                    <input type="text" id="search-input" placeholder="ティッカーを入力（例: AAPL, TSLA, 7203.T）" autocomplete="off">
-                    <button id="search-btn" type="button">
+                    <label class="visually-hidden" for="search-input">会社名・ティッカー</label>
+                    <input type="text" id="search-input" aria-describedby="search-error" placeholder="会社名・ティッカー（例: NTT、AAPL）" autocomplete="off"
+                        role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="search-symbol-options">
+                    <button id="search-btn" type="button" aria-label="銘柄を検索">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
                     </button>
+                    <div class="symbol-options" id="search-symbol-options" role="listbox" aria-label="詳細を開く銘柄の候補" hidden></div>
                 </div>
             </div>
         </section>
+
+        <p class="text-error" id="search-error" role="alert"></p>
 
         <!-- ウェルカムメッセージ（初期状態） -->
         <section id="welcome-section" class="welcome-section">
@@ -173,28 +356,12 @@
                 <h2>銘柄を検索しましょう</h2>
                 <p>上の検索バーにティッカーシンボルを入力すると、<br>株価・財務情報・投資指数などの詳細情報を確認できます。</p>
                 <div class="welcome-examples">
-                    <span class="example-chip" data-quick-search="AAPL">AAPL</span>
-                    <span class="example-chip" data-quick-search="GOOGL">GOOGL</span>
-                    <span class="example-chip" data-quick-search="MSFT">MSFT</span>
-                    <span class="example-chip" data-quick-search="TSLA">TSLA</span>
-                    <span class="example-chip" data-quick-search="7203.T">7203.T</span>
+                    <button type="button" class="example-chip" data-quick-search="AAPL">AAPL</button>
+                    <button type="button" class="example-chip" data-quick-search="GOOGL">GOOGL</button>
+                    <button type="button" class="example-chip" data-quick-search="MSFT">MSFT</button>
+                    <button type="button" class="example-chip" data-quick-search="TSLA">TSLA</button>
+                    <button type="button" class="example-chip" data-quick-search="7203.T">7203.T</button>
                 </div>
-            </div>
-        </section>
-
-        <!-- ローディング -->
-        <section id="loading-section" class="loading-section hidden">
-            <div class="spinner"></div>
-            <p id="loading-text">データを取得中...</p>
-        </section>
-
-        <!-- エラー表示 -->
-        <section id="error-section" class="error-section hidden">
-            <div class="error-content">
-                <div class="error-icon">⚠️</div>
-                <h3 id="error-title">エラー</h3>
-                <p id="error-message"></p>
-                <button class="btn-retry" id="search-retry-btn" type="button">再試行</button>
             </div>
         </section>
 
@@ -212,14 +379,21 @@
                 <div class="stock-header-right">
                     <div class="price-display" id="price-display"></div>
                     <div class="price-timestamp" id="price-timestamp"></div>
+                    <p class="text-error" id="quote-error" role="alert"></p>
+                    <button class="account-action hidden" id="search-retry-btn" type="button">再試行</button>
+                    <small id="quote-stale" class="stale-notice text-muted"></small>
+                    <button class="btn-primary btn-sm" id="btn-detail-backtest" type="button">バックテスト</button>
+                    <div class="detail-investment-actions">
+                        <button class="account-action" id="btn-detail-alert" type="button">アラートを追加</button>
+                    </div>
                 </div>
             </div>
 
             <!-- チャート -->
             <div class="card chart-card">
                 <div class="card-header">
-                    <h3>📊 株価チャート</h3>
-                    <div class="period-selector">
+                    <h3 id="price-chart-title">📊 株価チャート</h3>
+                    <div class="period-selector" role="group" aria-label="表示期間">
                         <button class="period-btn" data-period="1mo" type="button">1M</button>
                         <button class="period-btn active" data-period="3mo" type="button">3M</button>
                         <button class="period-btn" data-period="6mo" type="button">6M</button>
@@ -229,12 +403,21 @@
                     </div>
                 </div>
                 <div class="indicator-toggles">
+                    <div class="chart-type-selector" role="group" aria-label="チャートの種類">
+                        <button class="period-btn active" data-chart-type="line" type="button" aria-pressed="true">ライン</button>
+                        <button class="period-btn" data-chart-type="candlestick" type="button" aria-pressed="false">ローソク足</button>
+                    </div>
                     <label class="toggle-label"><input type="checkbox" id="toggle-sma25"> SMA 25</label>
                     <label class="toggle-label"><input type="checkbox" id="toggle-sma50" checked> SMA 50</label>
                     <label class="toggle-label"><input type="checkbox" id="toggle-sma75"> SMA 75</label>
                     <label class="toggle-label"><input type="checkbox" id="toggle-sma200" checked> SMA 200</label>
                     <label class="toggle-label"><input type="checkbox" id="toggle-rsi" checked> RSI 14</label>
+                    <label class="toggle-label"><input type="checkbox" id="toggle-volume"> 出来高</label>
+                    <label class="toggle-label"><input type="checkbox" id="toggle-bollinger"> ボリンジャーバンド</label>
+                    <label class="toggle-label"><input type="checkbox" id="toggle-macd"> MACD</label>
                 </div>
+                <small id="chart-history-status" class="stale-notice text-muted" role="status"></small>
+                <small id="history-stale" class="stale-notice text-muted"></small>
                 <div class="chart-stage">
                     <div class="chart-loading-overlay hidden" id="chart-loading-overlay" aria-live="polite" aria-busy="true">
                         <div class="chart-loading-box">
@@ -243,13 +426,47 @@
                         </div>
                     </div>
                     <div class="chart-container">
-                        <canvas id="price-chart"></canvas>
+                        <canvas id="price-chart" role="img" aria-label="株価の推移" aria-describedby="price-chart-summary"></canvas>
                     </div>
-                    <div class="chart-container rsi-container" id="rsi-container">
-                        <canvas id="rsi-chart"></canvas>
+                    <div class="chart-container rsi-container hidden" id="volume-container">
+                        <canvas id="volume-chart" role="img" aria-label="出来高の推移" aria-describedby="volume-chart-summary"></canvas>
                     </div>
+                    <div class="chart-container rsi-container hidden" id="rsi-container">
+                        <canvas id="rsi-chart" role="img" aria-label="RSIの推移" aria-describedby="rsi-chart-summary"></canvas>
+                    </div>
+                    <div class="chart-container rsi-container macd-container hidden" id="macd-container">
+                        <canvas id="macd-chart" role="img" aria-label="MACDの推移" aria-describedby="macd-chart-summary"></canvas>
+                    </div>
+                    <p class="visually-hidden" id="price-chart-summary"></p>
+                    <p class="visually-hidden" id="volume-chart-summary"></p>
+                    <p class="visually-hidden" id="rsi-chart-summary"></p>
+                    <p class="visually-hidden" id="macd-chart-summary"></p>
                 </div>
             </div>
+
+            <section class="card chart-card" aria-labelledby="compare-title">
+                <div class="card-header"><h3 id="compare-title">騰落率の比較</h3></div>
+                <div class="card-body">
+                    <form id="compare-form" class="compare-form">
+                        <div class="form-group">
+                            <label for="compare-symbol">比較する銘柄（最大4件）</label>
+                            <input id="compare-symbol" list="compare-symbols" maxlength="20" autocomplete="off"
+                                placeholder="例: AAPL, 7203.T" aria-describedby="compare-input-error" required>
+                            <datalist id="compare-symbols"></datalist>
+                        </div>
+                        <button class="btn-primary btn-sm" type="submit">比較に追加</button>
+                    </form>
+                    <p class="text-error" id="compare-input-error" role="alert"></p>
+                    <ul class="compare-series" id="compare-series" aria-label="追加した比較銘柄"></ul>
+                    <p class="text-muted" id="compare-status" role="status"></p>
+                    <ul class="compare-messages text-error" id="compare-errors" role="alert"></ul>
+                    <ul class="compare-messages text-muted" id="compare-notices"></ul>
+                    <div class="chart-container-line hidden" id="compare-plot">
+                        <canvas id="compare-chart" role="img" aria-label="銘柄別の騰落率" aria-describedby="compare-summary"></canvas>
+                    </div>
+                    <p class="visually-hidden" id="compare-summary"></p>
+                </div>
+            </section>
 
             <!-- カードグリッド -->
             <div class="card-grid">
@@ -286,16 +503,18 @@
                 </div>
             </div>
         </section>
-    </main>
+    </div>
 
     <!-- ダッシュボードビュー -->
-    <main id="list-view" class="view active">
+    <div id="list-view" class="view active">
         <section class="list-header-section">
             <div class="list-header-row">
                 <h2>📋 銘柄ダッシュボード</h2>
                 <div class="list-controls">
+                    <button class="account-action" id="watchlist-alerts" type="button" aria-haspopup="dialog">価格アラート</button>
                     <div class="list-add-form">
-                        <input type="text" id="list-search-input" placeholder="ティッカーを検索（#でタグ）..." autocomplete="off">
+                        <label class="visually-hidden" for="list-search-input">ウォッチリスト内の銘柄を検索</label>
+                        <input type="text" id="list-search-input" placeholder="ティッカー・会社名を検索" autocomplete="off">
                         <button id="list-add-btn" type="button">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                             追加
@@ -303,29 +522,35 @@
                     </div>
                 </div>
             </div>
-            <p class="list-description">このページを幹として複数の銘柄を管理し、行クリックで各銘柄の詳細ページへ移動できます。列ヘッダーをクリックすると並び替えできます。</p>
-            <p class="list-search-hint">検索: スペースでAND、|でOR、#テック のようにタグ検索</p>
-
-            <!-- アクティブフィルタ表示 -->
-            <div class="active-filter-bar hidden" id="active-filter-bar">
-                <span class="active-filter-label">🏷️ フィルタ中:</span>
-                <span class="active-filter-tag" id="active-filter-tag"></span>
-                <button class="active-filter-clear" id="active-filter-clear" type="button">✕ 解除</button>
+            <p class="list-description" id="list-description">ログインすると、株数や現金を入力して評価額と構成比を確認できます。</p>
+            <p class="list-search-hint">検索はスペースですべての語、| でいずれかの語に一致します。</p>
+            <div class="watchlist-manager hidden" id="watchlist-manager">
+                <label for="watchlist-select">ウォッチリスト</label>
+                <select class="account-action" id="watchlist-select"></select>
+                <button class="account-action" id="watchlist-create" type="button">新規作成</button>
+                <button class="account-action" id="watchlist-rename" type="button" disabled>名前を変更</button>
+                <button class="account-action account-action-danger" id="watchlist-delete" type="button" disabled>リストを削除</button>
+                <button class="account-action" id="watchlist-csv" type="button" disabled>CSVをエクスポート</button>
             </div>
+            <p class="auth-error hidden" id="watchlist-error" role="alert"></p>
+
+            <p class="text-muted list-refresh" id="watchlist-refresh" role="status"></p>
         </section>
+
+        <section class="watchlist-portfolio hidden" id="watchlist-portfolio" aria-label="保有資産の集計"></section>
 
         <!-- リストが空の場合 -->
         <section id="list-empty" class="list-empty">
             <div class="empty-content">
                 <div class="empty-icon">📊</div>
                 <h3>銘柄を追加しましょう</h3>
-                <p>上のフォームからティッカーを追加すると、比較テーブルが表示されます。</p>
+                <p>「追加」から会社名やティッカーで銘柄を探すと、比較テーブルに追加できます。</p>
                 <div class="welcome-examples">
-                    <span class="example-chip" data-quick-add="AAPL">AAPL</span>
-                    <span class="example-chip" data-quick-add="GOOGL">GOOGL</span>
-                    <span class="example-chip" data-quick-add="MSFT">MSFT</span>
-                    <span class="example-chip" data-quick-add="AMZN">AMZN</span>
-                    <span class="example-chip" data-quick-add="TSLA">TSLA</span>
+                    <button type="button" class="example-chip" data-quick-add="AAPL">AAPL</button>
+                    <button type="button" class="example-chip" data-quick-add="GOOGL">GOOGL</button>
+                    <button type="button" class="example-chip" data-quick-add="MSFT">MSFT</button>
+                    <button type="button" class="example-chip" data-quick-add="AMZN">AMZN</button>
+                    <button type="button" class="example-chip" data-quick-add="TSLA">TSLA</button>
                 </div>
             </div>
         </section>
@@ -336,14 +561,15 @@
                 <table id="comparison-table">
                     <thead>
                         <tr>
-                            <th class="sortable" data-sort="symbol">ティッカー <span class="sort-arrow"></span></th>
-                            <th class="sortable" data-sort="name">会社名 <span class="sort-arrow"></span></th>
-                            <th class="sortable numeric" data-sort="price">株価 <span class="sort-arrow"></span></th>
-                            <th class="sortable numeric" data-sort="market_cap">会社規模 <span class="sort-arrow"></span></th>
-                            <th class="sortable numeric" data-sort="mix_index">ミックス指数 <span class="sort-arrow"></span></th>
-                            <th class="sortable numeric" data-sort="dividend_yield">配当利回り <span class="sort-arrow"></span></th>
-                            <th>タグ</th>
-                            <th>メモ</th>
+                            <th class="sortable" data-sort="symbol" aria-sort="ascending"><button type="button">ティッカー <span class="sort-arrow" aria-hidden="true"></span></button></th>
+                            <th class="sortable" data-sort="name"><button type="button">会社名 <span class="sort-arrow" aria-hidden="true"></span></button></th>
+                            <th class="sortable numeric" data-sort="price"><button type="button">株価 <span class="sort-arrow" aria-hidden="true"></span></button></th>
+                            <th class="sortable numeric" data-sort="market_cap"><button type="button">会社規模 <span class="sort-arrow" aria-hidden="true"></span></button></th>
+                            <th class="sortable numeric" data-sort="mix_index"><button type="button">ミックス指数 <span class="sort-arrow" aria-hidden="true"></span></button></th>
+                            <th class="sortable numeric" data-sort="dividend_yield"><button type="button">配当利回り <span class="sort-arrow" aria-hidden="true"></span></button></th>
+                            <th class="sortable numeric" data-sort="shares"><button type="button">株数 <span class="sort-arrow" aria-hidden="true"></span></button></th>
+                            <th class="sortable numeric" data-sort="value_jpy"><button type="button">評価額（円） <span class="sort-arrow" aria-hidden="true"></span></button></th>
+                            <th class="sortable numeric" data-sort="weight_pct"><button type="button">比率 <span class="sort-arrow" aria-hidden="true"></span></button></th>
                             <th>操作</th>
                         </tr>
                     </thead>
@@ -351,10 +577,208 @@
                 </table>
             </div>
         </section>
-    </main>
+        <div class="watchlist-cash hidden" id="watchlist-cash">
+            <label for="watchlist-cash-input">現金（円）</label>
+            <input class="watchlist-amount" id="watchlist-cash-input" type="text" inputmode="numeric" autocomplete="off" aria-describedby="watchlist-cash-error">
+            <p class="watchlist-field-error" id="watchlist-cash-error" role="alert"></p>
+        </div>
+    </div>
+
+    <div class="modal-overlay hidden" id="backtest-run-dialog">
+        <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="backtest-dialog-title" tabindex="-1">
+            <div class="modal-header">
+                <h3 id="backtest-dialog-title">バックテスト結果を保存</h3>
+                <button class="modal-close" id="backtest-dialog-close" type="button" aria-label="閉じる">✕</button>
+            </div>
+            <form class="modal-body" id="backtest-dialog-form">
+                <p id="backtest-dialog-message"></p>
+                <div id="backtest-dialog-fields">
+                    <label class="form-group">結果名<input id="backtest-dialog-name" maxlength="120"></label>
+                    <label class="form-group">メモ<textarea id="backtest-dialog-note" maxlength="2000"></textarea></label>
+                </div>
+                <p class="auth-error" id="backtest-dialog-error" role="alert"></p>
+                <div class="modal-actions">
+                    <button class="btn-secondary" id="backtest-dialog-cancel" type="button">キャンセル</button>
+                    <button class="btn-primary" id="backtest-dialog-submit" type="submit">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <section id="market-view" class="view" aria-labelledby="market-title">
+        <div class="market-heading">
+            <h1 id="market-title">経済指標</h1>
+            <button id="market-refresh" class="btn-primary btn-sm" type="button">更新</button>
+        </div>
+        <p id="market-status" class="market-status" role="status"></p>
+        <div id="market-skeleton" class="market-grid" aria-hidden="true">
+            <div class="market-card"><div class="skeleton-lines"><div></div><div></div><div></div></div></div>
+            <div class="market-card"><div class="skeleton-lines"><div></div><div></div><div></div></div></div>
+            <div class="market-card"><div class="skeleton-lines"><div></div><div></div><div></div></div></div>
+        </div>
+        <div id="market-groups" class="market-groups"></div>
+        <p class="market-source">データ: Yahoo Finance（yfinance）。遅延や欠損があります。投資判断はご自身で。</p>
+    </section>
+
+    <div id="backtest-view" class="view">
+        <section class="backtest-panel">
+            <h2>バックテスト</h2>
+            <div class="card card-body hidden" id="backtest-login">
+                <p>バックテストを実行するにはログインが必要です。</p>
+                <button class="btn-primary btn-sm" id="backtest-login-btn" type="button">ログイン</button>
+            </div>
+            <p class="auth-error hidden" id="backtest-error" role="alert"></p>
+            <p class="hidden" id="backtest-status" role="status"></p>
+            <form class="card card-body hidden" id="backtest-form">
+                <fieldset id="backtest-fields">
+                    <div class="backtest-form-grid">
+                        <label class="form-group">分析モード
+                            <select id="backtest-kind">
+                                <option value="single">単一銘柄</option><option value="portfolio">ポートフォリオ</option>
+                                <option value="walkforward">ウォークフォワード</option>
+                            </select>
+                        </label>
+                        <div class="form-group symbol-combobox" id="backtest-symbol-field">
+                            <label for="backtest-symbol">銘柄</label>
+                            <input id="backtest-symbol" placeholder="例: トヨタ、AAPL" autocomplete="off" required
+                                role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="backtest-symbol-options">
+                            <div class="symbol-options" id="backtest-symbol-options" role="listbox" aria-label="バックテストする銘柄の候補" hidden></div>
+                        </div>
+                        <label class="form-group">開始日<input id="backtest-start" type="date" required></label>
+                        <label class="form-group">終了日<input id="backtest-end" type="date" required></label>
+                        <label class="form-group">データ間隔
+                            <select id="backtest-interval"><option value="1d">日足</option><option value="1wk">週足</option><option value="1mo">月足</option></select>
+                        </label>
+                        <label class="form-group">戦略<select id="backtest-strategy" required></select></label>
+                        <label class="form-group">約定タイミング
+                            <select id="backtest-execution"><option value="next_open">翌バーの始値</option><option value="close">当バーの終値</option></select>
+                        </label>
+                        <label class="form-group">手数料率（0.001 = 0.1%）
+                            <input id="backtest-fee" type="number" min="0" max="0.1" step="any" value="0" required>
+                        </label>
+                        <label class="form-group">スリッページ（bps）
+                            <input id="backtest-slippage" type="number" min="0" max="1000" step="any" value="0" required>
+                        </label>
+                        <label class="form-group">初期資金
+                            <input id="backtest-capital" type="number" min="0" step="any" value="1000000" required>
+                        </label>
+                        <label class="form-group">EPS反映までの日数
+                            <input id="backtest-eps-lag" type="number" min="0" max="730" value="90" required>
+                        </label>
+                        <label class="form-group">年率無リスク金利（0.02 = 2%）
+                            <input id="backtest-risk-free" type="number" min="-0.5" max="1" step="any" value="0" required>
+                        </label>
+                        <label class="form-group" id="backtest-mode-field">実行モード
+                            <select id="backtest-mode"><option value="run">単一バックテスト</option><option value="grid">グリッド探索</option></select>
+                        </label>
+                    </div>
+                    <div class="backtest-form-grid hidden" id="backtest-portfolio-options">
+                        <label class="form-group">銘柄（2〜10件、カンマ区切り）
+                            <input id="backtest-portfolio-symbols" maxlength="220" placeholder="AAPL, MSFT">
+                        </label>
+                        <div class="form-group">
+                            <label for="backtest-watchlist-symbol">ウォッチリストの候補</label>
+                            <select id="backtest-watchlist-symbol"></select>
+                            <button class="btn-secondary btn-sm" id="backtest-add-symbol" type="button">候補を追加</button>
+                        </div>
+                        <label class="form-group">配分
+                            <select id="backtest-allocation"><option value="equal">全銘柄に均等</option><option value="equal_active">買いシグナル有効銘柄に均等</option></select>
+                        </label>
+                        <label class="form-group">リバランス間隔（バー数、空欄で無効）
+                            <input id="backtest-rebalance" type="number" min="1" step="1" placeholder="21">
+                        </label>
+                        <label class="form-group">リバランスの許容乖離率（%、0で常に調整）
+                            <input id="backtest-rebalance-threshold" type="number" min="0" step="any" value="5" required>
+                        </label>
+                    </div>
+                    <div class="backtest-form-grid hidden" id="backtest-walk-options">
+                        <label class="form-group">分割数<input id="backtest-fold-count" type="number" min="2" max="50" value="3" required></label>
+                        <label class="form-group">学習期間
+                            <select id="backtest-window"><option value="rolling">ローリング</option><option value="anchored">アンカー（拡大型）</option></select>
+                        </label>
+                    </div>
+                    <div class="backtest-form-grid" id="backtest-params"></div>
+                    <div class="hidden" id="backtest-grid-options">
+                        <p>候補値をカンマで区切って入力してください。空欄には上の設定値を使います。</p>
+                        <div class="backtest-form-grid" id="backtest-grid-params"></div>
+                        <label class="form-group">順位の基準<select id="backtest-rank-by"></select></label>
+                    </div>
+                    <button class="btn-primary btn-sm" id="backtest-submit" type="submit">バックテストを実行</button>
+                </fieldset>
+            </form>
+            <div class="hidden" id="backtest-result-actions">
+                <button class="btn-primary btn-sm" id="backtest-save" type="button">結果を保存</button>
+                <p id="backtest-saved-label" role="status"></p>
+            </div>
+            <section class="card card-body hidden" id="backtest-grid-result">
+                <h3>グリッド探索の結果</h3>
+                <div class="table-container" id="backtest-grid-table"></div>
+            </section>
+            <section class="hidden backtest-result" id="backtest-result">
+                <h3 id="backtest-result-title">バックテスト結果</h3>
+                <ul class="backtest-warnings hidden" id="backtest-warnings"></ul>
+                <div class="metrics-grid" id="backtest-metrics"></div>
+                <section class="card card-body hidden" id="backtest-advanced">
+                    <h4 id="backtest-advanced-title">詳細</h4>
+                    <p id="backtest-robustness"></p>
+                    <div class="table-container" id="backtest-advanced-table"></div>
+                </section>
+                <div class="chart-card">
+                    <h3>資産推移</h3>
+                    <div class="chart-container-line"><canvas id="backtest-chart" role="img" aria-label="バックテストの資産推移" aria-describedby="backtest-equity-summary"></canvas></div>
+                    <p class="visually-hidden" id="backtest-equity-summary"></p>
+                </div>
+                <div class="card card-body">
+                    <div class="card-header">
+                        <h3>取引履歴</h3>
+                        <button class="btn-primary btn-sm" id="backtest-csv" type="button">CSVをダウンロード</button>
+                    </div>
+                    <div class="table-container" id="backtest-trades"></div>
+                </div>
+            </section>
+            <details class="card card-body hidden" id="backtest-saved">
+                <summary>保存済みの結果</summary>
+                <div class="table-container" id="backtest-saved-table"></div>
+                <button class="btn-primary btn-sm" id="backtest-compare" type="button" disabled>選択した結果を比較（2〜5件）</button>
+                <section class="hidden" id="backtest-comparison">
+                    <h3>バックテスト結果の比較</h3>
+                    <div class="chart-container-line"><canvas id="backtest-compare-chart" role="img" aria-label="保存済みバックテストの資産推移の比較" aria-describedby="backtest-compare-summary"></canvas></div>
+                    <p id="backtest-compare-summary"></p>
+                    <div class="table-container" id="backtest-compare-table"></div>
+                </section>
+            </details>
+        </section>
+    </div>
+
+    <div class="modal-overlay hidden" id="alerts-list-overlay">
+        <div class="modal alerts-list" role="dialog" aria-modal="true" aria-labelledby="alerts-list-title" tabindex="-1">
+            <div class="modal-header">
+                <h3 id="alerts-list-title">価格アラート</h3>
+                <button class="modal-close" id="alerts-list-close" type="button" aria-label="閉じる">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="alert-actions">
+                    <button class="btn-primary btn-sm" id="alerts-list-add" type="button">アラートを追加</button>
+                    <button class="account-action" id="alert-notification-enable" type="button">ブラウザ通知を有効にする</button>
+                </div>
+                <p class="text-muted" id="alert-notification-status" role="status"></p>
+                <p class="text-muted" id="alerts-list-status" role="status"></p>
+                <p class="auth-error hidden" id="alerts-list-error" role="alert"></p>
+                <div class="table-container">
+                    <table class="data-table alerts-table" aria-labelledby="alerts-list-title">
+                        <thead><tr>
+                            <th scope="col">銘柄</th><th scope="col">条件</th><th scope="col">状態</th>
+                            <th scope="col">最終通知</th><th scope="col">操作</th>
+                        </tr></thead>
+                        <tbody id="alerts-list-rows"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- システム統計ビュー -->
-    <main id="stats-view" class="view">
+    <div id="stats-view" class="view">
         <section class="stats-dashboard">
             <div class="stats-header">
                 <h2>📈 システム統計モニター</h2>
@@ -388,28 +812,43 @@
                 <!-- ヒット率ドーナツチャート -->
                 <div class="chart-card">
                     <h3>キャッシュヒット率</h3>
+                    <p id="dash-cache-hit-rate">—</p>
                     <div class="chart-container-pie">
-                        <canvas id="hitRateChart"></canvas>
+                        <canvas id="hitRateChart" role="img" aria-label="キャッシュ利用率" aria-describedby="stats-cache-summary"></canvas>
                     </div>
+                    <p class="visually-hidden" id="stats-cache-summary"></p>
                 </div>
 
                 <!-- エンドポイント別棒グラフ -->
                 <div class="chart-card">
                     <h3>アクセスランキング</h3>
                     <div class="chart-container-bar">
-                        <canvas id="endpointChart"></canvas>
+                        <canvas id="endpointChart" role="img" aria-label="アクセス上位のエンドポイント" aria-describedby="stats-endpoint-summary"></canvas>
                     </div>
+                    <p class="visually-hidden" id="stats-endpoint-summary"></p>
                 </div>
 
                 <!-- レスポンスタイム推移 -->
                 <div class="chart-card card-wide-stats">
                     <h3>サーバー平均レスポンスタイム推移</h3>
                     <div class="chart-container-line">
-                        <canvas id="responseTimeChart"></canvas>
+                        <canvas id="responseTimeChart" role="img" aria-label="平均応答時間の推移" aria-describedby="stats-response-summary"></canvas>
                     </div>
+                    <p class="visually-hidden" id="stats-response-summary"></p>
+                </div>
+            </div>
+            <div class="chart-card stats-daily">
+                <h3>直近7日間のリクエスト（UTC）</h3>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead><tr><th>日付</th><th>リクエスト</th><th>エラー</th><th>平均応答時間</th></tr></thead>
+                        <tbody id="dash-daily-totals"></tbody>
+                    </table>
                 </div>
             </div>
         </section>
+    </div>
+
     </main>
 
     <!-- トースト通知 -->

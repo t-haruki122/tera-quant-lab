@@ -2,43 +2,73 @@
  * Stock Analyzer — Account and auth modals
  */
 
-import { state } from './state.js';
+import { state, cache } from './state.js';
+import { bindAccountSettingsEvents, closeAccountSettings } from './account.js';
 import { fetchAPI } from './api.js';
 import { showToast } from './utils.js';
-import { loadDefaultList, renderListTable } from './list.js';
+import { loadDefaultList, resetListSession } from './list.js';
+import { createDialog } from './dialog.js';
 
-// ===== Account Management =====
+const authDialog = createDialog('auth-modal-overlay');
+const byId = id => document.getElementById(id);
+
+function menuItems() {
+    return [...byId('account-menu').querySelectorAll('[role="menuitem"]')]
+        .filter(item => !item.disabled && item.getClientRects().length);
+}
+
+function openAccountMenu(last = false) {
+    byId('account-menu').classList.remove('hidden');
+    byId('account-btn').setAttribute('aria-expanded', 'true');
+    menuItems().at(last ? -1 : 0)?.focus();
+}
+
+export function closeAccountMenu(restoreFocus = false) {
+    byId('account-menu').classList.add('hidden');
+    const trigger = byId('account-btn');
+    trigger.setAttribute('aria-expanded', 'false');
+    if (restoreFocus) trigger.focus();
+}
+
 export function toggleAccountMenu() {
-    const menu = document.getElementById('account-menu');
-    menu.classList.toggle('hidden');
-
-    if (!menu.classList.contains('hidden')) {
-        setTimeout(() => {
-            document.addEventListener('click', closeAccountMenuOnOutside, { once: true });
-        }, 10);
-    }
+    if (byId('account-menu').classList.contains('hidden')) openAccountMenu();
+    else closeAccountMenu(true);
 }
 
 export function openStatsFromAccountMenu() {
-    document.getElementById('account-menu').classList.add('hidden');
+    closeAccountMenu(true);
     window.switchView('stats');
 }
 
-function closeAccountMenuOnOutside(e) {
-    const section = document.querySelector('.account-section');
-    if (!section.contains(e.target)) {
-        document.getElementById('account-menu').classList.add('hidden');
+function handleMenuKey(event) {
+    const items = menuItems();
+    const index = items.indexOf(document.activeElement);
+    const next = {
+        ArrowDown: (index + 1) % items.length,
+        ArrowUp: (index > 0 ? index - 1 : items.length - 1),
+        Home: 0,
+        End: items.length - 1,
+    }[event.key];
+    if (event.key === 'Escape' || event.key === 'Tab') {
+        if (event.key === 'Escape') event.preventDefault();
+        closeAccountMenu(true);
+    } else if (Number.isInteger(next)) {
+        event.preventDefault();
+        items[next]?.focus();
     }
 }
 
 export function updateAccountUI() {
     const btnLabel = document.getElementById('account-btn-label');
-    const menu = document.getElementById('account-menu');
     const menuUser = document.getElementById('account-menu-user');
     const menuGuest = document.getElementById('account-menu-guest');
     const menuLogout = document.getElementById('account-menu-logout');
+    const menuSettings = document.getElementById('account-menu-settings');
     const accountBtn = document.getElementById('account-btn');
 
+    document.getElementById('list-description').textContent = state.currentUser
+        ? '株数と現金を入力すると、評価額と構成比を表示します。'
+        : 'ログインすると、株数や現金を入力して評価額と構成比を確認できます。';
     if (state.currentUser) {
         btnLabel.textContent = state.currentUser.username;
         menuUser.classList.remove('hidden');
@@ -53,14 +83,16 @@ export function updateAccountUI() {
         menuLogout.classList.add('hidden');
         accountBtn.classList.remove('logged-in');
     }
-    menu.classList.add('hidden');
+    accountBtn.setAttribute('aria-label', `${btnLabel.textContent}、ユーザーメニュー`);
+    closeAccountMenu();
+    menuSettings.classList.toggle('hidden', !state.currentUser);
+    document.dispatchEvent?.(new Event('accountchange'));
 }
 
 // ===== Auth Modal =====
-export function openAuthModal(mode) {
+export function openAuthModal(mode, opener) {
     state.authMode = mode;
-    document.getElementById('account-menu').classList.add('hidden');
-    document.getElementById('auth-modal-overlay').classList.remove('hidden');
+    closeAccountMenu();
     document.getElementById('auth-username').value = '';
     document.getElementById('auth-password').value = '';
     document.getElementById('auth-error').classList.add('hidden');
@@ -77,11 +109,11 @@ export function openAuthModal(mode) {
         document.getElementById('auth-toggle-link').textContent = 'ログイン';
     }
 
-    setTimeout(() => document.getElementById('auth-username').focus(), 100);
+    authDialog.open(byId('auth-username'), { opener, fallbackFocus: byId('account-btn') });
 }
 
 export function closeAuthModal() {
-    document.getElementById('auth-modal-overlay').classList.add('hidden');
+    authDialog.close();
 }
 
 export function toggleAuthMode(e) {
@@ -100,6 +132,12 @@ export async function submitAuth() {
         return;
     }
 
+    if (state.authMode === 'register' && password.length < 8) {
+        errorEl.textContent = 'パスワードは8文字以上にしてください';
+        errorEl.classList.remove('hidden');
+        return;
+    }
+
     const submitBtn = document.getElementById('auth-submit-btn');
     submitBtn.disabled = true;
     submitBtn.textContent = '処理中...';
@@ -111,13 +149,11 @@ export async function submitAuth() {
             body: JSON.stringify({ username, password }),
         });
 
-        state.currentUser = user;
-        localStorage.setItem('stockAnalyzerUser', JSON.stringify(user));
-        updateAccountUI();
+        storeUserSession(user);
+        resetListSession();
         closeAuthModal();
         showToast(state.authMode === 'login' ? 'ログインしました' : 'アカウントを作成しました', 'success');
 
-        // ログイン/登録直後にデフォルトリストを読み込み
         await loadDefaultList();
     } catch (err) {
         errorEl.textContent = err.message;
@@ -128,47 +164,60 @@ export async function submitAuth() {
     }
 }
 
-export function logoutUser() {
-    state.currentUser = null;
-    state.currentListId = null;
-    state.listItems = [];
-    state.activeTagFilter = null;
-    localStorage.removeItem('stockAnalyzerUser');
+export function storeUserSession(user) {
+    cache.clear();
+    state.currentUser = user;
+    try { localStorage.setItem('stockAnalyzerUser', JSON.stringify(user)); } catch { /* storage unavailable */ }
     updateAccountUI();
-    renderListTable();
+}
+
+export function logoutUser() {
+    cache.clear();
+    state.currentUser = null;
+    try { localStorage.removeItem('stockAnalyzerUser'); } catch { /* storage unavailable */ }
+    resetListSession();
+    closeAccountSettings();
+    updateAccountUI();
     showToast('ログアウトしました', 'info');
 }
 
 export function bindAuthEvents() {
+    bindAccountSettingsEvents();
     const accountBtn = document.getElementById('account-btn');
     const accountMenu = document.getElementById('account-menu');
     const accountGuest = document.getElementById('account-menu-guest');
     const accountStatsBtn = document.getElementById('account-menu-stats');
     const accountLogoutBtn = document.getElementById('account-menu-logout');
-    const authOverlay = document.getElementById('auth-modal-overlay');
-    const authModal = authOverlay?.querySelector('.modal');
     const authCloseBtn = document.getElementById('auth-modal-close');
     const authSubmitBtn = document.getElementById('auth-submit-btn');
     const authToggleLink = document.getElementById('auth-toggle-link');
 
     accountBtn?.addEventListener('click', toggleAccountMenu);
+    accountBtn?.addEventListener('keydown', event => {
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault();
+            openAccountMenu(event.key === 'ArrowUp');
+        }
+    });
+    accountMenu?.addEventListener('keydown', handleMenuKey);
+    document.addEventListener('click', event => {
+        if (!event.target.closest('.account-section') && !accountMenu.classList.contains('hidden')) closeAccountMenu();
+    });
 
     accountGuest?.addEventListener('click', e => {
         const btn = e.target.closest('[data-auth-mode]');
         if (!btn) return;
-        openAuthModal(btn.dataset.authMode);
+        openAuthModal(btn.dataset.authMode, accountBtn);
     });
 
     accountStatsBtn?.addEventListener('click', openStatsFromAccountMenu);
-    accountLogoutBtn?.addEventListener('click', logoutUser);
-
-    authOverlay?.addEventListener('click', e => {
-        if (e.target === authOverlay) closeAuthModal();
+    accountLogoutBtn?.addEventListener('click', () => {
+        closeAccountMenu(true);
+        logoutUser();
     });
-    authModal?.addEventListener('click', e => e.stopPropagation());
+
+    authDialog.bind(closeAuthModal);
     authCloseBtn?.addEventListener('click', closeAuthModal);
     authSubmitBtn?.addEventListener('click', submitAuth);
     authToggleLink?.addEventListener('click', toggleAuthMode);
-
-    accountMenu?.addEventListener('click', e => e.stopPropagation());
 }
