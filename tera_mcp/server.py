@@ -13,7 +13,7 @@ from pydantic import Field
 
 from app.timeutil import utcnow
 from app.validation import HistoryInterval, SQLiteID, normalize_symbol, shift_years
-from tera_mcp.client import JSONObject, TQLClient
+from tera_mcp.client import JSONObject, ToolClient
 
 INSTRUCTIONS = """\
 ティッカーが分からないときは search_symbols を使ってください。
@@ -71,7 +71,7 @@ def _compact_backtest(result: JSONObject) -> JSONObject:
     return compact
 
 
-def create_server(client: TQLClient) -> MCPServer[None]:
+def create_server(client: ToolClient) -> MCPServer[None]:
     server: MCPServer[None] = MCPServer("tera-quant-lab", instructions=INSTRUCTIONS, log_level="WARNING")
 
     @server.tool(annotations=LOCAL_READ)

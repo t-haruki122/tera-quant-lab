@@ -30,7 +30,7 @@
 - バックエンドAPI詳細: [docs/API.md](docs/API.md)
 - ポートフォリオ、ウォークフォワード、結果の保存・比較とCLIの使い方は [バックテストの使い方](docs/backtestCLI.md) を参照してください。
 - LXC・systemd・Docker での運用: [docs/DEPLOY.md](docs/DEPLOY.md)
-- Claude Desktop・Claude Code からアプリのデータを参照する手順は [docs/MCP.md](docs/MCP.md) を参照してください。
+- アカウント設定で読み取り専用 APIトークンを発行し、Claude Code をアプリの `/mcp` に接続できます。Claude Desktop の stdio 接続も利用できます。[Claude 連携手順](docs/MCP.md)
 
 ## セットアップ
 

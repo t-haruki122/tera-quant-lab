@@ -28,10 +28,12 @@ class Settings(BaseSettings):
 
     # Same-origin frontend needs no CORS. Cookies are never enabled.
     cors_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)
+    mcp_http_enabled: bool = True
+    mcp_allowed_hosts: Annotated[list[str], NoDecode] = Field(default_factory=list)
 
-    @field_validator("cors_origins", mode="before")
+    @field_validator("cors_origins", "mcp_allowed_hosts", mode="before")
     @classmethod
-    def parse_cors_origins(cls, value):
+    def parse_header_allowlist(cls, value):
         if isinstance(value, str):
             value = json.loads(value) if value.strip().startswith("[") else value.split(",")
         if isinstance(value, list):

@@ -192,6 +192,23 @@ class User(Base):
     )
 
 
+class APIToken(Base):
+    __tablename__ = "api_tokens"
+    __table_args__ = (
+        CheckConstraint("length(name) BETWEEN 1 AND 50", name="ck_api_tokens_name"),
+        {"sqlite_autoincrement": True},
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(50))
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    token_prefix: Mapped[str] = mapped_column(String(12))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=to_db)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
 class UserList(Base):
     """ユーザーの銘柄リスト"""
     __tablename__ = "user_lists"

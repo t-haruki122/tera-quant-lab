@@ -12,7 +12,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import require_authenticated_user
-from app.models.db_models import BacktestRun, PriceAlert, StockMemo, User, UserList, UserListItem
+from app.models.db_models import APIToken, BacktestRun, PriceAlert, StockMemo, User, UserList, UserListItem
 from app.timeutil import to_db
 
 ph = PasswordHasher()
@@ -77,6 +77,8 @@ async def delete_account(user: User, db: AsyncSession) -> bool:
     if await invalidate_tokens(user, db) is None:
         return False
     await delete_user_data(user.id, db)
+    # The production SQLite connection does not enable foreign key enforcement.
+    await db.execute(delete(APIToken).where(APIToken.user_id == user.id))
     await db.delete(user)
     await db.commit()
     return True

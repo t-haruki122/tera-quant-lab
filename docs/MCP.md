@@ -2,15 +2,33 @@
 
 MCP サーバーを設定すると、Claude Desktop や Claude Code から、ウォッチリストと保有資産の構成、価格アラート、株価、財務、ニュース、為替レートを取得できます。バックテスト戦略の確認、保存済み結果の参照、その場でのバックテスト計算にも対応しています。読み取り専用で、保有銘柄や設定の変更、バックテスト結果の保存はできません。
 
-## 前提
+## Claude Code の設定
 
-- tera-quant-lab のアプリを起動してください。既定の接続先は `http://127.0.0.1:8000` です。
-- Claude を使う PC にリポジトリと `uv` が必要です。リポジトリで `uv sync` を実行しておいてください。MCP SDK は開発用依存グループに入っているため、`uv sync --no-dev` ではインストールされません。
-- ウォッチリスト、保有銘柄、価格アラート、バックテストの実行・保存済み結果には、アプリのユーザー名とパスワードが必要です。公開銘柄データや戦略一覧だけを使う場合は資格情報を省略できます。
+1. Claude Code を使う PC でアプリを開いてログインします。LXC で運用している場合は、その PC から LXC にアクセスする URL を開きます。
+2. アカウント設定の **Claude 連携（APIトークン）** で、名前と有効期限を選び、**トークンを作成** を押します。
+3. **コマンドをコピー** で端末に貼り付けて実行するか、**Claude Code への依頼文をコピー** で Claude Code に貼り付けて実行を依頼します。LAN の HTTP 接続などで自動コピーできない場合は、選択されたテキストを手動でコピーします。
+4. Claude Code を再起動して `/mcp` で接続を確認します。端末からは `claude mcp list` でも確認できます。
 
-## Claude Desktop
+アプリが表示するコマンドの例です。接続先はアカウント設定を開いたブラウザーのオリジンから自動で作られます。Claude Code を使う PC には Claude Code とアプリへの接続があれば使えます。
 
-Windows では `%APPDATA%\Claude\claude_desktop_config.json` に次の設定を追加します。既存の `mcpServers` があれば、その中に `tera-quant-lab` の項目を追加してください。パスと資格情報は環境に合わせて置き換えます。
+```powershell
+claude mcp add --transport http --scope user tera-quant-lab http://127.0.0.1:8000/mcp --header "Authorization: Bearer <APIトークン>"
+```
+
+同名の stdio 設定から移行する場合は、Claude Code で既存の `tera-quant-lab` 登録を削除してから実行してください。
+
+## トークンと接続先の管理
+
+- トークン全文は作成時に一度だけ表示されます。Claude Code は `~/.claude.json` に平文で保存します。端末にコマンドを入力するとシェルの履歴にも残る場合があります。共有 PC で使った場合や漏えいした場合は、アカウント設定で該当トークンを無効化し、必要に応じて作り直してください。
+- 有効なトークンはユーザーごとに10件まで作成できます。パスワード変更と全端末ログアウトはブラウザーのセッションに対して有効です。APIトークンは個別の無効化、期限切れ、アカウント削除で失効します。
+- MCP で取得した保有銘柄やメモなどのデータは Claude（Anthropic）に送られます。読み取り範囲と対象 API は [API ガイド](API.md#読み取り専用-apiトークン) に記載しています。
+- アプリは Streamable HTTP を `/mcp` と `/mcp/` で提供します。リクエストごとに APIトークンを検証します。`Origin` がある場合は接続先と同一オリジンのときだけ許可します。
+- `MCP_HTTP_ENABLED=false` で HTTP MCP を無効化できます。`MCP_ALLOWED_HOSTS` は許可する `Host` の一覧です。既定は空欄で、LXC のホスト名や IP をそのまま使えます。設定形式とリバースプロキシの手順は [デプロイ手順](DEPLOY.md#http-mcp-の設定) を参照してください。
+- localhost や信頼できる LAN の外から接続する場合は、リバースプロキシで HTTPS を使ってください。平文 HTTP ではネットワーク経路上でトークンが読み取られる可能性があります。
+
+## Claude Desktop の stdio 接続
+
+stdio を使う場合は、Claude Desktop の PC にリポジトリと `uv` を用意し、リポジトリで `uv sync` を実行します。Windows では `%APPDATA%\Claude\claude_desktop_config.json` の `mcpServers` に次の項目を追加します。接続先とパスを環境に合わせて変更し、アカウント設定から発行したトークンを使用してください。
 
 ```json
 {
@@ -20,33 +38,16 @@ Windows では `%APPDATA%\Claude\claude_desktop_config.json` に次の設定を�
       "args": ["--directory", "C:\\path\\to\\tera-quant-lab", "run", "python", "-m", "tera_mcp"],
       "env": {
         "TQL_BASE_URL": "http://127.0.0.1:8000",
-        "TQL_USERNAME": "your-username",
-        "TQL_PASSWORD": "your-password"
+        "TQL_API_TOKEN": "<APIトークン>"
       }
     }
   }
 }
 ```
 
-設定後に Claude Desktop を再起動してください。
+設定後に Claude Desktop を再起動してください。`TQL_BASE_URL` には `/mcp` を付けず、アプリのベース URL を指定します。バックテスト以外の HTTP タイムアウトは既定で30秒です。`TQL_TIMEOUT_SECONDS` を秒数で指定して変更できます。バックテストの HTTP タイムアウトは少なくとも120秒です。
 
-## Claude Code
-
-PowerShell での登録例です。パスと資格情報を置き換えて実行します。
-
-```powershell
-claude mcp add --transport stdio tera-quant-lab -e 'TQL_BASE_URL=http://127.0.0.1:8000' -e 'TQL_USERNAME=your-username' -e 'TQL_PASSWORD=your-password' -- uv --directory 'C:\path\to\tera-quant-lab' run python -m tera_mcp
-```
-
-登録後に `claude mcp list` で確認できます。バックテスト以外の HTTP タイムアウトは既定で30秒です。変更する場合は、環境変数 `TQL_TIMEOUT_SECONDS` に秒数を指定します。バックテストの HTTP タイムアウトは少なくとも120秒です。
-
-## Proxmox LXC のアプリにつなぐ
-
-`TQL_BASE_URL` を Claude を使う PC からアクセスできる LXC 上のアプリの URL に変更します。可能であれば HTTPS を使ってください。MCP サーバーは Claude を使う PC 側で動き、設定した URL に HTTP でアクセスします。
-
-## 資格情報とデータの扱い
-
-上記の例ではアプリのパスワードが Claude の設定ファイルに平文で保存されます。Claude Code の登録コマンドを直接入力すると、シェルの履歴にも残る場合があります。資格情報を含む設定やコマンドの共有には注意してください。ツール呼び出しで取得したアプリのデータ（保有銘柄やメモなど）は Claude（Anthropic）に送られます。MCP のツールは読み取り専用です。
+従来方式の `TQL_USERNAME` と `TQL_PASSWORD` も使えます。この方式はパスワードを設定ファイルに平文で保存し、セッションの期限切れ時に一度だけ自動で再ログインします。`TQL_API_TOKEN` が設定されていれば APIトークンを優先します。効力のある認証情報を共有しないでください。
 
 ## ウォッチリストの保有資産
 
@@ -58,7 +59,7 @@ claude mcp add --transport stdio tera-quant-lab -e 'TQL_BASE_URL=http://127.0.0.
 
 ## 質問例
 
-ティッカーが分からないときは、読み取り専用の `search_symbols(query: str, limit: int = 10)` を使います。会社名や銘柄コードから日本株・米国株の候補を返します。ログインは不要です。たとえば `search_symbols(query="トヨタ")` で `7203.T` を確認し、`get_stock` に渡せます。`limit` は1〜20件です。
+ティッカーが分からないときは、`search_symbols(query: str, limit: int = 10)` で会社名や銘柄コードから日本株・米国株の候補を検索できます。たとえば `search_symbols(query="トヨタ")` で `7203.T` を確認し、`get_stock` に渡せます。`limit` は1〜20件です。
 
 - 「NTT のティッカーを調べて」
 - 「ポートフォリオを見て、銘柄や通貨の集中と評価額の気になる点を挙げて」
@@ -70,6 +71,6 @@ claude mcp add --transport stdio tera-quant-lab -e 'TQL_BASE_URL=http://127.0.0.
 
 ## トラブルシューティング
 
-- **アプリに接続できない**場合は、アプリが起動していることと、Claude を使う PC から `TQL_BASE_URL` にアクセスできることを確認します。LXC の場合はアプリの待ち受けアドレスとファイアウォールも確認してください。
-- **HTTP 401 が返る**場合は、アプリにログインできる資格情報が `TQL_USERNAME` と `TQL_PASSWORD` に設定されているか確認し、Claude を再起動します。セッション切れの場合、MCP サーバーは自動で一度再ログインします。
-- **ツールが表示されない**場合は、リポジトリのパス、Claude から起動できる `uv` のパス、開発用依存のインストール状況を確認してください。`uv` が PATH に見つからなければ、設定の `command` に `uv.exe` の絶対パスを指定します。
+- **アプリに接続できない**場合は、Claude を使う PC からアプリを開けることを確認してください。LXC の場合は待ち受けアドレス、ファイアウォール、プロキシの転送先も確認します。
+- **HTTP 401 が返る**場合は、アカウント設定で有効期限と無効化の状態を確認し、必要に応じて新しいトークンで登録し直します。**HTTP 403 または 421 が返る**場合は URL、`MCP_ALLOWED_HOSTS`、プロキシが転送する `Host` と `X-Forwarded-Proto` を確認してください。
+- **stdio のツールが表示されない**場合は、リポジトリのパス、`uv` のパス、依存ライブラリのインストール状況を確認してください。`uv` が PATH に見つからなければ、設定の `command` に `uv.exe` の絶対パスを指定します。

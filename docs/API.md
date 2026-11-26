@@ -16,6 +16,7 @@
 | ニュース | 銘柄関連ニュースの取得 | `GET /stock/{symbol}/news` |
 | 為替 | 通貨ペアの現在レート取得 | `GET /forex/{pair}` |
 | ユーザー機能 | ユーザー登録/ログイン、銘柄リスト管理、タグ管理 | `POST /user/register`、`POST /user/login`、`/user/{user_id}/lists...` |
+| Claude 連携 | APIトークンの発行・無効化、読み取り専用 MCP | `/user/{user_id}/api-tokens`、`/mcp` |
 | ウォッチリストの保有資産 | 株数・現金の設定、円換算評価、構成比 | `GET /user/{user_id}/lists/{list_id}/summary` |
 | 価格アラート | アラートの管理・判定 | `/user/{user_id}/alerts`、`POST /user/{user_id}/alerts/check` |
 | バックテスト | 戦略一覧、単一実行、グリッド探索、ポートフォリオ、ウォークフォワード、結果保存 | `GET /backtest/strategies`、`POST /backtest/run`、`POST /backtest/grid`、`POST /backtest/portfolio`、`POST /backtest/walkforward`、`/backtest/runs` |
@@ -106,10 +107,48 @@ EMA は最初の N 本の単純平均で開始し、以降は重み `2 / (N + 1)
 {"id": 1, "username": "taro", "access_token": "<JWT>", "token_type": "bearer"}
 ```
 
-`/user/{user_id}/...` の全操作（デフォルトリスト、リスト、アイテム、タグ、メモ）には、取得したトークンを `Authorization: Bearer <JWT>` ヘッダーで送信してください。
+`/user/{user_id}/...` の操作には、取得したセッション JWT を `Authorization: Bearer <JWT>` ヘッダーで送信してください。後述する読み取り専用 API では APIトークンも使えます。
 未指定・不正・期限切れのトークンは `401`、トークンのユーザーとURLの `user_id` が異なる場合は `403` です。
 自分の `user_id` を指定しても、他人の `list_id` は読み書きできません。メモもユーザーごとに分離されます。
 株価・分析・為替・統計の取得には認証不要です。
+
+#### 読み取り専用 APIトークン
+
+次の管理 API は本人のセッション JWT が必要です。
+
+| メソッドとパス | 動作 |
+| --- | --- |
+| `GET /user/{user_id}/api-tokens` | トークン一覧を返します。 |
+| `POST /user/{user_id}/api-tokens` | `{"name":"Claude Code","expires_in_days":90}` を受け取り、`201` で作成します。 |
+| `DELETE /user/{user_id}/api-tokens/{token_id}` | トークンを即時に無効化して `204` を返します。本人の一覧にない ID は `404` です。 |
+
+`name` は前後の空白を除いて1〜50文字、`expires_in_days` は `null`（期限なし）、`30`、`90`、`365` のいずれかです。作成時に有効なトークンが10件ある場合は `409` です。作成・一覧で返すメタデータは `id`、`name`、`token_prefix`、`created_at`、`last_used_at`、`expires_at`、`expired` です。日時は UTC で、最終使用と有効期限は `null` の場合があります。作成レスポンスに限り `token` として全文を返します。トークンはアカウント削除で削除され、JSON バックアップの対象外です。
+
+`Authorization: Bearer <APIトークン>` を使える REST エンドポイントは次のとおりです。無効化済み・期限切れのトークンは `401` です。`GET /user/me` は `{"id": 1}` の形式で認証中のユーザー ID を返します。
+
+- `GET /user/me`
+- `GET /user/{user_id}/lists`
+- `GET /user/{user_id}/lists/{list_id}/summary`
+- `GET /user/{user_id}/alerts`
+- `GET /backtest/strategies`
+- `GET /backtest/runs`
+- `GET /backtest/runs/{run_id}`
+- `GET /symbols/search`
+- `GET /stock/{symbol}`
+- `GET /stock/{symbol}/history`
+- `GET /stock/{symbol}/profile`
+- `GET /stock/{symbol}/indicators`
+- `GET /stock/{symbol}/financials`
+- `GET /stock/{symbol}/financials/history`
+- `GET /stock/{symbol}/news`
+- `GET /forex/{pair}`
+- `POST /backtest/run`（結果の保存を伴わない単一バックテスト）
+
+バックテストのグリッド探索、ポートフォリオ、ウォークフォワード、および保存済み結果の変更にはセッション JWT が必要です。
+
+#### Streamable HTTP MCP
+
+`/mcp` と `/mcp/` は APIトークンで認証する MCP の接続先です。毎回 `Authorization: Bearer <APIトークン>` を送信します。未指定、無効なトークン、セッション JWT は `401` と `WWW-Authenticate: Bearer` を返します。異なる `Origin` は `403` です。クライアントの設定手順は [MCP ガイド](MCP.md) にあります。
 
 ```bash
 curl -X POST http://localhost:8000/user/login \

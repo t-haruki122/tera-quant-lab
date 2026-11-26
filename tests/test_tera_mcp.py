@@ -49,6 +49,36 @@ async def call(server, name, **arguments):
     return result.structured_content
 
 
+def test_stdio_api_token_takes_precedence_and_does_not_log_in(monkeypatch):
+    monkeypatch.setenv("TQL_API_TOKEN", TOKEN)
+    monkeypatch.setenv("TQL_USERNAME", "legacy-user")
+    monkeypatch.setenv("TQL_PASSWORD", PASSWORD)
+
+    def authenticated(result):
+        def reply(request):
+            assert request.headers["Authorization"] == f"Bearer {TOKEN}"
+            return httpx.Response(200, json=result)
+        return reply
+
+    async def scenario():
+        settings = Settings.from_env()
+        assert TOKEN not in repr(settings) and PASSWORD not in repr(settings)
+        api, requests = mock_client({
+            ("GET", "/user/me"): authenticated({"id": 42}),
+            ("GET", "/user/42/lists"): authenticated({"lists": [], "default_list_id": None}),
+            ("GET", "/backtest/strategies"): authenticated({"strategies": []}),
+        }, settings)
+        async with api:
+            server = create_server(api)
+            assert await call(server, "list_watchlists") == {"lists": [], "default_list_id": None}
+            assert await call(server, "list_backtest_strategies") == {"strategies": []}
+            with pytest.raises(ToolError, match="許可されていない"):
+                await api.get("/user/42/export")
+        assert requests == [("GET", "/user/me"), ("GET", "/user/42/lists"), ("GET", "/backtest/strategies")]
+
+    asyncio.run(scenario())
+
+
 def test_symbol_search_is_public_and_allowlisted():
     def result(request):
         assert "Authorization" not in request.headers

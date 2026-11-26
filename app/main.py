@@ -8,17 +8,18 @@ from pathlib import Path
 
 import yfinance
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.routing import Route
 from starlette.types import Scope
 
 from app import database
 from app.config import SECRET_KEY_MESSAGE, get_settings
 from app.database import init_db
 from app.exceptions import register_exception_handlers
-from app.middleware import InternalErrorMiddleware, RequestIDFilter, RequestMiddleware
-from app.routers import backtest, forex, investments, stats, stock, symbols, user
+from app.mcp_http import MCP_PATHS, AppCORSMiddleware, MCPGateway, serve_mcp
+from app.middleware import InternalErrorMiddleware, RequestIDFilter, RequestMiddleware, TokenRedactingFormatter
+from app.routers import api_tokens, backtest, forex, investments, stats, stock, symbols, user
 from app.services.cache_warmer import warm_cache_periodically
 from app.services.symbol_directory import initialize_symbol_directory
 from app.stats import stats as app_stats
@@ -28,7 +29,7 @@ def setup_logging(log_level: str) -> None:
     """アプリ全体のログフォーマットを統一する。"""
     log_format = "%(asctime)s | %(levelname)s | %(name)s | request_id=%(request_id)s | %(message)s"
     date_format = "%Y-%m-%d %H:%M:%S"
-    formatter = logging.Formatter(log_format, datefmt=date_format)
+    formatter = TokenRedactingFormatter(log_format, datefmt=date_format)
 
     level = logging.getLevelNamesMapping().get(log_level.upper(), 5)  # Uvicorn's TRACE is 5.
     root_logger = logging.getLogger()
@@ -83,7 +84,8 @@ async def lifespan(app: FastAPI):
         ))
     logger.info("Application startup completed")
     try:
-        yield
+        async with serve_mcp(app, settings):
+            yield
     finally:
         flush_task.cancel()
         symbol_task.cancel()
@@ -117,7 +119,7 @@ def configure_cors(app: FastAPI, origins: list[str], *, allow_credentials: bool 
         raise ValueError("Wildcard CORS origins cannot be combined with credentials")
     if origins:
         app.add_middleware(
-            CORSMiddleware,
+            AppCORSMiddleware,
             allow_origins=origins,
             allow_credentials=allow_credentials,
             allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -143,11 +145,13 @@ app.add_middleware(
 # ルーター登録
 app.include_router(stock.router)
 app.include_router(user.router)
+app.include_router(api_tokens.router)
 app.include_router(investments.router)
 app.include_router(stats.router)
 app.include_router(forex.router)
 app.include_router(backtest.router)
 app.include_router(symbols.router)
+app.router.routes.extend(Route(path, MCPGateway(), name="mcp") for path in MCP_PATHS)
 
 # 例外ハンドラー登録
 register_exception_handlers(app)

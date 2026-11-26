@@ -15,6 +15,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from app.config import get_settings
 from app.exceptions import internal_error_response
 from app.rate_limit import client_ip, forwarded_scheme
+from app.services.api_token_service import TOKEN_PATTERN
 
 DEFAULT_CSP = "; ".join((
     "default-src 'self'",
@@ -62,6 +63,11 @@ class RequestIDFilter(logging.Filter):
         return True
 
 
+class TokenRedactingFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        return TOKEN_PATTERN.sub("[非表示]", super().format(record))
+
+
 logger = logging.getLogger(__name__)
 logger.addFilter(RequestIDFilter())
 
@@ -80,7 +86,10 @@ class RequestMiddleware:
         request = Request(scope)
         path = get_route_path(scope)
         incoming = request.headers.getlist("x-request-id")
-        correlation_id = incoming[0] if len(incoming) == 1 and re.fullmatch(r"[A-Za-z0-9._-]{1,64}", incoming[0]) else uuid4().hex
+        correlation_id = incoming[0] if (
+            len(incoming) == 1 and re.fullmatch(r"[A-Za-z0-9._-]{1,64}", incoming[0])
+            and not TOKEN_PATTERN.search(incoming[0])
+        ) else uuid4().hex
         request.state.request_id = correlation_id
         token = request_id.set(correlation_id)
         settings = get_settings()
@@ -99,6 +108,8 @@ class RequestMiddleware:
                     headers[name] = value
                 if path == "/" or path.startswith("/static/"):
                     headers["Cache-Control"] = "no-cache"
+                elif path in {"/mcp", "/mcp/"}:
+                    headers["Cache-Control"] = "no-store"
                 docs_html = (
                     status == 200
                     and path in self.docs_paths

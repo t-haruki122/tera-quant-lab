@@ -954,6 +954,50 @@ button.account-action:not(:disabled):hover {
     padding-top: 8px;
 }
 
+.account-token-once,
+.account-token-list > li {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 12px;
+    overflow-wrap: anywhere;
+}
+
+.account-token-once input,
+.account-token-once textarea {
+    font-family: monospace;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+}
+
+.account-token-once .account-action {
+    margin-top: 6px;
+}
+
+.account-token-list {
+    list-style: none;
+    padding: 0;
+}
+
+.account-token-list dl {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 4px 12px;
+    margin: 8px 0;
+}
+
+.account-token-list dd {
+    margin: 0;
+}
+
+.account-token-expired {
+    display: inline-block;
+    padding: 0 6px;
+    border: 1px solid currentColor;
+    border-radius: 4px;
+    margin-left: 6px;
+}
+
 .list-header-row {
     display: flex;
     align-items: center;

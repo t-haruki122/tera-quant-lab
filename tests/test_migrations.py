@@ -28,9 +28,9 @@ def test_fresh_startup_and_second_upgrade_are_idempotent(async_db):
         assert not logger.disabled
         async with engine.connect() as connection:
             tables = await connection.run_sync(lambda conn: inspect(conn).get_table_names())
-            added = {"alembic_version", "api_stats_daily", "price_alerts", "backtest_runs", "symbol_directory"}
+            added = {"alembic_version", "api_stats_daily", "price_alerts", "backtest_runs", "symbol_directory", "api_tokens"}
             assert set(tables) == set(LegacyBase.metadata.tables) | added
-            assert await connection.scalar(text("SELECT version_num FROM alembic_version")) == "0008"
+            assert await connection.scalar(text("SELECT version_num FROM alembic_version")) == "0009"
             columns = await connection.run_sync(lambda conn: inspect(conn).get_columns("users"))
             token_version = next(column for column in columns if column["name"] == "token_version")
             assert not token_version["nullable"]
@@ -56,6 +56,31 @@ def test_symbol_directory_upgrade_downgrade(settings):
         assert not inspect(connection).has_table(table)
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0007"
         assert connection.scalar(text("SELECT username FROM users WHERE id = 1")) == "keep"
+    engine.dispose()
+
+
+def test_api_tokens_upgrade_downgrade_and_foreign_key(settings):
+    engine = create_engine(settings.database_url.replace("+aiosqlite", ""))
+    with engine.begin() as connection:
+        connection.exec_driver_sql("PRAGMA foreign_keys = ON")
+        upgrade(connection, "0008")
+        connection.execute(text("INSERT INTO users (id, username, password_hash, created_at) "
+                                "VALUES (1, 'keep', 'hash', CURRENT_TIMESTAMP), (2, 'remove', 'hash', CURRENT_TIMESTAMP)"))
+        upgrade(connection, "0009")
+        inspector = inspect(connection)
+        assert inspector.get_foreign_keys("api_tokens")[0]["options"]["ondelete"] == "CASCADE"
+        assert inspector.get_indexes("api_tokens")[0]["column_names"] == ["user_id"]
+        assert inspector.get_unique_constraints("api_tokens")[0]["column_names"] == ["token_hash"]
+        connection.execute(text("INSERT INTO api_tokens (user_id, name, token_hash, token_prefix, created_at) "
+                                "VALUES (2, 'test', 'hash', 'tql_example1', CURRENT_TIMESTAMP)"))
+        connection.execute(text("DELETE FROM users WHERE id=2"))
+        assert connection.scalar(text("SELECT count(*) FROM api_tokens")) == 0
+        config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+        config.attributes["connection"] = connection
+        command.downgrade(config, "0008")
+        assert not inspect(connection).has_table("api_tokens")
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0008"
+        assert connection.scalar(text("SELECT username FROM users WHERE id=1")) == "keep"
     engine.dispose()
 
 

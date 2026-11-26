@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import create_access_token, require_authenticated_user, require_user_owner
+from app.auth import create_access_token, require_authenticated_user, require_read_owner, require_user_owner
 from app.config import get_settings
 from app.database import get_db
 from app.models.db_models import User
@@ -203,7 +203,7 @@ async def get_default_list(user_id: SQLiteID, db: AsyncSession = Depends(get_db)
 
 @router.get(
     "/{user_id}/lists",
-    dependencies=[Depends(require_user_owner)],
+    dependencies=[Depends(require_read_owner)],
     response_model=ListsResponse,
     summary="リスト一覧を取得",
 )
@@ -262,7 +262,7 @@ async def get_list_detail(user_id: SQLiteID, list_id: SQLiteID, db: AsyncSession
 
 @router.get("/{user_id}/lists/{list_id}/summary", response_model=ListSummaryResponse, summary="銘柄リストの概要を取得")
 async def list_summary(
-    list_id: SQLiteID, request: Request, user: User = Depends(require_user_owner), db: AsyncSession = Depends(get_db),
+    list_id: SQLiteID, request: Request, user: User = Depends(require_read_owner), db: AsyncSession = Depends(get_db),
     *, cached: bool = False,
 ):
     settings = get_settings()

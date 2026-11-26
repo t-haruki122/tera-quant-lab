@@ -2,6 +2,17 @@
 
 Proxmox VE の Debian / Ubuntu LXC に配置する例です。環境変数は `.env` の値より優先されます。`python -m app` は常に Uvicorn を1ワーカーで起動します。レート制限、同時取得の共有、統計、バックテストのジョブ枠がプロセス単位で管理されるため、1インスタンスで運用してください。
 
+## HTTP MCP の設定
+
+アプリと同じポートで Streamable HTTP の `/mcp` を提供します。APIトークンの発行と Claude Code の接続手順は [MCP ガイド](MCP.md) を参照してください。
+
+| 環境変数 | 既定値 | 動作 |
+| --- | --- | --- |
+| `MCP_HTTP_ENABLED` | `true` | `false` の場合、`/mcp` と `/mcp/` は `404` を返します。 |
+| `MCP_ALLOWED_HOSTS` | 空欄 | 空欄では任意の接続先 `Host` を許可します。制限する場合は、カンマ区切りまたは JSON 配列で `stocks.example.test,192.0.2.10:8000` のように指定します。`tql-lxc:*` は数値ポート付きの `tql-lxc` を許可します。 |
+
+`Origin` が付いたリクエストは、公開側のスキーム、ホスト名、ポートと一致する場合に許可します。HTTPS リバースプロキシは公開側の `Host`（非標準ポートを含む）と `Authorization` を保持し、`X-Forwarded-Proto` を設定してください。アプリ側の `TRUSTED_PROXIES` には実際のプロキシの接続元を指定します。localhost や信頼できる LAN の外では HTTPS を使ってください。プロキシで `/mcp` をキャッシュしないでください。
+
 ## 銘柄ディレクトリ
 
 日本の JPX 上場銘柄一覧と米国の Nasdaq Trader Symbol Directory を個人利用向けに実行時に取得し、SQLite に保存します。一覧ファイルはリポジトリに同梱していません。

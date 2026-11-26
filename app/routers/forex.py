@@ -6,11 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.routers.dependencies import limit_data_requests
+from app.routers.dependencies import limit_read_data_requests
 from app.schemas.stock import CachedResponse
 from app.services import forex_service
 
-router = APIRouter(prefix="/forex", tags=["forex"], dependencies=[Depends(limit_data_requests)])
+router = APIRouter(prefix="/forex", tags=["forex"], dependencies=[Depends(limit_read_data_requests)])
 
 class ExchangeRateResponse(CachedResponse):
     pair: str

@@ -17,6 +17,7 @@ function reset() {
     state.watchlists = [{ id: 5, name: 'My list' }];
     state.listItems = [{ symbol: 'AAPL' }];
     localStorage.setItem('stockAnalyzerUser', JSON.stringify(state.currentUser));
+    globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => [] });
     openAccountSettings();
 }
 
@@ -160,4 +161,107 @@ test('replace import waits for confirmation, keeps errors inline, and returns to
     assert.equal(settings.classList.contains('hidden'), false);
     assert.match(byId('account-import-result').textContent, /リスト 1 件、銘柄 2 件/);
     assert.equal(state.currentListId, 10);
+});
+
+test('Claude token creation shows the exact one-time command and supports secure and LAN clipboard use', async () => {
+    reset();
+    bindAccountSettingsEvents();
+    const tick = () => new Promise(resolve => setImmediate(resolve));
+    const origin = 'http://192.0.2.18:8000';
+    const token = `tql_${'A'.repeat(43)}`;
+    const command = `claude mcp add --transport http --scope user tera-quant-lab ${origin}/mcp --header "Authorization: Bearer ${token}"`;
+    const prompt = `次のコマンドを実行して、tera-quant-lab の MCP サーバーを設定してください。\n${command}`;
+    const writes = [];
+    window.location = { origin };
+    window.isSecureContext = true;
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+        writeText: async value => writes.push(value),
+    } });
+
+    const entries = [];
+    globalThis.fetch = async (url, options) => {
+        assert.equal(url, '/user/account%2F7/api-tokens');
+        assert.equal(options.cache, 'no-store');
+        if (options.method === 'POST') {
+            assert.deepEqual(JSON.parse(options.body), { name: 'Claude Code', expires_in_days: 90 });
+            entries.push({ id: 1, name: 'Claude Code', token_prefix: token.slice(0, 12) });
+            return { ok: true, status: 201, json: async () => ({ ...entries[0], token }) };
+        }
+        return { ok: true, status: 200, json: async () => entries };
+    };
+    byId('account-token-name').value = ' Claude Code ';
+    byId('account-token-expiry').value = '90';
+    await openAccountSettings();
+    assert.equal(byId('account-token-empty').classList.contains('hidden'), false);
+    byId('account-token-form').requestSubmit();
+    await tick();
+    assert.equal(byId('account-token-once').classList.contains('hidden'), false);
+    assert.equal(byId('account-token-value').value, token);
+    assert.equal(byId('account-token-command').value, command);
+    assert.match(byId('account-token-status').textContent, /APIトークンを作成しました/);
+    assert.equal(document.activeElement, byId('account-token-command-copy'));
+    for (const id of ['account-token-copy', 'account-token-command-copy', 'account-token-prompt-copy']) byId(id).click();
+    await tick();
+    assert.deepEqual(writes, [token, command, prompt]);
+    assert.match(byId('toast-container').children.at(-1).innerHTML, /コピーしました/);
+
+    window.isSecureContext = false;
+    for (const [button, id, expected] of [
+        ['account-token-copy', 'account-token-value', token],
+        ['account-token-command-copy', 'account-token-command', command],
+        ['account-token-prompt-copy', 'account-token-prompt', prompt],
+    ]) {
+        const field = byId(id);
+        let selection;
+        field.select = () => { selection = field.value; };
+        byId(button).click();
+        assert.equal(document.activeElement, field);
+        assert.equal(selection, expected);
+    }
+    assert.equal(writes.length, 3);
+    assert.equal(byId('account-token-prompt-fallback').classList.contains('hidden'), false);
+    assert.match(byId('toast-container').children.at(-1).innerHTML, /選択したテキストをコピー/);
+    byId('account-token-dismiss').click();
+    assert.equal(byId('account-token-once').classList.contains('hidden'), true);
+    for (const id of ['account-token-value', 'account-token-command', 'account-token-prompt']) assert.equal(byId(id).value, '');
+    assert.ok(!localStorage.getItem('stockAnalyzerUser').includes(token));
+    assert.ok(!JSON.stringify([...cache]).includes(token));
+});
+
+test('token list treats names as text and revokes only after confirmation', async () => {
+    reset();
+    bindAccountSettingsEvents();
+    const payload = '"><img src=x onerror=alert(1)>';
+    const entries = [{ id: 42, name: payload, token_prefix: 'tql_AbCdEfGh', expired: true,
+        created_at: '2026-01-01T00:00:00Z', expires_at: '2026-04-01T00:00:00Z', last_used_at: null }];
+    const revoked = [];
+    globalThis.fetch = async (url, options) => {
+        if (options.method !== 'DELETE') return { ok: true, status: 200, json: async () => entries };
+        revoked.push(url);
+        entries.length = 0;
+        return { ok: true, status: 204 };
+    };
+    await openAccountSettings();
+    const list = byId('account-token-list');
+    const [heading, dates, button] = list.children[0].children;
+    assert.equal(heading.children[0].textContent, payload);
+    assert.equal(heading.children[0].innerHTML, '');
+    assert.match(heading.children[1].textContent, /tql_AbCdEfGh…/);
+    assert.equal(heading.children[2].textContent, '期限切れ');
+    assert.deepEqual(dates.children.filter((_, index) => index % 2 === 0).map(child => child.textContent),
+        ['作成日', '最終使用', '有効期限']);
+    assert.match(button.getAttribute('aria-label'), /無効化/);
+    button.click();
+    assert.ok(byId('revoke-token-message').textContent.includes(payload));
+    assert.equal(byId('revoke-token-message').innerHTML, '');
+    assert.equal(document.activeElement, byId('revoke-token-message'));
+    byId('revoke-token-cancel').click();
+    assert.equal(byId('revoke-token-overlay').classList.contains('hidden'), true);
+    assert.deepEqual(revoked, []);
+    button.click();
+    byId('revoke-token-form').requestSubmit();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(revoked, ['/user/account%2F7/api-tokens/42']);
+    assert.equal(list.children.length, 0);
+    assert.equal(byId('account-token-empty').classList.contains('hidden'), false);
 });

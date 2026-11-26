@@ -10,9 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.database import get_db
 from app.models.db_models import User
+from app.services.api_token_service import TOKEN_PREFIX, find_token_user
 from app.validation import SQLiteID
 
 bearer = HTTPBearer(auto_error=False)
+AUTH_REQUIRED = "有効な認証トークンが必要です"
 
 
 def create_access_token(user_id: int, token_version: int = 0) -> str:
@@ -66,7 +68,7 @@ def require_authenticated_user(user: User | None) -> User:
     if user is None:
         raise HTTPException(
             status_code=401,
-            detail="有効な認証トークンが必要です",
+            detail=AUTH_REQUIRED,
             headers={"WWW-Authenticate": "Bearer"},
         )
     return user
@@ -78,3 +80,24 @@ async def require_user_owner(
     if user_id != current_user.id:
         raise HTTPException(status_code=403, detail="他のユーザーのデータにはアクセスできません")
     return current_user
+
+
+def has_api_token(credentials: HTTPAuthorizationCredentials | None) -> bool:
+    return credentials is not None and credentials.credentials.startswith(TOKEN_PREFIX)
+
+
+async def find_read_user(credentials: HTTPAuthorizationCredentials | None, db: AsyncSession) -> User | None:
+    if credentials is not None and has_api_token(credentials):
+        return require_authenticated_user(await find_token_user(credentials.credentials, db))
+    return await find_authenticated_user(credentials, db)
+
+
+async def get_read_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    return require_authenticated_user(await find_read_user(credentials, db))
+
+
+async def require_read_owner(user_id: SQLiteID, user: User = Depends(get_read_user)) -> User:
+    return await require_user_owner(user_id, user)

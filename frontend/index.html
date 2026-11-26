@@ -144,9 +144,52 @@
                         <p class="auth-error hidden" id="account-data-error" role="alert"></p>
                         <p class="account-import-result hidden" id="account-import-result" role="status"></p>
                     </section>
+                    <section class="account-settings-section" aria-labelledby="account-tokens-title">
+                        <h4 id="account-tokens-title">Claude 連携（APIトークン）</h4>
+                        <p class="text-muted">Claude はウォッチリスト、保有資産、アラート、株価データを参照し、結果を保存せずにバックテストを実行できます。データや設定は変更できません。トークンの全文は作成時に一度だけ表示されます。漏えいした場合はここで無効化してください。</p>
+                        <form id="account-token-form">
+                            <div class="form-group">
+                                <label for="account-token-name">トークン名</label>
+                                <input id="account-token-name" type="text" value="Claude Code" maxlength="50" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="account-token-expiry">有効期限</label>
+                                <select id="account-token-expiry">
+                                    <option value="">なし</option>
+                                    <option value="30">30日</option>
+                                    <option value="90" selected>90日</option>
+                                    <option value="365">365日</option>
+                                </select>
+                            </div>
+                            <button class="account-action" id="account-token-create" type="submit">トークンを作成</button>
+                        </form>
+                        <p id="account-token-status" role="status"></p>
+                        <p class="auth-error hidden" id="account-token-error" role="alert"></p>
+                        <div class="account-token-once hidden" id="account-token-once">
+                            <div class="form-group">
+                                <label for="account-token-value">APIトークン</label>
+                                <input id="account-token-value" type="text" readonly autocomplete="off" spellcheck="false">
+                                <button class="account-action" id="account-token-copy" type="button">トークンをコピー</button>
+                            </div>
+                            <div class="form-group">
+                                <label for="account-token-command">Claude Code の登録コマンド</label>
+                                <textarea id="account-token-command" rows="4" readonly spellcheck="false"></textarea>
+                                <button class="account-action" id="account-token-command-copy" type="button">コマンドをコピー</button>
+                                <button class="account-action" id="account-token-prompt-copy" type="button">Claude Code への依頼文をコピー</button>
+                            </div>
+                            <div class="form-group hidden" id="account-token-prompt-fallback">
+                                <label for="account-token-prompt">Claude Code への依頼文</label>
+                                <textarea id="account-token-prompt" rows="5" readonly spellcheck="false"></textarea>
+                            </div>
+                            <p class="text-muted">トークンは Claude Code の設定（<code>~/.claude.json</code>）に平文で保存されます。共有 PC で使った場合や漏えいした場合はここで無効化してください。設定後は Claude Code を再起動し、<code>/mcp</code> で接続を確認してください。</p>
+                            <button class="account-action" id="account-token-dismiss" type="button">トークン表示を閉じる</button>
+                        </div>
+                        <ul class="account-token-list" id="account-token-list" aria-label="APIトークン一覧"></ul>
+                        <p class="text-muted hidden" id="account-token-empty">APIトークンはありません。</p>
+                    </section>
                     <form class="account-settings-section" id="account-delete-form">
                         <h4>アカウント削除</h4>
-                        <p class="text-muted">すべてのリスト、タグ、メモ、保有株数と現金、価格アラート、保存済みバックテストが削除されます。</p>
+                        <p class="text-muted">すべてのリスト、タグ、メモ、保有株数と現金、価格アラート、保存済みバックテスト、APIトークンが削除されます。</p>
                         <div class="form-group">
                             <label for="account-delete-username">確認のためユーザー名を入力</label>
                             <input id="account-delete-username" type="text" autocomplete="off" required>
@@ -175,6 +218,23 @@
                 <div class="modal-actions">
                     <button class="account-action" id="import-replace-cancel" type="button">キャンセル</button>
                     <button class="account-action account-action-danger" id="import-replace-submit" type="submit">置き換える</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay hidden" id="revoke-token-overlay">
+        <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="revoke-token-title" tabindex="-1" aria-describedby="revoke-token-message">
+            <div class="modal-header">
+                <h3 id="revoke-token-title">APIトークンの無効化</h3>
+                <button class="modal-close" id="revoke-token-close" type="button" aria-label="閉じる">✕</button>
+            </div>
+            <form class="modal-body" id="revoke-token-form">
+                <p class="modal-message" id="revoke-token-message" tabindex="-1"></p>
+                <p class="auth-error hidden" id="revoke-token-error" role="alert"></p>
+                <div class="modal-actions">
+                    <button class="account-action" id="revoke-token-cancel" type="button">キャンセル</button>
+                    <button class="account-action account-action-danger" id="revoke-token-submit" type="submit">無効化</button>
                 </div>
             </form>
         </div>

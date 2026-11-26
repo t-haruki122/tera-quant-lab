@@ -3,11 +3,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from pydantic import BeforeValidator
 
-from app.routers.dependencies import limit_data_requests
+from app.routers.dependencies import limit_read_data_requests
 from app.schemas.symbols import SymbolSearchResponse
 from app.services.symbol_directory import directory
 
-router = APIRouter(prefix="/symbols", tags=["symbols"], dependencies=[Depends(limit_data_requests)])
+router = APIRouter(prefix="/symbols", tags=["symbols"], dependencies=[Depends(limit_read_data_requests)])
 
 
 @router.get("/search")

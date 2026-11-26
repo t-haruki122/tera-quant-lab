@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.auth import get_current_user
+from app.auth import get_current_user, get_read_user
 from app.backtest import REGISTRY, Backtester, history_to_df, make_strategy, run_grid
 from app.backtest.engine import BacktestInputError
 from app.backtest.grid import RANK_METRICS
@@ -23,7 +23,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.exceptions import ExternalAPIError, RateLimitError, SymbolNotFoundError, json_safe
 from app.models.db_models import BacktestRun, User
-from app.routers.dependencies import limit_backtest_requests
+from app.routers.dependencies import limit_backtest_requests, limit_read_backtest_requests, validate_optional_api_token
 from app.schemas.backtest import (
     BacktestRequest,
     GridRequest,
@@ -43,7 +43,7 @@ _active_jobs: Counter[int] = Counter()
 _jobs_lock = Lock()
 
 
-@router.get("/strategies")
+@router.get("/strategies", dependencies=[Depends(validate_optional_api_token)])
 async def get_strategies():
     return {
         "strategies": [{"name": name, "params": param_schema(name)} for name in REGISTRY],
@@ -208,7 +208,7 @@ async def _run_job(body: RunRequest | PortfolioRequest, user_id: int, db: AsyncS
 
 @router.post("/run")
 async def run_backtest(
-    body: RunRequest, user: User = Depends(limit_backtest_requests), db: AsyncSession = Depends(get_db),
+    body: RunRequest, user: User = Depends(limit_read_backtest_requests), db: AsyncSession = Depends(get_db),
 ):
     return await _run_job(body, user.id, db)
 
@@ -261,12 +261,12 @@ async def save_run(
 
 
 @router.get("/runs")
-async def list_runs(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def list_runs(user: User = Depends(get_read_user), db: AsyncSession = Depends(get_db)):
     return {"runs": [saved.serialize_run(row) for row in await saved.list_runs(user.id, db)]}
 
 
 @router.get("/runs/{run_id}")
-async def get_run(run_id: SQLiteID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def get_run(run_id: SQLiteID, user: User = Depends(get_read_user), db: AsyncSession = Depends(get_db)):
     return saved.serialize_run(await _owned_run(run_id, user.id, db), full=True)
 
 

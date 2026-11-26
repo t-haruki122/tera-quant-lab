@@ -18,12 +18,12 @@ dependencies = [
     "pandas>=2.1.0",
     "matplotlib>=3.8.0",
     "alembic>=1.20.1",
+    "mcp>=2.3.0",
 ]
 
 [dependency-groups]
 dev = [
     "basedpyright>=1.40.2",
-    "mcp>=2.3.0",
     "pre-commit>=4.7.0",
     "pytest",
     "ruff",
