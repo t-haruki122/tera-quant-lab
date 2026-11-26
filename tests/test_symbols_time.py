@@ -16,7 +16,10 @@ def test_encoded_stock_and_user_paths_and_timestamp_format(client, users, monkey
     fake = Mock(return_value={"symbol": symbol, "price": 123, "timestamp": timestamp})
     monkeypatch.setattr(stock_service._client, "get_current_price", fake)
     path = f"/stock/{quote(symbol, safe='')}"
-    assert client.get(path).json() == {"symbol": symbol, "price": 123, "timestamp": timestamp}
+    expected = {"symbol": symbol, "price": 123, "timestamp": timestamp}
+    if symbol == "^N225":
+        expected.update(currency="JPY", name="日経平均", unit="points")
+    assert client.get(path).json() == expected
     # Cache output must exactly match the external client's wire format.
     assert client.get(path).json()["timestamp"] == timestamp
     fake.assert_called_once_with(symbol)

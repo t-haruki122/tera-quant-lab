@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.database import get_db
+from app.market_indicators import BY_SYMBOL
 from app.routers.dependencies import limit_data_requests, limit_read_data_requests
 from app.schemas.stock import (
     CompanyProfileResponse,
@@ -43,7 +44,10 @@ router = APIRouter(prefix="/stock", tags=["stock"])
 )
 async def get_stock_price(symbol: Symbol, db: AsyncSession = Depends(get_db)):
     """現在の株価を取得"""
-    return await stock_service.get_current_price(symbol, db)
+    result = await stock_service.get_current_price(symbol, db)
+    if indicator := BY_SYMBOL.get(symbol):
+        return {**result, "name": indicator.name, "currency": indicator.currency, "unit": indicator.unit}
+    return {key: value for key, value in result.items() if key != "name"}
 
 
 @router.get("/{symbol}/snapshot", dependencies=[Depends(limit_data_requests)], response_model=StockSnapshot, response_model_exclude_unset=True,
@@ -75,9 +79,12 @@ async def get_stock_history(
         if end > shift_years(start_date, years):
             raise HTTPException(422, f"株価履歴の取得期間は最大 {years} 年です")
 
-    return await stock_service.get_history(
+    result = await stock_service.get_history(
         symbol, db, start_date.isoformat() if start_date else None, end_date.isoformat() if end_date else None, interval,
     )
+    if indicator := BY_SYMBOL.get(symbol):
+        return {**result, "unit": indicator.unit}
+    return result
 
 
 @router.get(

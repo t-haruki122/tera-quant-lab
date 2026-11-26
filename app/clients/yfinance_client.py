@@ -11,6 +11,7 @@ import yfinance as yf
 
 from app.clients.errors import external_call
 from app.exceptions import SymbolNotFoundError
+from app.market_indicators import BY_SYMBOL
 from app.timeutil import utc_iso
 
 # Let I/O errors propagate instead of becoming empty price histories.
@@ -26,6 +27,22 @@ def _finite_history_value(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return number if math.isfinite(number) else None
+
+
+def _previous_close(info: dict[str, Any]) -> float | None:
+    previous = _finite_history_value(info.get("regularMarketPreviousClose"))
+    return previous if previous is not None else _finite_history_value(info.get("previousClose"))
+
+
+def _quote_changes(info: dict[str, Any], current: float | None, previous: float | None) -> dict[str, float | None]:
+    change = _finite_history_value(info.get("regularMarketChange"))
+    change_pct = _finite_history_value(info.get("regularMarketChangePercent"))
+    if current is not None and previous is not None:
+        if change is None:
+            change = current - previous
+        if change_pct is None and previous:
+            change_pct = (current - previous) / abs(previous) * 100
+    return {"day_change": change, "day_change_pct": change_pct}
 
 
 def _market_time_fields(info: dict[str, Any]) -> dict[str, str]:
@@ -68,26 +85,21 @@ class YFinanceClient:
         ticker = yf.Ticker(symbol)
         info = ticker.info
         # 価格を取得（複数のフィールドをフォールバック）
-        current = _finite_history_value(info.get("currentPrice") or info.get("regularMarketPrice"))
-        previous = _finite_history_value(info.get("regularMarketPreviousClose") or info.get("previousClose"))
+        current = _finite_history_value(info.get("currentPrice"))
+        if current is None:
+            current = _finite_history_value(info.get("regularMarketPrice"))
+        previous = _previous_close(info)
         price = current if current is not None else previous
         if price is None:
             raise SymbolNotFoundError(symbol)
-        change = _finite_history_value(info.get("regularMarketChange"))
-        change_pct = _finite_history_value(info.get("regularMarketChangePercent"))
-        if current is not None and previous is not None and previous > 0:
-            if change is None:
-                change = current - previous
-            if change_pct is None:
-                change_pct = (current / previous - 1) * 100
+        indicator = BY_SYMBOL.get(symbol)
         return {
             "symbol": symbol.upper(),
             "price": float(price),
             "timestamp": utc_iso(),
             "name": info.get("shortName") or info.get("longName"),
-            "currency": info.get("currency"),
-            "day_change": change,
-            "day_change_pct": change_pct,
+            "currency": indicator.currency if indicator else info.get("currency"),
+            **_quote_changes(info, current, previous),
             **_market_time_fields(info),
         }
 
@@ -104,16 +116,15 @@ class YFinanceClient:
         ticker = yf.Ticker(pair)
         info = ticker.info
         # ask, bid, regularMarketPrice などから価格を取得
-        rate = (
-            info.get("regularMarketPrice")
-            or info.get("previousClose")
-        )
+        current = _finite_history_value(info.get("regularMarketPrice"))
+        previous = _previous_close(info)
+        rate = current if current is not None else previous
 
         # yfinanceの仕様変更でinfoから取れない場合
         if rate is None:
             hist = ticker.history(period="1d")
             if not hist.empty:
-                rate = float(hist["Close"].iloc[-1])
+                rate = _finite_history_value(hist["Close"].iloc[-1])
         if rate is None:
             raise SymbolNotFoundError(pair)
         timestamp = utc_iso()
@@ -121,6 +132,8 @@ class YFinanceClient:
             "pair": pair.upper(),
             "rate": float(rate),
             "timestamp": timestamp,
+            **_quote_changes(info, current, previous),
+            **_market_time_fields(info),
         }
 
     @external_call

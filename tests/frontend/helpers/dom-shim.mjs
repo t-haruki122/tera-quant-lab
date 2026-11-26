@@ -17,17 +17,18 @@ const events = () => {
     };
 };
 
-const element = () => {
+const element = tag => {
     const classes = new Set(['hidden']);
     const attrs = new Map();
     return {
         ...events(),
-        value: '', textContent: '', innerHTML: '', disabled: false, isConnected: true, tabIndex: 0, dataset: {},
+        value: '', textContent: '', innerHTML: '', disabled: false, hidden: false, isConnected: true, tabIndex: 0, dataset: {},
+        tagName: tag?.toUpperCase(),
         getAttribute: name => attrs.get(name) ?? null,
         setAttribute: (name, value) => attrs.set(name, String(value)),
         removeAttribute: name => attrs.delete(name),
         getClientRects: () => [1],
-        matches(selector) { return selector === ':disabled' && this.disabled; },
+        matches(selector) { return selector === ':disabled' ? this.disabled : selector.toUpperCase() === this.tagName; },
         classList: {
             add: name => classes.add(name), remove: name => classes.delete(name),
             contains: name => classes.has(name),
@@ -38,6 +39,8 @@ const element = () => {
             },
         },
         children: [],
+        get firstElementChild() { return this.children[0] ?? null; },
+        append(...children) { for (const child of children) this.appendChild(child); },
         appendChild(child) { this.children.push(child); child.parentElement = this; },
         replaceChildren(...children) {
             for (const child of this.children) child.parentElement = null;
@@ -62,6 +65,7 @@ globalThis.document = {
         return elements.get(id);
     },
     createElement: element,
+    createElementNS: (_namespace, tag) => element(tag),
     querySelectorAll: () => [],
     querySelector: () => element(),
 };

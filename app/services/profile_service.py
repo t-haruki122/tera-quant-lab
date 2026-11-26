@@ -7,6 +7,7 @@ from app.cache import PROVIDER_FAILURES, CacheWindow, cached_response, upsert_ca
 from app.clients.yfinance_client import YFinanceClient
 from app.config import get_settings
 from app.exceptions import SymbolNotFoundError
+from app.market_indicators import BY_SYMBOL, is_non_company
 from app.models.db_models import CompanyProfile, StockPrice
 from app.services import stock_service
 from app.services.symbol_directory import directory
@@ -24,6 +25,8 @@ async def get_profile(symbol: str, db: AsyncSession) -> dict:
 
     キャッシュTTL: 1日
     """
+    if (indicator := BY_SYMBOL.get(symbol)) and is_non_company(symbol):
+        return {"symbol": symbol, "name": indicator.name, "currency": indicator.currency}
     window = CacheWindow(get_settings().cache_ttl_history)
     stmt = select(CompanyProfile).where(CompanyProfile.symbol == symbol, CompanyProfile.cached_at >= window.usable_since)
     record = (await db.execute(stmt)).scalar_one_or_none()

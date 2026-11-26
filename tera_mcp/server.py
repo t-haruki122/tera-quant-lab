@@ -17,6 +17,7 @@ from tera_mcp.client import JSONObject, ToolClient
 
 INSTRUCTIONS = """\
 ティッカーが分からないときは search_symbols を使ってください。
+株価指数、為替、商品、金利などの市況の確認には get_market_overview を使ってください。各指標の as_of と stale を確認してください。
 データは利用者のローカルアプリに由来します。yfinance などから取得したキャッシュには遅延や欠損があり得ます。
 stale と cached_at を確認し、数値を引用するときは銘柄と日付を添えてください。
 赤字や債務超過などで PER または PBR が 0 以下の場合、mix_index は null です。利益が極端に小さい場合、PER は非常に大きくなります。
@@ -118,6 +119,11 @@ def create_server(client: ToolClient) -> MCPServer[None]:
 
         results = await asyncio.gather(*(fetch_part(url) for url in parts.values()))
         return {"symbol": symbol, **dict(zip(parts, results, strict=True))}
+
+    @server.tool(annotations=MARKET_READ)
+    async def get_market_overview() -> dict[str, Any]:
+        """主要な経済指標の現在値、前日比、日次終値の推移を取得します。期限切れや未取得のデータは更新します。"""
+        return await client.get("/market/overview", params={"cached": "false"})
 
     @server.tool(annotations=MARKET_READ)
     async def get_financials(symbol: str, include_history: bool = True) -> dict[str, Any]:

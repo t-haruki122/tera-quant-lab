@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.cache import PROVIDER_FAILURES, CacheWindow
 from app.config import get_settings
 from app.exceptions import SymbolNotFoundError
+from app.market_indicators import BY_SYMBOL, USD_JPY_SYMBOL, is_non_company
 from app.models.db_models import CompanyProfile, Indicator, StockMemo, StockPrice, UserListItem
 from app.services import indicator_service, investment_quotes, profile_service, stock_service, user_service
 from app.services.investment_quotes import Bind, finite
@@ -33,6 +34,9 @@ async def get_list_memos(user_id: int, list_id: int, db: AsyncSession) -> dict[s
 
 def snapshot_fields(symbol: str, quote, profile, indicators, *, cached: bool = False) -> dict:
     fields: dict = {"symbol": symbol}
+    if (indicator := BY_SYMBOL.get(symbol)) and is_non_company(symbol):
+        profile = {"name": indicator.name, "currency": indicator.currency}
+        indicators = {}
     if profile is not None:
         fields.update({key: profile.get(key) for key in PROFILE_FIELDS})
         fields["currency"] = currency_code(fields["currency"])
@@ -89,16 +93,18 @@ async def cached_snapshots(list_id: int, db: AsyncSession) -> list[dict]:
     settings = get_settings()
     quote_window = CacheWindow(settings.cache_ttl_current_price)
     detail_window = CacheWindow(settings.cache_ttl_history)
-    return [
-        snapshot_fields(
-            symbol,
-            {**stock_service.cached_quote(q), **quote_window.metadata(q.cached_at)} if q else None,
+    snapshots = []
+    for symbol, q, p, i in rows:
+        quote = {**stock_service.cached_quote(q), **quote_window.metadata(q.cached_at)} if q else None
+        if symbol == USD_JPY_SYMBOL:
+            quote = await stock_service.read_cached_usd_jpy_quote(db) or quote
+        snapshots.append(snapshot_fields(
+            symbol, quote,
             {**{key: getattr(p, key) for key in PROFILE_FIELDS}, **detail_window.metadata(p.cached_at)} if p else None,
             {**indicator_service.cached_indicators(i), **detail_window.metadata(i.cached_at)} if i else None,
             cached=True,
-        )
-        for symbol, q, p, i in rows
-    ]
+        ))
+    return snapshots
 
 
 def percentage(value: float, total: float) -> float | None:

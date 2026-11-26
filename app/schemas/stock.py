@@ -3,6 +3,8 @@
 
 from pydantic import BaseModel, Field
 
+from app.market_indicators import MarketUnit
+
 
 class CachedResponse(BaseModel):
     stale: bool | None = Field(default=None, exclude_if=lambda value: value is None)
@@ -33,6 +35,8 @@ class StockPriceResponse(CachedResponse):
     price: float
     timestamp: str
     currency: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    name: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    unit: MarketUnit | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 # --- 過去株価 ---
@@ -62,6 +66,7 @@ class StockHistoryResponse(CachedResponse):
     """過去株価レスポンス"""
     symbol: str
     history: list[HistoryEntry]
+    unit: MarketUnit | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 # --- 財務情報 ---

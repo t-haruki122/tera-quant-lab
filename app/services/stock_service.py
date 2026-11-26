@@ -7,10 +7,20 @@ from weakref import WeakKeyDictionary
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 
-from app.cache import PROVIDER_FAILURES, CacheWindow, allows_stale, cached_response, stale_fields, upsert_cache
+from app.cache import (
+    FOREX_TTL_SECONDS,
+    PROVIDER_FAILURES,
+    CacheWindow,
+    allows_stale,
+    cached_response,
+    stale_fields,
+    upsert_cache,
+)
 from app.clients.yfinance_client import YFinanceClient
 from app.config import get_settings
+from app.market_indicators import BY_SYMBOL, USD_JPY_SYMBOL
 from app.models.db_models import StockPrice
+from app.services import forex_service
 from app.singleflight import coalesce, fetch
 from app.stats import stats
 from app.timeutil import to_db, utc_iso, utcnow
@@ -176,8 +186,9 @@ def quote_query(symbol):
 
 
 def cached_quote(record: StockPrice) -> dict:
+    indicator = BY_SYMBOL.get(record.symbol)
     metadata = {
-        "name": record.quote_name, "currency": record.quote_currency,
+        "name": record.quote_name, "currency": indicator.currency if indicator else record.quote_currency,
         "day_change": record.quote_day_change, "day_change_pct": record.quote_day_change_pct,
         "market_time": record.quote_market_time, "market_date": record.quote_market_date,
     }
@@ -187,9 +198,25 @@ def cached_quote(record: StockPrice) -> dict:
     }
 
 
+def _usd_jpy_quote(rate: dict) -> dict:
+    return {**rate, "symbol": USD_JPY_SYMBOL, "price": rate["rate"], "currency": "JPY"}
+
+
+async def read_cached_usd_jpy_quote(db: AsyncSession) -> dict | None:
+    record = await forex_service.read_cached_rate(forex_service.USD_JPY, db)
+    if record is None:
+        return None
+    return {
+        **_usd_jpy_quote(forex_service.cached_rate(record)),
+        **CacheWindow(FOREX_TTL_SECONDS).metadata(record.cached_at),
+    }
+
+
 @coalesce
 async def get_current_price(symbol: str, db: AsyncSession) -> dict:
     """現在の株価を取得（キャッシュ優先）"""
+    if symbol == USD_JPY_SYMBOL:
+        return _usd_jpy_quote(await forex_service.get_exchange_rate(forex_service.USD_JPY, db))
     window = CacheWindow(get_settings().cache_ttl_current_price)
     record = await db.scalar(quote_query(symbol).where(StockPrice.cached_at >= window.usable_since))
     cached = (record.cached_at, cached_quote(record)) if record is not None else None
@@ -201,6 +228,8 @@ async def get_current_price(symbol: str, db: AsyncSession) -> dict:
 @coalesce
 async def refresh_quote(symbol: str, db: AsyncSession) -> dict:
     """Refresh the cache for both foreground requests and the warmer."""
+    if symbol == USD_JPY_SYMBOL:
+        return _usd_jpy_quote(await forex_service.refresh_exchange_rate(forex_service.USD_JPY, db))
     stats.log_api_call()
     data = await fetch(_client.get_current_price, symbol)
 
@@ -258,6 +287,8 @@ async def get_history(
     interval: str = "1d",
     *,
     warmup_days: int = 0,
+    include_technicals: bool = True,
+    min_cached_bars: int = 0,
 ) -> dict:
     """
     過去の株価データを取得（キャッシュ優先・指標計算付き）
@@ -269,7 +300,7 @@ async def get_history(
     # 指標計算用に取得期間を過去へ拡張する
     fetch_start_date = start_date
     return_start_date = start_date
-    if start_date:
+    if start_date and (include_technicals or warmup_days):
         start_dt_req = datetime.strptime(start_date, "%Y-%m-%d")
         # Requested bar frequency determines the SMA_200 warmup, even though
         # weekly/monthly prices are fetched and cached as daily bars.
@@ -310,7 +341,7 @@ async def get_history(
 
         cached_records = list((await db.scalars(stmt)).all())
         fresh = [row for row in cached_records if row.cached_at >= window.fresh_since]
-        if _covers_history(
+        if (min_cached_bars and len(fresh) >= min_cached_bars) or _covers_history(
             fresh, fetch_start_date, end_day if warmup_days else None, coverage.get(symbol), window.fresh_since,
         ):
             stats.log_cache_hit()
@@ -322,10 +353,11 @@ async def get_history(
             records = await fetch(_client.get_history, symbol, fetch_start_date, fetch_end_date, source_interval)
         except PROVIDER_FAILURES as error:
             # Chart indicators may have less warmup in an older cache. Backtests still require their full coverage.
-            if not allows_stale(error) or not _covers_history(
+            covered = (min_cached_bars and len(cached_records) >= min_cached_bars) or _covers_history(
                 cached_records, fetch_start_date if warmup_days else return_start_date,
                 end_day if warmup_days else None, coverage.get(symbol), window.usable_since,
-            ):
+            )
+            if not allows_stale(error) or not covered:
                 raise
             cached_at = min(row.cached_at for row in cached_records)
             if cached_at >= window.fresh_since:
@@ -357,7 +389,7 @@ async def get_history(
         records = _aggregate_history(records, requested_interval)
 
     # 指標の計算
-    if records:
+    if records and include_technicals:
         closes = [r["close"] for r in records]
         sma_25 = _calculate_sma(closes, 25)
         sma_50 = _calculate_sma(closes, 50)

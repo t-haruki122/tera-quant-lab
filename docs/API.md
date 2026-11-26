@@ -15,6 +15,7 @@
 | 企業分析 | 財務情報、企業プロフィール、投資指標の取得 | `GET /stock/{symbol}/financials`、`GET /stock/{symbol}/profile`、`GET /stock/{symbol}/indicators` |
 | ニュース | 銘柄関連ニュースの取得 | `GET /stock/{symbol}/news` |
 | 為替 | 通貨ペアの現在レート取得 | `GET /forex/{pair}` |
+| 経済指標 | 主要な市況データと日次終値の推移 | `GET /market/overview` |
 | ユーザー機能 | ユーザー登録/ログイン、銘柄リスト管理、タグ管理 | `POST /user/register`、`POST /user/login`、`/user/{user_id}/lists...` |
 | Claude 連携 | APIトークンの発行・無効化、読み取り専用 MCP | `/user/{user_id}/api-tokens`、`/mcp` |
 | ウォッチリストの保有資産 | 株数・現金の設定、円換算評価、構成比 | `GET /user/{user_id}/lists/{list_id}/summary` |
@@ -78,6 +79,23 @@ EMA は最初の N 本の単純平均で開始し、以降は重み `2 / (N + 1)
 - 為替レート: `GET /forex/{pair}`
 - 通貨コードを英字6文字で指定します。`USDJPY` は内部で `USDJPY=X` に補完されます。
 - 為替レートはSQLiteに保存し、TTLは1時間です。キャッシュはアプリの再起動後も利用できます。
+
+### 経済指標
+
+`GET /market/overview?cached=false` は認証不要で、株価履歴などと同じデータ読み取りレート制限が適用されます。既定の `cached=false` では、株価・為替・日次履歴の既存キャッシュと有効期間を利用し、必要なデータを更新します。ドル円（`JPY=X`）の現在値は `GET /forex/USDJPY` とキャッシュを共有します。`cached=true` は SQLite に保存済みのデータだけを返し、有効期限を過ぎたデータも `stale: true` で返します。
+
+レスポンスの `as_of` は生成時刻（UTC）です。`indicators` には日本、米国、為替、商品、金利・リスク、暗号資産の指標が固定順で入ります。各要素のフィールドは次のとおりです。
+
+| フィールド | 説明 |
+|---|---|
+| `symbol`、`name`、`group`、`note` | Yahoo のティッカー、日本語名、分類、補足。TOPIX は連動ETF `1306.T` の価格を使用します。 |
+| `unit`、`currency` | 表示単位は `points`、`jpy`、`usd`、`usd_per_oz`、`usd_per_barrel`、`yield_pct` のいずれか。通貨のない指標の `currency` は `null`。 |
+| `value`、`previous_close`、`change` | 現在値、前日終値、前日比の値幅。欠損時は `null`。 |
+| `change_pct` または `change_pt` | 通常は百分率、米10年国債利回り（`^TNX`）ではパーセントポイント。利回りの `value: 4.25` は 4.25% を表します。 |
+| `as_of`、`sparkline` | 各指標の市場時刻（取得できなければ取得時刻）と、日次終値の最大30件（古い順）。未取得時は `null` と `[]`。 |
+| `stale`、`error` | 有効期限の過ぎたデータを含むかどうかと、更新できなかったデータの説明。個別の取得失敗でも一覧は HTTP `200` で返ります。 |
+
+経済指標の `GET /stock/{symbol}` は日本語名 `name` と表示単位 `unit` を、`GET /stock/{symbol}/history` は `unit` を追加で返します。
 
 ### 3. ユーザー・ウォッチリスト
 

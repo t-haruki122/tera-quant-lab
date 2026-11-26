@@ -22,7 +22,7 @@ ACCOUNT = Settings(username="alice", password=PASSWORD)
 TOOL_NAMES = {
     "list_watchlists", "get_watchlist", "get_price_alerts", "get_stock", "get_financials",
     "get_price_history", "get_news", "get_exchange_rate", "list_backtest_strategies", "run_backtest",
-    "list_saved_backtests", "get_saved_backtest", "search_symbols",
+    "list_saved_backtests", "get_saved_backtest", "search_symbols", "get_market_overview",
 }
 
 
@@ -93,6 +93,26 @@ def test_symbol_search_is_public_and_allowlisted():
             with pytest.raises(ToolError):
                 await api.get("/symbols/refresh")
             assert requests == [("GET", "/symbols/search")]
+
+    asyncio.run(scenario())
+
+
+def test_market_overview_is_public_and_allowlisted():
+    payload = {"as_of": "2026-01-01T10:00:00Z", "indicators": []}
+
+    def result(request):
+        assert "Authorization" not in request.headers
+        assert dict(request.url.params) == {"cached": "false"}
+        return httpx.Response(200, json=payload)
+
+    async def scenario():
+        api, requests = mock_client({("GET", "/market/overview"): result}, Settings())
+        async with api:
+            server = create_server(api)
+            assert await call(server, "get_market_overview") == payload
+            with pytest.raises(ToolError, match="許可されていない"):
+                await api.get("/market/overview/refresh")
+        assert requests == [("GET", "/market/overview")]
 
     asyncio.run(scenario())
 

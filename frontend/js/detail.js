@@ -9,6 +9,7 @@ import { loadChart, updateChartCurrency, updateChartVisibility } from './chart.j
 import { renderComparison, resetComparison } from './comparison.js';
 import { normalizeSymbol } from './router.js';
 import { renderFinancialHistoryChart, renderDividendHistoryChart } from './financial-chart.js';
+import { formatMarketValue } from './market-format.js';
 
 let displayedQuote = null;
 let detailRequestId = 0;
@@ -48,6 +49,7 @@ export async function loadStock(symbol) {
     const user = state.currentUser;
     const isCurrent = () => requestId === detailRequestId && user === state.currentUser;
     const path = `/stock/${encodeURIComponent(symbol)}`;
+    const marketInstrument = /^\^|=[FX]$|-(?:USD|EUR|JPY)$/.test(symbol) || symbol === '1306.T';
     byId('search-input').value = symbol;
     byId('search-error').textContent = '';
     state.currentSymbol = symbol;
@@ -60,6 +62,11 @@ export async function loadStock(symbol) {
     byId('quote-error').textContent = '';
     byId('search-retry-btn').classList.add('hidden');
     byId('quote-stale').textContent = '';
+    for (const card of ['profile-card', 'financials-card', 'indicators-card']) {
+        byId(card).classList.toggle('hidden', marketInstrument);
+    }
+    byId('price-chart-title').textContent = marketInstrument ? '📊 価格・指標チャート' : '📊 株価チャート';
+    byId('price-chart').setAttribute('aria-label', marketInstrument ? '価格・指標の推移' : '株価の推移');
     byId('profile-body').innerHTML = skeleton;
     byId('indicators-body').innerHTML = skeleton;
     showSection('stock-detail');
@@ -69,33 +76,35 @@ export async function loadStock(symbol) {
     const price = fetchAPI(path).then(quote => {
         if (!isCurrent()) return;
         renderStockHeader(quote, profile);
-        updateChartCurrency(currency());
+        updateChartCurrency(currency(), quote.unit);
     }).catch(error => {
         if (!isCurrent()) return;
         byId('price-display').textContent = '—';
         byId('quote-error').textContent = error.message;
         byId('search-retry-btn').classList.remove('hidden');
     });
-    const company = loadPanel(`${path}/profile`, 'profile-body', data => {
-        profile = data;
-        renderCompanyHeader(symbol, profile);
-        renderProfile(profile);
-        if (displayedQuote) renderStockHeader(displayedQuote, profile);
-        updateChartCurrency(currency());
-    }, isCurrent);
     refreshDetailHistory();
-    await Promise.all([
-        price, company,
-        loadPanel(`${path}/indicators`, 'indicators-body', renderIndicators, isCurrent),
-        loadFinancials(symbol, { get currency() { return currency(); } }, isCurrent),
-        loadNews(symbol, isCurrent),
-    ]);
+    const panels = [price, loadNews(symbol, isCurrent)];
+    if (!marketInstrument) {
+        panels.push(
+            loadPanel(`${path}/profile`, 'profile-body', data => {
+                profile = data;
+                renderCompanyHeader(symbol, profile);
+                renderProfile(profile);
+                if (displayedQuote) renderStockHeader(displayedQuote, profile);
+                updateChartCurrency(currency());
+            }, isCurrent),
+            loadPanel(`${path}/indicators`, 'indicators-body', renderIndicators, isCurrent),
+            loadFinancials(symbol, { get currency() { return currency(); } }, isCurrent),
+        );
+    }
+    await Promise.all(panels);
 }
 
 export function refreshDetailHistory() {
     const { currentSymbol, currentPeriod } = state;
     if (!currentSymbol) return;
-    loadChart(currentSymbol, currentPeriod, displayedQuote?.currency);
+    loadChart(currentSymbol, currentPeriod, displayedQuote?.currency, displayedQuote?.unit);
     renderComparison(currentSymbol, currentPeriod);
 }
 
@@ -126,7 +135,7 @@ function renderCompanyHeader(symbol, profile) {
 }
 
 export function renderStockHeader(price, profile) {
-    renderCompanyHeader(price.symbol, profile);
+    renderCompanyHeader(price.symbol, { ...profile, name: profile.name || price.name });
     displayedQuote = { ...price, currency: price.currency || profile.currency };
     renderQuotePrice();
     renderQuoteStaleNotice();
@@ -134,14 +143,17 @@ export function renderStockHeader(price, profile) {
 }
 
 function renderQuotePrice() {
-    const { price, currency } = displayedQuote;
-    document.getElementById('price-display').textContent = currency ? formatCurrency(price, currency) : price.toLocaleString('ja-JP');
+    const { price, currency, unit } = displayedQuote;
+    document.getElementById('price-display').textContent = unit
+        ? formatMarketValue(price, unit)
+        : currency ? formatCurrency(price, currency) : price.toLocaleString('ja-JP');
     displayedQuote.renderedRate = state.exchangeRateUSDJPY;
 }
 
 function renderQuoteStaleNotice() {
     const notice = document.getElementById('quote-stale');
-    const forex = displayedQuote.currency === 'USD' && { stale: true, cached_at: state.exchangeRateCachedAt };
+    const forex = !displayedQuote.unit && displayedQuote.currency === 'USD'
+        && { stale: true, cached_at: state.exchangeRateCachedAt };
     if (notice) notice.textContent = staleMessage(oldestStaleData(displayedQuote, forex));
 }
 

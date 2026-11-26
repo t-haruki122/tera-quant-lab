@@ -1,5 +1,6 @@
 import { state } from './state.js';
 import { fetchHistory } from './history.js';
+import { formatMarketValue, formatYieldChange } from './market-format.js';
 import { formatCurrency, formatPercent, staleMessage } from './utils.js';
 
 const CHART_TYPE_KEY = 'stockAnalyzerChartType';
@@ -42,22 +43,22 @@ export function resetPriceChart() {
 
 export function updateChartVisibility() {
     if (state.currentChartHistory.length) {
-        renderChart(state.currentChartHistory, state.currentChartCurrency);
+        renderChart(state.currentChartHistory, state.currentChartCurrency, activeHistoryRequest?.unit);
     }
 }
 
-export function updateChartCurrency(currency) {
-    if (currency === state.currentChartCurrency) return;
+export function updateChartCurrency(currency, unit = activeHistoryRequest?.unit) {
+    if (currency === state.currentChartCurrency && unit === activeHistoryRequest?.unit) return;
     state.currentChartCurrency = currency;
-    if (activeHistoryRequest) activeHistoryRequest.currency = currency;
+    if (activeHistoryRequest) Object.assign(activeHistoryRequest, { currency, unit });
     updateChartVisibility();
 }
 
-export async function loadChart(symbol, period, currency) {
+export async function loadChart(symbol, period, currency, unit) {
     resetPriceChart();
     const interval = chartInterval(period);
     const requestId = state.latestChartRequestId;
-    activeHistoryRequest = { symbol, period, currency, interval };
+    activeHistoryRequest = { symbol, period, currency, unit, interval };
     state.currentChartCurrency = currency;
     byId('history-stale').textContent = '';
     byId('chart-history-status').textContent = interval === '1wk' ? '週足で表示' : '';
@@ -68,12 +69,13 @@ export async function loadChart(symbol, period, currency) {
         const data = await fetchHistory(symbol, period, interval);
         if (!isCurrent()) return;
         if (!data.history.length) {
-            byId('chart-history-status').textContent = '株価履歴がありません';
+            byId('chart-history-status').textContent = '価格履歴がありません';
             return;
         }
         state.currentChartHistory = data.history;
+        activeHistoryRequest.unit = data.unit ?? activeHistoryRequest.unit;
         byId('history-stale').textContent = staleMessage(data);
-        renderChart(data.history, state.currentChartCurrency);
+        updateChartVisibility();
     } catch (error) {
         if (isCurrent()) byId('chart-history-status').textContent = error.message;
     } finally {
@@ -152,7 +154,7 @@ function number(value) {
     return value.toLocaleString('ja-JP', { maximumFractionDigits: 4 });
 }
 
-function chartOptions({ xLabels = true, offset = false, y = {}, tooltip = {}, legend = false } = {}) {
+function chartOptions({ xLabels = true, offset = false, y = {}, tooltip = {}, legend = false, tickLabel = number } = {}) {
     const grid = { color: 'rgba(255,255,255,0.06)' };
     return {
         responsive: true,
@@ -171,7 +173,7 @@ function chartOptions({ xLabels = true, offset = false, y = {}, tooltip = {}, le
                 border: { display: false },
             },
             y: {
-                position: 'right', beginAtZero: false, grid, ticks: { color: '#94a3b8', maxTicksLimit: 5, callback: number },
+                position: 'right', beginAtZero: false, grid, ticks: { color: '#94a3b8', maxTicksLimit: 5, callback: tickLabel },
                 border: { display: false }, ...y,
             },
         },
@@ -182,35 +184,37 @@ function chartPrice(value, currency) {
     return currency ? formatCurrency(value, currency) : value?.toLocaleString('ja-JP') ?? '—';
 }
 
-function ohlcTooltip({ open, high, low, close }, currency) {
+function ohlcTooltip({ open, high, low, close }, displayPrice) {
     const direction = close === open ? '＝' : close > open ? '▲' : '▼';
-    return [`${direction} 始値 ${chartPrice(open, currency)}`, `高値 ${chartPrice(high, currency)}`,
-        `安値 ${chartPrice(low, currency)}`, `終値 ${chartPrice(close, currency)}`];
+    return [`${direction} 始値 ${displayPrice(open)}`, `高値 ${displayPrice(high)}`,
+        `安値 ${displayPrice(low)}`, `終値 ${displayPrice(close)}`];
 }
 
-export function renderChart(history, currency) {
+export function renderChart(history, currency, unit) {
     destroyCharts();
     if (!history.length) return;
-    const scale = currency === 'USD' && state.exchangeRateUSDJPY || 1;
+    const scale = !unit && currency === 'USD' && state.exchangeRateUSDJPY || 1;
+    const displayPrice = value => unit ? formatMarketValue(value, unit) : chartPrice(value, currency);
     const labels = history.map(bar => bar.date);
     const enabled = new Set(toggles.filter(key => byId(`toggle-${key}`).checked));
     const datasets = buildChartDatasets(history, { type: chartType, enabled, scale, colors: palette() });
     const first = history[0];
     const last = history.at(-1);
-    const change = first.close ? formatPercent((last.close / first.close - 1) * 100) : '—';
-    byId('price-chart-summary').textContent = `${last.date} 終値 ${chartPrice(last.close, currency)}、期間騰落率 ${change}`;
+    const movement = unit === 'yield_pct' ? `期間変化 ${formatYieldChange(last.close - first.close)}`
+        : `期間騰落率 ${first.close ? formatPercent((last.close / first.close - 1) * 100) : '—'}`;
+    byId('price-chart-summary').textContent = `${last.date} 終値 ${displayPrice(last.close)}、${movement}`;
 
     const candles = chartType === 'candlestick';
     const tooltip = {
         filter: item => !item.dataset.wick || !Number.isFinite(history[item.dataIndex].open),
         callbacks: {
-            label: item => item.dataset.candle || item.dataset.wick ? ohlcTooltip(history[item.dataIndex], currency)
-                : `${item.dataset.label} ${chartPrice(item.parsed.y / scale, currency)}`,
+            label: item => item.dataset.candle || item.dataset.wick ? ohlcTooltip(history[item.dataIndex], displayPrice)
+                : `${item.dataset.label} ${displayPrice(item.parsed.y / scale)}`,
         },
     };
     state.priceChart = new Chart(byId('price-chart').getContext('2d'), {
         type: 'line', data: { labels, datasets: datasets.price },
-        options: chartOptions({ offset: candles, tooltip }),
+        options: chartOptions({ offset: candles, tooltip, tickLabel: unit === 'yield_pct' ? displayPrice : number }),
     });
 
     for (const key of ['rsi', 'volume', 'macd']) {
@@ -251,8 +255,8 @@ export function changeChartType(type) {
     try { localStorage.setItem(CHART_TYPE_KEY, type); } catch { /* ストレージ制限時も切り替える */ }
     updateChartTypeControls();
     if (activeHistoryRequest && activeHistoryRequest.interval !== chartInterval(activeHistoryRequest.period)) {
-        const { symbol, period, currency } = activeHistoryRequest;
-        loadChart(symbol, period, currency);
+        const { symbol, period, currency, unit } = activeHistoryRequest;
+        loadChart(symbol, period, currency, unit);
     } else {
         updateChartVisibility();
     }

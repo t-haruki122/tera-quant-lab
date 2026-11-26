@@ -16,6 +16,7 @@ import { bindBacktestEvents, openBacktest, refreshBacktestSession, updateBacktes
 import { bindAlertDialogEvents, closeAlerts, showAlertCheckResult } from './js/alert-dialog.js';
 import { createAlertPolling } from './js/alerts.js';
 import { bindSymbolCombobox } from './js/symbol-combobox.js';
+import { createMarketView } from './js/market.js';
 
 let activeApp = null;
 
@@ -49,6 +50,7 @@ export class App {
 
         this.document = deps.documentRef ?? document;
         this.window = deps.windowRef ?? window;
+        this.market = deps.market ?? createMarketView({ documentRef: this.document, request: this.fetchAPI });
         this.storage = deps.storage ?? localStorage;
         this.setIntervalFn = deps.setIntervalFn ?? window.setInterval.bind(window);
         this.clearIntervalFn = deps.clearIntervalFn ?? window.clearInterval.bind(window);
@@ -88,11 +90,12 @@ export class App {
         const { view, symbol, period, run } = route;
         if (this.route?.view === view && this.route.symbol === symbol && this.route.period === period && this.route.run === run) return;
         const changedView = this.route && this.route.view !== view;
+        if (changedView && this.route.view === 'market') this.market.cancel();
         this.route = route;
         this.currentView = view;
         this.document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
         this.document.getElementById(`${this.currentView}-view`)?.classList.add('active');
-        for (const name of ['list', 'backtest']) {
+        for (const name of ['list', 'market', 'backtest']) {
             const button = this.document.getElementById(`btn-${name}-view`);
             button?.classList.toggle('active', view === name);
             if (view === name) button?.setAttribute('aria-current', 'page');
@@ -102,6 +105,7 @@ export class App {
         this.syncStatsPolling();
         if (changedView) this.closeAlerts();
         if (this.currentView === 'backtest') this.openBacktest(symbol, { run });
+        if (this.currentView === 'market') this.market.load();
         if (this.currentView === 'detail') {
             const periodChanged = period !== this.state.currentPeriod;
             this.state.currentPeriod = period;
@@ -156,6 +160,8 @@ export class App {
 
         this.document.getElementById('logo-home-btn')?.addEventListener('click', () => this.switchView('list'));
         this.document.getElementById('btn-list-view')?.addEventListener('click', () => this.switchView('list'));
+        this.document.getElementById('btn-market-view')?.addEventListener('click', () => this.switchView('market'));
+        this.document.getElementById('market-refresh')?.addEventListener('click', () => this.market.load());
         this.document.getElementById('btn-backtest-view')?.addEventListener('click', () => this.switchView('backtest'));
         this.document.getElementById('btn-detail-backtest')?.addEventListener('click', () => this.switchView('backtest', this.state.currentSymbol));
         this.document.querySelectorAll('.period-btn[data-period]').forEach(button => {

@@ -16,6 +16,7 @@ export function parseRoute(hash) {
     const [path, query = ''] = hash.split(/\?(.*)/s, 2);
     const params = new URLSearchParams(query);
     if (path === '#/stats' && !query) return { view: 'stats' };
+    if (path === '#/market' && !query) return { view: 'market' };
     if (path === '#/backtest') {
         if (params.has('run')) {
             const run = runId(params.get('run'));
@@ -43,6 +44,7 @@ export function parseRoute(hash) {
 export function serializeRoute({ view, symbol, period, run }) {
     symbol = normalizeSymbol(symbol);
     if (view === 'stats') return '#/stats';
+    if (view === 'market') return '#/market';
     if (view === 'backtest') {
         const id = runId(run);
         if (id) return `#/backtest?run=${id}`;

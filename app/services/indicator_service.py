@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.cache import CacheWindow, cached_response, upsert_cache
 from app.clients.yfinance_client import YFinanceClient
 from app.config import get_settings
+from app.market_indicators import BY_SYMBOL, is_non_company
 from app.models.db_models import Indicator
 from app.singleflight import coalesce, fetch
 from app.stats import stats
@@ -30,6 +31,8 @@ async def get_indicators(symbol: str, db: AsyncSession) -> dict:
 
     キャッシュTTL: 1日
     """
+    if symbol in BY_SYMBOL and is_non_company(symbol):
+        return {"symbol": symbol, **dict.fromkeys(FIELDS)}
     window = CacheWindow(get_settings().cache_ttl_history)
     stmt = select(Indicator).where(Indicator.symbol == symbol, Indicator.cached_at >= window.usable_since)
     record = (await db.execute(stmt)).scalar_one_or_none()

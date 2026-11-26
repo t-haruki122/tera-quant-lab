@@ -19,7 +19,7 @@ from app.database import init_db
 from app.exceptions import register_exception_handlers
 from app.mcp_http import MCP_PATHS, AppCORSMiddleware, MCPGateway, serve_mcp
 from app.middleware import InternalErrorMiddleware, RequestIDFilter, RequestMiddleware, TokenRedactingFormatter
-from app.routers import api_tokens, backtest, forex, investments, stats, stock, symbols, user
+from app.routers import api_tokens, backtest, forex, investments, market, stats, stock, symbols, user
 from app.services.cache_warmer import warm_cache_periodically
 from app.services.symbol_directory import initialize_symbol_directory
 from app.stats import stats as app_stats
@@ -149,6 +149,7 @@ app.include_router(api_tokens.router)
 app.include_router(investments.router)
 app.include_router(stats.router)
 app.include_router(forex.router)
+app.include_router(market.router)
 app.include_router(backtest.router)
 app.include_router(symbols.router)
 app.router.routes.extend(Route(path, MCPGateway(), name="mcp") for path in MCP_PATHS)
