@@ -9,10 +9,10 @@ from sqlalchemy import select
 
 from app import database
 from app.clients import yfinance_client
-from app.models.db_models import StockPrice
+from app.models.db_models import CompanyProfile, Financial, StockPrice
 from app.schemas.stock import FinancialHistoryResponse
 from app.services import stock_service
-from app.timeutil import utcnow
+from app.timeutil import to_db, utcnow
 
 
 @pytest.mark.parametrize("interval,lookback", [("1wk", 365 * 5), ("1mo", 366 * 18)])
@@ -228,10 +228,83 @@ def test_financial_history_preserves_dates_eps_and_matching_shares(monkeypatch):
 def test_financial_history_fields_and_cli_limit_through_http(client, monkeypatch):
     from app.services import finance_service
 
-    payload = dict(symbol="X", history=[dict(period="2023", period_end="2023-06-30", eps=2,
+    payload = dict(symbol="X", currency=None, history=[dict(period="2023", period_end="2023-06-30", eps=2,
                                            shares=10, revenue=100, net_income=20)])
     fake = Mock(return_value=payload)
     monkeypatch.setattr(finance_service._client, "get_financial_history", fake)
     response = client.get("/stock/X/financials/history?limit=10")
     assert response.status_code == 200 and response.json() == payload
     fake.assert_called_once_with("X", limit=10)
+
+
+@pytest.mark.parametrize(("symbol", "statement_currency", "trading_currency", "expected"), [
+    ("7203.T", "JPY", "JPY", "JPY"),
+    ("AAPL", "USD", "USD", "USD"),
+    ("TM", "JPY", "USD", "JPY"),
+    ("MSFT", None, "USD", "USD"),
+    ("TEST", None, None, None),
+])
+def test_financial_endpoints_use_statement_currency_and_cache_it(
+    client, monkeypatch, symbol, statement_currency, trading_currency, expected,
+):
+    info = {
+        "quoteType": "EQUITY", "financialCurrency": statement_currency, "currency": trading_currency,
+        "totalRevenue": 350_000_000_000, "netIncomeToCommon": 205_000_000_000,
+    }
+    financials = pd.DataFrame(
+        {pd.Timestamp("2024-12-31"): [info["totalRevenue"], info["netIncomeToCommon"]]},
+        index=["Total Revenue", "Net Income"],
+    )
+    ticker = Mock(return_value=SimpleNamespace(info=info, financials=financials))
+    monkeypatch.setattr(yfinance_client.yf, "Ticker", ticker)
+
+    path = f"/stock/{symbol}/financials"
+    history = client.get(f"{path}/history")
+    assert history.status_code == 200
+    assert history.json()["currency"] == expected
+    assert history.json()["history"][0]["net_income"] == info["netIncomeToCommon"]
+
+    current = client.get(path)
+    assert current.status_code == 200
+    assert current.json()["currency"] == expected
+    assert current.json()["revenue"] == info["totalRevenue"]
+    assert client.get(path).json() == current.json()
+    assert ticker.call_count == 2
+
+
+def test_missing_financial_currency_falls_back_to_cached_profile_then_quote(client, monkeypatch):
+    ticker = Mock(return_value=SimpleNamespace(
+        info={"quoteType": "EQUITY"},
+        financials=pd.DataFrame({pd.Timestamp("2024-12-31"): [205]}, index=["Net Income"]),
+    ))
+    monkeypatch.setattr(yfinance_client.yf, "Ticker", ticker)
+
+    async def seed_cache():
+        async with database.AsyncSessionLocal() as session:
+            session.add_all([
+                Financial(symbol="7203.T", revenue=100),
+                Financial(symbol="EUR-STOCK", revenue=200),
+                CompanyProfile(symbol="7203.T", name="Toyota", currency="JPY"),
+                StockPrice(symbol="7203.T", interval="quote", timestamp=to_db(), close=100, quote_currency="USD"),
+                StockPrice(symbol="EUR-STOCK", interval="quote", timestamp=to_db(), close=200, quote_currency="EUR"),
+                CompanyProfile(symbol="NEW", name="New company", currency="GBP"),
+            ])
+            await session.commit()
+
+    client.portal.call(seed_cache)
+    for symbol, currency in [("7203.T", "JPY"), ("EUR-STOCK", "EUR")]:
+        path = f"/stock/{symbol}/financials"
+        current = client.get(path)
+        assert current.status_code == 200 and current.json()["currency"] == currency
+        history = client.get(f"{path}/history")
+        assert history.status_code == 200 and history.json()["currency"] == currency
+    assert [call.args for call in ticker.call_args_list] == [("7203.T",), ("EUR-STOCK",)]
+
+    current = client.get("/stock/NEW/financials")
+    assert current.status_code == 200 and current.json()["currency"] == "GBP"
+
+    async def cached_currency():
+        async with database.AsyncSessionLocal() as session:
+            return await session.scalar(select(Financial.currency).where(Financial.symbol == "NEW"))
+
+    assert client.portal.call(cached_currency) == "GBP"

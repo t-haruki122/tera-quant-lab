@@ -74,6 +74,7 @@ class StockHistoryResponse(CachedResponse):
 class FinancialResponse(CachedResponse):
     """財務情報レスポンス"""
     symbol: str
+    currency: str | None = Field(default=None, description="売上高・純利益の財務報告通貨。不明なら取引通貨")
     revenue: int | None = None
     net_income: int | None = None
     eps: float | None = None
@@ -93,6 +94,7 @@ class FinancialHistoryEntry(BaseModel):
 class FinancialHistoryResponse(BaseModel):
     """過去財務情報レスポンス"""
     symbol: str
+    currency: str | None = Field(default=None, description="売上高・純利益の財務報告通貨。不明なら取引通貨")
     history: list[FinancialHistoryEntry]
 
 
@@ -156,7 +158,7 @@ class IndicatorsResponse(CachedResponse):
     dividend_yield: float | None = None
     mix_index: float | None = None
     profit_margin: float | None = None
-    debt_to_equity: float | None = None
+    debt_to_equity: float | None = Field(default=None, description="D/Eレシオ（%）。133.16 は 133.16%")
 
 
 # --- エラー ---

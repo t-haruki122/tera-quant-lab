@@ -13,6 +13,7 @@ from app.clients.errors import external_call
 from app.exceptions import SymbolNotFoundError
 from app.market_indicators import BY_SYMBOL
 from app.timeutil import utc_iso
+from app.validation import currency_code
 
 # Let I/O errors propagate instead of becoming empty price histories.
 if hasattr(yf, "config"):
@@ -207,7 +208,7 @@ class YFinanceClient:
         財務情報を取得
 
         Returns:
-            {"symbol": str, "revenue": int, "net_income": int,
+            {"symbol": str, "currency": str | None, "revenue": int, "net_income": int,
              "eps": float, "pe_ratio": float}
         """
         logger.info("External API call: yfinance get_financials symbol=%s", symbol.upper())
@@ -217,6 +218,7 @@ class YFinanceClient:
             raise SymbolNotFoundError(symbol)
         return {
             "symbol": symbol.upper(),
+            "currency": currency_code(info.get("financialCurrency")) or currency_code(info.get("currency")),
             "revenue": info.get("totalRevenue"),
             "net_income": info.get("netIncomeToCommon"),
             "eps": info.get("trailingEps"),
@@ -229,6 +231,7 @@ class YFinanceClient:
         年次の財務履歴（年度末日・EPS・加重平均株式数を含む）を取得
 
         Returns:
+            currency: 財務報告通貨（不明なら取引通貨）。
             history: period (year), period_end (ISO date), revenue, net_income,
             eps (Diluted EPS, otherwise Basic EPS), shares (matching weighted average).
         """
@@ -292,7 +295,11 @@ class YFinanceClient:
         entries.sort(key=lambda x: x["period"])
         if limit > 0:
             entries = entries[-limit:]
-        return {"symbol": symbol.upper(), "history": entries}
+        return {
+            "symbol": symbol.upper(),
+            "currency": currency_code(info.get("financialCurrency")) or currency_code(info.get("currency")),
+            "history": entries,
+        }
 
     @external_call
     def get_dividend_history(self, symbol: str, limit: int = 20) -> dict[str, Any]:
@@ -417,7 +424,7 @@ class YFinanceClient:
         eps = info.get("trailingEps")
         dividend_yield = info.get("dividendYield")
         profit_margin = info.get("profitMargins")
-        debt_to_equity = info.get("debtToEquity")
+        debt_to_equity = info.get("debtToEquity")  # yfinance はパーセント単位で返す
         # 表示・キャッシュ用に丸めた PER と PBR がともに正の場合だけ算出する。
         mix_index = None
         if per is not None and pbr is not None and round(per, 2) > 0 and round(pbr, 2) > 0:

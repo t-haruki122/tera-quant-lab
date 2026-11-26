@@ -106,7 +106,10 @@ def create_server(client: ToolClient) -> MCPServer[None]:
 
     @server.tool(annotations=MARKET_READ)
     async def get_stock(symbol: str) -> dict[str, Any]:
-        """銘柄の現在株価、企業プロフィール、PER・PBR などの投資指標を取得します。"""
+        """銘柄の現在株価、企業プロフィール、PER・PBR などの投資指標を取得します。
+
+        indicators.debt_to_equity はパーセント単位です（133.16 は 133.16%）。
+        """
         symbol = _symbol(symbol)
         path = f"/stock/{quote(symbol, safe='')}"
         parts = {"price": path, "profile": f"{path}/profile", "indicators": f"{path}/indicators"}
@@ -127,7 +130,10 @@ def create_server(client: ToolClient) -> MCPServer[None]:
 
     @server.tool(annotations=MARKET_READ)
     async def get_financials(symbol: str, include_history: bool = True) -> dict[str, Any]:
-        """売上高、純利益、EPS などの財務情報と、必要に応じて過去の年次財務を取得します。"""
+        """売上高、純利益、EPS などの財務情報と、必要に応じて過去の年次財務を取得します。
+
+        売上高・純利益の通貨は各結果の currency を参照してください。
+        """
         path = f"/stock/{quote(_symbol(symbol), safe='')}/financials"
         result = {"financials": await client.get(path)}
         if include_history:

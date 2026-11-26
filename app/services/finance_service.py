@@ -6,11 +6,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.cache import CacheWindow, cached_response, upsert_cache
 from app.clients.yfinance_client import YFinanceClient
 from app.config import get_settings
-from app.models.db_models import Financial
+from app.models.db_models import CompanyProfile, Financial, StockPrice
 from app.singleflight import coalesce, fetch
 from app.stats import stats
+from app.validation import currency_code
 
 _client = YFinanceClient()
+
+
+async def _cached_trading_currency(symbol: str, db: AsyncSession) -> str | None:
+    profile_currency = await db.scalar(select(CompanyProfile.currency).where(CompanyProfile.symbol == symbol))
+    if currency := currency_code(profile_currency):
+        return currency
+    quote_currency = await db.scalar(
+        select(StockPrice.quote_currency)
+        .where(StockPrice.symbol == symbol, StockPrice.interval == "quote", StockPrice.quote_currency.is_not(None))
+        .order_by(StockPrice.cached_at.desc(), StockPrice.id.desc())
+        .limit(1)
+    )
+    return currency_code(quote_currency)
 
 
 @coalesce
@@ -31,12 +45,17 @@ async def get_financials(symbol: str, db: AsyncSession) -> dict:
     )
     cached = None
     if record is not None:
-        cached = (record.cached_at, {"symbol": record.symbol, **{field: getattr(record, field) for field in fields}})
+        cached = (record.cached_at, {
+            "symbol": record.symbol,
+            "currency": record.currency or await _cached_trading_currency(symbol, db),
+            **{field: getattr(record, field) for field in fields},
+        })
 
     async def refresh() -> dict:
         stats.log_api_call()
         data = await fetch(_client.get_financials, symbol)
-        values = {"symbol": data["symbol"], **{field: data.get(field) for field in fields}}
+        data["currency"] = data.get("currency") or await _cached_trading_currency(symbol, db)
+        values = {"symbol": data["symbol"], "currency": data["currency"], **{field: data.get(field) for field in fields}}
         await upsert_cache(db, Financial, values)
         await db.commit()
         return data
@@ -50,9 +69,11 @@ async def get_financial_history(symbol: str, db: AsyncSession, limit: int = 6) -
     symbol = symbol.upper()
     # 財務履歴は呼び出し頻度が低く、銘柄ごとに件数も少ないため都度取得とする
     # （必要に応じて将来DBキャッシュ化）
-    del db
     stats.log_api_call()
-    return await fetch(_client.get_financial_history, symbol, limit=limit)
+    data = await fetch(_client.get_financial_history, symbol, limit=limit)
+    if not data.get("currency"):
+        data["currency"] = await _cached_trading_currency(symbol, db)
+    return data
 
 
 @coalesce

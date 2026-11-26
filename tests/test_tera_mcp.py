@@ -242,14 +242,15 @@ def test_stock_partial_failure_and_concurrency():
             await started.wait()
             if request.url.path.endswith("/profile"):
                 return httpx.Response(404, json={"detail": "プロフィールがありません"})
-            return httpx.Response(200, json={"per": 21} if request.url.path.endswith("/indicators") else price)
+            indicators = {"per": 21, "debt_to_equity": 133.16}
+            return httpx.Response(200, json=indicators if request.url.path.endswith("/indicators") else price)
 
         api, requests = mock_client({("GET", f"/stock/%5EN225{suffix}"): fetch for suffix in ("", "/profile", "/indicators")})
         async with api:
             server = create_server(api)
             result = await asyncio.wait_for(call(server, "get_stock", symbol=" ^n225 "), timeout=3)
             assert result == {"symbol": "^N225", "price": price, "profile": {"error": "HTTP 404 プロフィールがありません"},
-                              "indicators": {"per": 21}}
+                              "indicators": {"per": 21, "debt_to_equity": 133.16}}
             with pytest.raises(ToolError, match="symbol は英数字"):
                 await call(server, "get_stock", symbol="../user/login")
         assert len(requests) == 3

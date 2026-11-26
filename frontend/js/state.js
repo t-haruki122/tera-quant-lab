@@ -17,7 +17,7 @@ export const state = {
     macdChartInstance: null,
     financialChartInstance: null,
     dividendChartInstance: null,
-    currentFinancialHistory: [],
+    currentFinancialHistory: null,
     currentFinancialMetric: 'net_income',
     currentPeriod: '3mo',
     currentChartHistory: [],

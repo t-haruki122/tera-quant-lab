@@ -51,41 +51,32 @@ export function formatCurrency(value, currency, { convertUSD = true } = {}) {
     }
 }
 
-export function formatLargeNumber(value, currency) {
+export function formatLargeNumber(value, currency, { convertUSD = true } = {}) {
     if (value == null) return '—';
 
-    let displayValue = value;
-    let isJPY = currency === 'JPY';
-
-    // USDの場合は円換算
-    if ((!currency || currency === 'USD') && state.exchangeRateUSDJPY) {
-        displayValue = value * state.exchangeRateUSDJPY;
-        isJPY = true;
+    if (convertUSD && currency === 'USD' && state.exchangeRateUSDJPY) {
+        value *= state.exchangeRateUSDJPY;
+        currency = 'JPY';
     }
 
-    const abs = Math.abs(displayValue);
-
-    if (isJPY) {
-        if (abs >= 1e12) return '¥' + (displayValue / 1e12).toFixed(2) + '兆';
-        if (abs >= 1e8) return '¥' + (displayValue / 1e8).toFixed(2) + '億';
-        if (abs >= 1e4) return '¥' + (displayValue / 1e4).toFixed(2) + '万';
-        return '¥' + displayValue.toLocaleString();
-    } else {
-        if (abs >= 1e12) return '$' + (displayValue / 1e12).toFixed(2) + 'T';
-        if (abs >= 1e9) return '$' + (displayValue / 1e9).toFixed(2) + 'B';
-        if (abs >= 1e6) return '$' + (displayValue / 1e6).toFixed(2) + 'M';
-        if (abs >= 1e3) return '$' + (displayValue / 1e3).toFixed(1) + 'K';
-        return '$' + displayValue.toLocaleString();
+    const abs = Math.abs(value);
+    if (currency === 'JPY') {
+        if (abs >= 1e12) return `¥${yenUnits.format(value / 1e12)}兆`;
+        if (abs >= 1e8) return `¥${yenUnits.format(value / 1e8)}億`;
+        if (abs >= 1e4) return `¥${yenUnits.format(value / 1e4)}万`;
+        return `¥${value.toLocaleString('ja-JP')}`;
     }
+    if (currency === 'USD') {
+        if (abs >= 1e12) return `$${(value / 1e12).toFixed(2)}T`;
+        if (abs >= 1e9) return `$${(value / 1e9).toFixed(2)}B`;
+        if (abs >= 1e6) return `$${(value / 1e6).toFixed(2)}M`;
+        if (abs >= 1e3) return `$${(value / 1e3).toFixed(1)}K`;
+        return `$${value.toLocaleString('en-US')}`;
+    }
+    return currency ? `${currency} ${value.toLocaleString('ja-JP')}` : value.toLocaleString('ja-JP');
 }
 
-export function formatAbbreviatedNumber(value) {
-    const abs = Math.abs(Number(value));
-    if (abs >= 1_000_000_000_000) return `${(value / 1_000_000_000_000).toFixed(1)}T`;
-    if (abs >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`;
-    if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-    return Number(value).toLocaleString();
-}
+const yenUnits = new Intl.NumberFormat('ja-JP', { maximumFractionDigits: 2 });
 
 export function formatTimestamp(ts) {
     try {
@@ -145,7 +136,6 @@ Object.assign(window, {
     showToast,
     formatCurrency,
     formatLargeNumber,
-    formatAbbreviatedNumber,
     formatTimestamp,
     formatNewsDate,
     escapeHtml,

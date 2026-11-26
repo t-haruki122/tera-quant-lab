@@ -40,6 +40,15 @@ def test_sma(closes, period, expected):
     assert _calculate_sma(closes, period) == expected
 
 
+def test_debt_to_equity_keeps_yfinance_percentage(client, monkeypatch):
+    info = {"quoteType": "EQUITY", "debtToEquity": 133.16}
+    monkeypatch.setattr(yfinance_client.yf, "Ticker", lambda _: SimpleNamespace(info=info))
+
+    response = client.get("/stock/TEST/indicators")
+    assert response.status_code == 200
+    assert response.json()["debt_to_equity"] == 133.16
+
+
 @pytest.mark.parametrize("closes,expected", [
     ([], []), ([1, 2], [None, None]),
     ([1, 2, 3, 4], [None, None, 100, 100]),

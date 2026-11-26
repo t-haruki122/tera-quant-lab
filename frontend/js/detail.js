@@ -109,7 +109,7 @@ export function refreshDetailHistory() {
 }
 
 function clearFinancialCharts() {
-    state.currentFinancialHistory = [];
+    state.currentFinancialHistory = null;
     for (const key of ['financialChartInstance', 'dividendChartInstance']) {
         state[key]?.destroy();
         state[key] = null;
@@ -253,7 +253,7 @@ export function renderIndicators(data) {
             mixUnavailable ? '算出不可' : ''],
         ['配当利回り', data.dividend_yield, '%', v => v > 3 ? 'good' : v > 1 ? 'neutral' : 'bad', '高いほど良い'],
         ['利益率', data.profit_margin, '%', v => v > 20 ? 'good' : v > 10 ? 'neutral' : 'bad', '高いほど良い'],
-        ['D/Eレシオ', data.debt_to_equity, '', v => v < 50 ? 'good' : v < 150 ? 'neutral' : 'bad', '低いほど財務健全'],
+        ['D/Eレシオ', data.debt_to_equity, '%', v => v < 50 ? 'good' : v < 150 ? 'neutral' : 'bad', '自己資本に対する負債の比率'],
     ];
 
     indicators.forEach(([label, value, unit, ratingFn, tooltip, note]) => {
@@ -298,8 +298,7 @@ export async function loadFinancials(symbol, profile, isCurrent = () => true) {
 
     await Promise.all([
         loadPanel(`${path}/financials`, 'financials-summary', data => {
-            const amount = value => value == null ? '—' : profile?.currency
-                ? formatLargeNumber(value, profile.currency) : value.toLocaleString('ja-JP');
+            const amount = value => formatLargeNumber(value, data.currency);
             const rows = [
                 ['売上高', amount(data.revenue)],
                 ['純利益', amount(data.net_income)],
@@ -313,9 +312,9 @@ export async function loadFinancials(symbol, profile, isCurrent = () => true) {
         loadPanel(`${path}/financials/history?limit=8`, 'financial-history-panel', data => {
             byId('financial-history-panel').innerHTML =
                 '<canvas id="financials-history-chart" role="img" aria-label="年次財務の推移" aria-describedby="financial-chart-summary"></canvas>';
-            state.currentFinancialHistory = data.history;
+            state.currentFinancialHistory = data;
             state.currentFinancialMetric = 'net_income';
-            renderFinancialHistoryChart(data.history, state.currentFinancialMetric);
+            renderFinancialHistoryChart(data, state.currentFinancialMetric);
         }, isCurrent),
         loadPanel(`${path}/dividends/history?limit=20`, 'dividend-history-chart-container', data => {
             byId('dividend-history-chart-container').innerHTML =

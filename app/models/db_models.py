@@ -111,6 +111,7 @@ class Financial(SymbolMixin, Base):
     year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     revenue: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     net_income: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    currency: Mapped[str | None] = mapped_column(String(10))
     eps: Mapped[float | None] = mapped_column(Float, nullable=True)
     pe_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
     assets: Mapped[int | None] = mapped_column(BigInteger, nullable=True)

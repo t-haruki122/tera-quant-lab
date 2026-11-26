@@ -3,7 +3,7 @@
  */
 
 import { state } from './state.js';
-import { formatLargeNumber, formatAbbreviatedNumber } from './utils.js';
+import { formatLargeNumber } from './utils.js';
 
 export function changeFinancialMetric(metric) {
     state.currentFinancialMetric = metric;
@@ -15,14 +15,15 @@ export function changeFinancialMetric(metric) {
     renderFinancialHistoryChart(state.currentFinancialHistory, state.currentFinancialMetric);
 }
 
-export function renderFinancialHistoryChart(history, metric = 'net_income') {
+export function renderFinancialHistoryChart(data, metric = 'net_income') {
     if (state.financialChartInstance) {
         state.financialChartInstance.destroy();
         state.financialChartInstance = null;
     }
 
     const canvas = document.getElementById('financials-history-chart');
-    if (!canvas || !history || history.length === 0) {
+    const { history, currency } = data ?? {};
+    if (!canvas || !history?.length) {
         const summary = document.getElementById('financial-chart-summary');
         if (summary) summary.textContent = '年次財務データがありません';
         return;
@@ -32,8 +33,9 @@ export function renderFinancialHistoryChart(history, metric = 'net_income') {
     const isRevenue = metric === 'revenue';
     const series = history.map(item => item[metric]);
     const label = isRevenue ? '売上高' : '純利益';
+    const formatAmount = value => formatLargeNumber(value, currency, { convertUSD: false });
     document.getElementById('financial-chart-summary').textContent =
-        `${labels.at(-1)}年 ${label} ${series.at(-1) ?? '—'}`;
+        `${labels.at(-1)}年 ${label} ${formatAmount(series.at(-1))}`;
     const barColor = isRevenue
         ? 'rgba(59, 130, 246, 0.65)'
         : series.map(v => (v != null && v < 0 ? 'rgba(239, 68, 68, 0.75)' : 'rgba(16, 185, 129, 0.65)'));
@@ -68,7 +70,12 @@ export function renderFinancialHistoryChart(history, metric = 'net_income') {
                     borderColor: 'rgba(255,255,255,0.1)',
                     borderWidth: 1,
                     callbacks: {
-                        label: ctx => `  ${label}: ${formatLargeNumber(ctx.parsed.y)}`,
+                        label: ctx => {
+                            const value = ctx.parsed.y;
+                            const yen = value != null && currency === 'USD' && state.exchangeRateUSDJPY
+                                ? `（円換算 ${formatLargeNumber(value, currency)}）` : '';
+                            return `  ${label}: ${formatAmount(value)}${yen}`;
+                        },
                     },
                 },
             },
@@ -82,7 +89,7 @@ export function renderFinancialHistoryChart(history, metric = 'net_income') {
                     ticks: {
                         color: '#64748b',
                         font: { size: 11 },
-                        callback: value => formatAbbreviatedNumber(value),
+                        callback: formatAmount,
                     },
                     grid: { color: 'rgba(255,255,255,0.04)', drawBorder: false },
                     border: { display: false },

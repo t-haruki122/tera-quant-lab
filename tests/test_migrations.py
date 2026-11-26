@@ -30,7 +30,7 @@ def test_fresh_startup_and_second_upgrade_are_idempotent(async_db):
             tables = await connection.run_sync(lambda conn: inspect(conn).get_table_names())
             added = {"alembic_version", "api_stats_daily", "price_alerts", "backtest_runs", "symbol_directory", "api_tokens"}
             assert set(tables) == set(LegacyBase.metadata.tables) | added
-            assert await connection.scalar(text("SELECT version_num FROM alembic_version")) == "0009"
+            assert await connection.scalar(text("SELECT version_num FROM alembic_version")) == "0010"
             columns = await connection.run_sync(lambda conn: inspect(conn).get_columns("users"))
             token_version = next(column for column in columns if column["name"] == "token_version")
             assert not token_version["nullable"]
@@ -81,6 +81,29 @@ def test_api_tokens_upgrade_downgrade_and_foreign_key(settings):
         assert not inspect(connection).has_table("api_tokens")
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0008"
         assert connection.scalar(text("SELECT username FROM users WHERE id=1")) == "keep"
+    engine.dispose()
+
+
+def test_financial_currency_upgrade_and_downgrade_preserve_amounts(settings):
+    engine = create_engine(settings.database_url.replace("+aiosqlite", ""))
+    with engine.begin() as connection:
+        upgrade(connection, "0009")
+        connection.execute(text("INSERT INTO financials (symbol, revenue, net_income, cached_at) "
+                                "VALUES ('TM', 300000000000, 205000000000, CURRENT_TIMESTAMP)"))
+        amounts = text("SELECT symbol, revenue, net_income FROM financials")
+        before = connection.execute(amounts).all()
+
+        upgrade(connection, "0010")
+        assert connection.execute(amounts).all() == before
+        assert connection.scalar(text("SELECT currency FROM financials")) is None
+        connection.execute(text("UPDATE financials SET currency = 'JPY'"))
+
+        config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+        config.attributes["connection"] = connection
+        command.downgrade(config, "0009")
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0009"
+        assert "currency" not in {column["name"] for column in inspect(connection).get_columns("financials")}
+        assert connection.execute(amounts).all() == before
     engine.dispose()
 
 

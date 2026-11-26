@@ -42,8 +42,10 @@
 - 過去株価: `GET /stock/{symbol}/history`
 - 財務情報: `GET /stock/{symbol}/financials`
 - 財務履歴: `GET /stock/{symbol}/financials/history`
+  - 財務情報と財務履歴の `currency` は売上高・純利益の報告通貨です。報告通貨が不明な場合は取引通貨を使用し、どちらも不明な場合は `null` を返します。
 - 企業プロフィール: `GET /stock/{symbol}/profile`
 - 投資指標: `GET /stock/{symbol}/indicators`
+  - D/Eレシオ（`debt_to_equity`）はパーセント単位です。たとえば `133.16` は自己資本に対する負債の比率が 133.16%（約1.33倍）であることを示します。
   - PER または PBR が 0 以下の場合、投資指標とウォッチリスト概要のミックス指数（`mix_index`）は `null` になります。
 - 関連ニュース: `GET /stock/{symbol}/news`
 
