@@ -5,7 +5,7 @@
 import { state } from './state.js';
 import { fetchAPI } from './api.js';
 import { formatCurrency, formatLargeNumber, formatTimestamp, formatNewsDate, escapeHtml, safeHttpUrl, oldestStaleData, staleMessage, staleNotice } from './utils.js';
-import { loadChart, resetPriceChart, updateChartVisibility } from './chart.js';
+import { loadChart, updateChartCurrency, updateChartVisibility } from './chart.js';
 import { renderComparison, resetComparison } from './comparison.js';
 import { normalizeSymbol } from './router.js';
 import { renderFinancialHistoryChart, renderDividendHistoryChart } from './financial-chart.js';
@@ -31,48 +31,76 @@ export function searchStock() {
     if (symbol) window.switchView('detail', symbol);
 }
 
-export async function loadStock(symbol) {
-    const requestId = ++detailRequestId;
-    const isCurrent = () => requestId === detailRequestId;
-    document.getElementById('search-input').value = symbol;
-    document.getElementById('search-error').textContent = '';
-    state.currentSymbol = symbol;
-    displayedQuote = null;
-    resetPriceChart();
-    resetComparison();
-    clearFinancialCharts();
-    showSection('loading');
-    document.getElementById('loading-text').textContent = `${symbol} のデータを取得中...`;
+const skeleton = '<div class="skeleton-lines"><div></div><div></div><div></div></div>';
+const byId = id => document.getElementById(id);
 
+async function loadPanel(path, target, render, isCurrent) {
     try {
-        const [price, profile, indicators] = await Promise.all([
-            fetchAPI(`/stock/${encodeURIComponent(symbol)}`),
-            fetchAPI(`/stock/${encodeURIComponent(symbol)}/profile`),
-            fetchAPI(`/stock/${encodeURIComponent(symbol)}/indicators`),
-        ]);
-        if (!isCurrent()) return;
-
-        renderStockHeader(price, profile);
-        renderProfile(profile);
-        renderIndicators(indicators);
-
-        showSection('stock-detail');
-        refreshDetailHistory();
-        loadFinancials(symbol, profile, isCurrent);
-        loadNews(symbol, isCurrent);
-    } catch (err) {
-        if (isCurrent()) showError('データ取得エラー', err.message);
+        const data = await fetchAPI(path);
+        if (isCurrent()) render(data);
+    } catch (error) {
+        if (isCurrent()) byId(target).innerHTML = `<p class="text-error">取得失敗: ${escapeHtml(error.message)}</p>`;
     }
 }
 
+export async function loadStock(symbol) {
+    const requestId = ++detailRequestId;
+    const user = state.currentUser;
+    const isCurrent = () => requestId === detailRequestId && user === state.currentUser;
+    const path = `/stock/${encodeURIComponent(symbol)}`;
+    byId('search-input').value = symbol;
+    byId('search-error').textContent = '';
+    state.currentSymbol = symbol;
+    displayedQuote = null;
+    resetComparison();
+    clearFinancialCharts();
+    renderCompanyHeader(symbol, {});
+    byId('price-display').textContent = '…';
+    byId('price-timestamp').textContent = '';
+    byId('quote-error').textContent = '';
+    byId('search-retry-btn').classList.add('hidden');
+    byId('quote-stale').textContent = '';
+    byId('profile-body').innerHTML = skeleton;
+    byId('indicators-body').innerHTML = skeleton;
+    showSection('stock-detail');
+
+    let profile = {};
+    const currency = () => displayedQuote?.currency ?? profile.currency;
+    const price = fetchAPI(path).then(quote => {
+        if (!isCurrent()) return;
+        renderStockHeader(quote, profile);
+        updateChartCurrency(currency());
+    }).catch(error => {
+        if (!isCurrent()) return;
+        byId('price-display').textContent = '—';
+        byId('quote-error').textContent = error.message;
+        byId('search-retry-btn').classList.remove('hidden');
+    });
+    const company = loadPanel(`${path}/profile`, 'profile-body', data => {
+        profile = data;
+        renderCompanyHeader(symbol, profile);
+        renderProfile(profile);
+        if (displayedQuote) renderStockHeader(displayedQuote, profile);
+        updateChartCurrency(currency());
+    }, isCurrent);
+    refreshDetailHistory();
+    await Promise.all([
+        price, company,
+        loadPanel(`${path}/indicators`, 'indicators-body', renderIndicators, isCurrent),
+        loadFinancials(symbol, { get currency() { return currency(); } }, isCurrent),
+        loadNews(symbol, isCurrent),
+    ]);
+}
+
 export function refreshDetailHistory() {
-    if (!displayedQuote) return;
     const { currentSymbol, currentPeriod } = state;
-    loadChart(currentSymbol, currentPeriod, displayedQuote.currency);
+    if (!currentSymbol) return;
+    loadChart(currentSymbol, currentPeriod, displayedQuote?.currency);
     renderComparison(currentSymbol, currentPeriod);
 }
 
 function clearFinancialCharts() {
+    state.currentFinancialHistory = [];
     for (const key of ['financialChartInstance', 'dividendChartInstance']) {
         state[key]?.destroy();
         state[key] = null;
@@ -80,25 +108,14 @@ function clearFinancialCharts() {
 }
 
 export function showSection(name) {
-    ['welcome-section', 'loading-section', 'error-section', 'stock-detail'].forEach(id => {
-        document.getElementById(id).classList.add('hidden');
-    });
-    if (name === 'loading') document.getElementById('loading-section').classList.remove('hidden');
-    else if (name === 'error') document.getElementById('error-section').classList.remove('hidden');
-    else if (name === 'stock-detail') document.getElementById('stock-detail').classList.remove('hidden');
-    else document.getElementById('welcome-section').classList.remove('hidden');
-}
-
-export function showError(title, message) {
-    document.getElementById('error-title').textContent = title;
-    document.getElementById('error-message').textContent = message;
-    showSection('error');
+    byId('welcome-section').classList.toggle('hidden', name === 'stock-detail');
+    byId('stock-detail').classList.toggle('hidden', name !== 'stock-detail');
 }
 
 // ===== Render: Stock Header =====
-export function renderStockHeader(price, profile) {
-    document.getElementById('company-name').textContent = profile.name || price.symbol;
-    document.getElementById('ticker-badge').textContent = price.symbol;
+function renderCompanyHeader(symbol, profile) {
+    document.getElementById('company-name').textContent = profile.name || symbol;
+    document.getElementById('ticker-badge').textContent = symbol;
 
     const meta = [];
     if (profile.sector) meta.push(profile.sector);
@@ -106,15 +123,19 @@ export function renderStockHeader(price, profile) {
     if (profile.country) meta.push(profile.country);
     document.getElementById('stock-meta').textContent = meta.join(' • ');
 
-    const currency = profile.currency || 'USD';
-    displayedQuote = { ...price, currency };
+}
+
+export function renderStockHeader(price, profile) {
+    renderCompanyHeader(price.symbol, profile);
+    displayedQuote = { ...price, currency: price.currency || profile.currency };
     renderQuotePrice();
     renderQuoteStaleNotice();
     document.getElementById('price-timestamp').textContent = `最終更新: ${formatTimestamp(price.timestamp)}`;
 }
 
 function renderQuotePrice() {
-    document.getElementById('price-display').textContent = formatCurrency(displayedQuote.price, displayedQuote.currency);
+    const { price, currency } = displayedQuote;
+    document.getElementById('price-display').textContent = currency ? formatCurrency(price, currency) : price.toLocaleString('ja-JP');
     displayedQuote.renderedRate = state.exchangeRateUSDJPY;
 }
 
@@ -243,62 +264,54 @@ export function renderIndicators(data) {
 
 // ===== Load: Financials =====
 export async function loadFinancials(symbol, profile, isCurrent = () => true) {
-    const body = document.getElementById('financials-body');
-    body.innerHTML = '<div class="skeleton-lines"><div></div><div></div><div></div></div>';
-
-    try {
-        const [data, [history, dividends]] = await Promise.all([
-            fetchAPI(`/stock/${encodeURIComponent(symbol)}/financials`),
-            Promise.allSettled([
-                fetchAPI(`/stock/${encodeURIComponent(symbol)}/financials/history?limit=8`),
-                fetchAPI(`/stock/${encodeURIComponent(symbol)}/dividends/history?limit=20`),
-            ]),
-        ]);
-        if (!isCurrent()) return;
-        let html = staleNotice(data);
-        const rows = [
-            ['売上高', data.revenue ? formatLargeNumber(data.revenue, profile?.currency) : null],
-            ['純利益', data.net_income ? formatLargeNumber(data.net_income, profile?.currency) : null],
-            ['EPS', data.eps != null ? data.eps.toFixed(2) : null],
-            ['PER', data.pe_ratio != null ? data.pe_ratio.toFixed(2) + '倍' : null],
-        ];
-        rows.forEach(([label, value]) => {
-            html += `<div class="data-row"><span class="data-label">${escapeHtml(label)}</span><span class="data-value">${escapeHtml(value || '—')}</span></div>`;
-        });
-        html += `
-            <div class="financial-history-chart-wrap">
-                <div class="mini-chart-header-row">
-                    <div class="mini-chart-header">過去の財務推移（年次）</div>
-                    <div class="metric-toggle" role="group" aria-label="財務指標の切り替え">
-                        <button class="metric-btn" id="metric-revenue" type="button" data-financial-metric="revenue" aria-pressed="false">売上高</button>
-                        <button class="metric-btn active" id="metric-net-income" type="button" data-financial-metric="net_income" aria-pressed="true">純利益</button>
-                    </div>
+    const path = `/stock/${encodeURIComponent(symbol)}`;
+    byId('financials-body').innerHTML = `
+        <div id="financials-summary">${skeleton}</div>
+        <div class="financial-history-chart-wrap">
+            <div class="mini-chart-header-row">
+                <div class="mini-chart-header">過去の財務推移（年次）</div>
+                <div class="metric-toggle" role="group" aria-label="財務指標の切り替え">
+                    <button class="metric-btn" id="metric-revenue" type="button" data-financial-metric="revenue" aria-pressed="false">売上高</button>
+                    <button class="metric-btn active" id="metric-net-income" type="button" data-financial-metric="net_income" aria-pressed="true">純利益</button>
                 </div>
-                <div class="financial-history-chart-container">
-                    ${history.status === 'fulfilled' ? '<canvas id="financials-history-chart" role="img" aria-label="年次財務の推移" aria-describedby="financial-chart-summary"></canvas>'
-                        : `<p class="text-error">取得失敗: ${escapeHtml(history.reason.message)}</p>`}
-                </div>
-                <p class="visually-hidden" id="financial-chart-summary"></p>
             </div>
-            <div class="financial-history-chart-wrap">
-                <div class="mini-chart-header">過去の配当推移（年利%）</div>
-                <div class="dividend-history-chart-container" id="dividend-history-chart-container">
-                    ${dividends.status === 'fulfilled' ? `<canvas id="dividend-history-chart" role="img" aria-label="年間配当の推移" aria-describedby="dividend-chart-summary"></canvas>
-                        <p class="mini-chart-empty hidden" id="dividend-history-empty">配当履歴データがありません</p>`
-                        : `<p class="text-error">取得失敗: ${escapeHtml(dividends.reason.message)}</p>`}
-                </div>
-                <p class="visually-hidden" id="dividend-chart-summary"></p>
-            </div>`;
-        body.innerHTML = html || '<p class="text-muted">データなし</p>';
-        state.currentFinancialHistory = history.value?.history || [];
-        state.currentFinancialMetric = 'net_income';
-        renderFinancialHistoryChart(state.currentFinancialHistory, state.currentFinancialMetric);
-        renderDividendHistoryChart(dividends.value?.history || [], profile?.currency);
-    } catch (err) {
-        if (!isCurrent()) return;
-        clearFinancialCharts();
-        body.innerHTML = `<p class="text-error">取得失敗: ${escapeHtml(err.message)}</p>`;
-    }
+            <div class="financial-history-chart-container" id="financial-history-panel">${skeleton}</div>
+            <p class="visually-hidden" id="financial-chart-summary"></p>
+        </div>
+        <div class="financial-history-chart-wrap">
+            <div class="mini-chart-header">過去の配当推移（年利%）</div>
+            <div class="dividend-history-chart-container" id="dividend-history-chart-container">${skeleton}</div>
+            <p class="visually-hidden" id="dividend-chart-summary"></p>
+        </div>`;
+
+    await Promise.all([
+        loadPanel(`${path}/financials`, 'financials-summary', data => {
+            const amount = value => value == null ? '—' : profile?.currency
+                ? formatLargeNumber(value, profile.currency) : value.toLocaleString('ja-JP');
+            const rows = [
+                ['売上高', amount(data.revenue)],
+                ['純利益', amount(data.net_income)],
+                ['EPS', data.eps?.toFixed(2)],
+                ['PER', data.pe_ratio != null ? data.pe_ratio.toFixed(2) + '倍' : null],
+            ];
+            byId('financials-summary').innerHTML = staleNotice(data) + rows.map(([label, value]) =>
+                `<div class="data-row"><span class="data-label">${label}</span><span class="data-value">${escapeHtml(value ?? '—')}</span></div>`
+            ).join('');
+        }, isCurrent),
+        loadPanel(`${path}/financials/history?limit=8`, 'financial-history-panel', data => {
+            byId('financial-history-panel').innerHTML =
+                '<canvas id="financials-history-chart" role="img" aria-label="年次財務の推移" aria-describedby="financial-chart-summary"></canvas>';
+            state.currentFinancialHistory = data.history;
+            state.currentFinancialMetric = 'net_income';
+            renderFinancialHistoryChart(data.history, state.currentFinancialMetric);
+        }, isCurrent),
+        loadPanel(`${path}/dividends/history?limit=20`, 'dividend-history-chart-container', data => {
+            byId('dividend-history-chart-container').innerHTML =
+                '<canvas id="dividend-history-chart" role="img" aria-label="年間配当の推移" aria-describedby="dividend-chart-summary"></canvas>' +
+                '<p class="mini-chart-empty hidden" id="dividend-history-empty">配当履歴データがありません</p>';
+            renderDividendHistoryChart(data.history, profile?.currency);
+        }, isCurrent),
+    ]);
 }
 
 // ===== Load: News =====

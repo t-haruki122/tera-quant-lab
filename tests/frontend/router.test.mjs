@@ -40,7 +40,7 @@ test('malformed or unknown hashes return to the watchlist', () => {
 test('an invalid initial hash is replaced with the watchlist in the same history entry', () => {
     const existingState = { key: 'existing' };
     const url = 'https://local.invalid/?keep=1';
-    for (const invalid of ['#/garbage/xx', '#/stock/%3Cimg%20src=x%3E']) {
+    for (const invalid of ['#/garbage/xx', '#/stock/%3Cimg%20src=x%3E', '#/portfolio']) {
         const location = new URL(url + invalid);
         const replacements = [];
         const history = {

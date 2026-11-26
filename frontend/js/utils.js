@@ -141,11 +141,6 @@ export function safeHttpUrl(value) {
     }
 }
 
-export function normalizeTagHue(value) {
-    const hue = Number(value);
-    return Number.isFinite(hue) ? Math.max(0, Math.min(360, hue)) : 210;
-}
-
 Object.assign(window, {
     showToast,
     formatCurrency,

@@ -34,6 +34,9 @@ class CacheWindow:
         self.fresh_since = to_db() - timedelta(seconds=ttl_seconds)
         self.usable_since = self.fresh_since - timedelta(days=get_settings().cache_stale_max_days)
 
+    def metadata(self, cached_at: datetime) -> dict:
+        return {"stale": cached_at < self.fresh_since, "cached_at": utc_iso(cached_at)}
+
 
 def stale_fields(key: str, cached_at: datetime, error: Exception) -> dict[str, Any]:
     logger.warning("Serving stale cache for %s (cached_at=%s): %s", key, utc_iso(cached_at), error)

@@ -105,7 +105,7 @@ test('authentication and session isolation', async t => {
     handler = url => {
         if (url === '/user/login') return response({ id: 2, username: 'bob', access_token: 'bob-token', token_type: 'bearer' });
         if (url === '/user/2/lists') return response({ lists: [{ id: 20, name: 'マイリスト' }], default_list_id: 20 });
-        if (url === '/user/2/lists/20/summary') return response({ items: [] });
+        if (url === '/user/2/lists/20/summary?cached=true') return response({ items: [] });
         throw new Error(`Unexpected URL: ${url}`);
     };
     await submitAuth();
@@ -138,9 +138,9 @@ test('escaped markup and safe links', async t => {
     async function check(name, condition) {
         await t.test(name, () => assert.ok(condition, name));
     }
-    const { escapeHtml, escapeAttr, safeHttpUrl, normalizeTagHue, showToast } = await fromRepo('frontend/js/utils.js');
+    const { escapeHtml, escapeAttr, safeHttpUrl, showToast } = await fromRepo('frontend/js/utils.js');
     const { renderProfile, renderIndicators, renderStockHeader, loadNews, loadFinancials } = await fromRepo('frontend/js/detail.js');
-    const { renderListTable, openFilterModal, openTagModal, loadDefaultList } = await fromRepo('frontend/js/list.js');
+    const { renderListTable, loadDefaultList } = await fromRepo('frontend/js/list.js');
     const { updateAccountUI } = await fromRepo('frontend/js/auth.js');
     await check('escapeHtml escapes ampersand, angle brackets, double quote and apostrophe',
         escapeHtml(`&<>"'`) === '&amp;&lt;&gt;&quot;&#39;');
@@ -173,34 +173,17 @@ test('escaped markup and safe links', async t => {
     renderIndicators({ roe: payload, eps: payload });
     await safeMarkup('indicator API values render as escaped text', document.getElementById('indicators-body').innerHTML);
     state.listSearchQuery = '';
-    state.activeTagFilter = payload;
-    state.listItems = [{ symbol: payload, name: payload, memo: payload, tags: [payload], loading: false,
+    state.currentUser = { id: 7 };
+    state.listItems = [{ symbol: payload, name: payload, memo: payload, tags: [payload],
                          price: payload, currency: 'invalid-currency' }];
     renderListTable();
-    await safeMarkup('company, symbol, memo title, price fallback and tags cannot break table attributes',
-               document.getElementById('comparison-tbody').innerHTML);
-    await check('memo title remains one quoted escaped attribute',
-        document.getElementById('comparison-tbody').innerHTML.includes(`title="${escapeHtml(payload)}"`));
-    await safeMarkup('active tag filter escapes text', document.getElementById('active-filter-tag').innerHTML);
-    openFilterModal();
-    await safeMarkup('tag filter data-tag escapes both quote types', document.getElementById('filter-tags-container').innerHTML);
-    await check('filter tag stays in a quoted data attribute',
-        document.getElementById('filter-tags-container').innerHTML.includes(`data-tag="${escapeHtml(payload)}"`));
-    openTagModal(payload);
-    await safeMarkup('tag editor data-tag escapes both quote types', document.getElementById('tag-current-tags').innerHTML);
-    state.listItems = [{ symbol: payload, loading: true }];
-    state.activeTagFilter = null;
+    await safeMarkup('company, symbol, price fallback and shares label cannot break table attributes',
+        document.getElementById('comparison-tbody').innerHTML);
+    await check('shares label and data attribute stay escaped',
+        document.getElementById('comparison-tbody').innerHTML.includes(`data-shares-input="${escapeHtml(payload)}"`));
+    state.listItems = [{ symbol: payload, pending: true }];
     renderListTable();
-    await safeMarkup('loading row symbol and button data-symbol are escaped', document.getElementById('comparison-tbody').innerHTML);
-    await check('malicious hue falls back to a finite number and numeric values clamp to 0..360',
-        normalizeTagHue(payload) === 210 && normalizeTagHue('999') === 360
-        && normalizeTagHue(-5) === 0 && normalizeTagHue('120.5') === 120.5
-        && normalizeTagHue(Infinity) === 210);
-    const hueMarkup = ['active-filter-tag', 'filter-tags-container', 'tag-current-tags']
-        .map(id => document.getElementById(id).innerHTML).join('');
-    const hues = [...hueMarkup.matchAll(/data-tag-hue="([^"]+)"/g)].map(match => match[1]);
-    await check('all rendered tag style values are finite numbers in 0..360', hues.length >= 3
-        && hues.every(hue => /^\d+(?:\.\d+)?$/.test(hue) && Number(hue) >= 0 && Number(hue) <= 360));
+    await safeMarkup('pending row symbol and button data-symbol are escaped', document.getElementById('comparison-tbody').innerHTML);
     await check('safeHttpUrl rejects non-HTTP and malformed URLs',
         ['javascript:alert(1)', 'data:text/html,<img>', '/relative', 'not a url', null]
             .every(url => safeHttpUrl(url) === null));
@@ -222,7 +205,7 @@ test('escaped markup and safe links', async t => {
     await loadNews('ERROR');
     await safeMarkup('news error detail renders as escaped text', document.getElementById('news-body').innerHTML);
     await loadFinancials('ERROR', {});
-    await safeMarkup('financial error detail renders as escaped text', document.getElementById('financials-body').innerHTML);
+    await safeMarkup('financial error detail renders as escaped text', document.getElementById('financials-summary').innerHTML);
     showToast(payload, 'error');
     await safeMarkup('toast API error/message renders as escaped text', document.getElementById('toast-container').children.at(-1).innerHTML);
     state.currentUser = { id: 9, username: payload, access_token: 'keep-token' };

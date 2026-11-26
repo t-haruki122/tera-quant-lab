@@ -11,6 +11,16 @@ from app.singleflight import coalesce, fetch
 from app.stats import stats
 
 _client = YFinanceClient()
+FIELDS = (
+    "roe", "roa", "pbr", "per", "eps", "dividend_yield", "mix_index", "profit_margin", "debt_to_equity",
+)
+
+
+def cached_indicators(record: Indicator) -> dict:
+    values = {"symbol": record.symbol, **{field: getattr(record, field) for field in FIELDS}}
+    if not (record.per is not None and record.per > 0 and record.pbr is not None and record.pbr > 0):
+        values["mix_index"] = None
+    return values
 
 
 @coalesce
@@ -23,28 +33,12 @@ async def get_indicators(symbol: str, db: AsyncSession) -> dict:
     window = CacheWindow(get_settings().cache_ttl_history)
     stmt = select(Indicator).where(Indicator.symbol == symbol, Indicator.cached_at >= window.usable_since)
     record = (await db.execute(stmt)).scalar_one_or_none()
-    fields = (
-        "roe",
-        "roa",
-        "pbr",
-        "per",
-        "eps",
-        "dividend_yield",
-        "mix_index",
-        "profit_margin",
-        "debt_to_equity",
-    )
-    cached = None
-    if record is not None:
-        values = {"symbol": record.symbol, **{field: getattr(record, field) for field in fields}}
-        if not (record.per is not None and record.per > 0 and record.pbr is not None and record.pbr > 0):
-            values["mix_index"] = None
-        cached = (record.cached_at, values)
+    cached = (record.cached_at, cached_indicators(record)) if record is not None else None
 
     async def refresh() -> dict:
         stats.log_api_call()
         data = await fetch(_client.get_indicators, symbol)
-        values = {"symbol": data["symbol"], **{field: data.get(field) for field in fields}}
+        values = {"symbol": data["symbol"], **{field: data.get(field) for field in FIELDS}}
         await upsert_cache(db, Indicator, values)
         await db.commit()
         return data

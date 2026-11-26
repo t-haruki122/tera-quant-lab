@@ -20,7 +20,7 @@ TOKEN = "mock-private-token"
 FRESH_TOKEN = "mock-refreshed-private-token"
 ACCOUNT = Settings(username="alice", password=PASSWORD)
 TOOL_NAMES = {
-    "list_watchlists", "get_watchlist", "get_portfolio", "get_price_alerts", "get_stock", "get_financials",
+    "list_watchlists", "get_watchlist", "get_price_alerts", "get_stock", "get_financials",
     "get_price_history", "get_news", "get_exchange_rate", "list_backtest_strategies", "run_backtest",
     "list_saved_backtests", "get_saved_backtest",
 }
@@ -55,10 +55,10 @@ def test_lazy_login_reuses_token_and_default_watchlist():
             "symbol": "9433.T", "name": "KDDI", "price": 25, "currency": "JPY", "market_cap": 400,
             "mix_index": 12, "per": 10, "pbr": 1.2, "dividend_yield": 3, "tags": ["配当"], "memo": "確認",
             "stale": True, "cached_at": "2025-01-01T00:00:00Z", "error": None,
-        }],
+            "shares": 2.5, "value_jpy": 62.5, "weight_pct": 50,
+        }], "cash_jpy": 62, "portfolio": {"cash_ratio_pct": 50, "total_value_jpy": 125},
     }
     lists = {"lists": [{"id": 7, "name": "既定"}], "default_list_id": 7}
-    portfolio = {"holdings": [{"symbol": "HPQ", "currency": "USD"}], "stale": False, "totals": {"market_value_jpy": 300}}
     alerts = {"alerts": [{"symbol": "HPQ", "kind": "above", "threshold": 50}]}
 
     def login(request):
@@ -82,7 +82,6 @@ def test_lazy_login_reuses_token_and_default_watchlist():
         ("POST", "/user/login"): login,
         ("GET", "/user/42/lists"): authenticated(lists),
         ("GET", "/user/42/lists/7/summary"): authenticated(watchlist),
-        ("GET", "/user/42/portfolio"): authenticated(portfolio),
         ("GET", "/user/42/alerts"): authenticated(alerts),
     }
 
@@ -95,7 +94,6 @@ def test_lazy_login_reuses_token_and_default_watchlist():
             assert await call(server, "list_watchlists") == lists
             assert await call(server, "get_watchlist") == watchlist
             assert await call(server, "get_watchlist", list_id=7) == watchlist
-            assert await call(server, "get_portfolio") == portfolio
             assert await call(server, "get_price_alerts") == alerts
             assert await call(server, "list_backtest_strategies") == {"strategies": []}
             assert requests.count(("POST", "/user/login")) == 1
@@ -113,25 +111,25 @@ def test_relogin_once_and_redact_http_errors(retry_status, caplog):
     def login(request):
         return httpx.Response(200, json={"id": 42, "access_token": next(tokens)})
 
-    def portfolio(request):
+    def watchlist(request):
         attempts.append(request.headers["Authorization"])
         if len(attempts) == 1:
             return httpx.Response(401, json={"detail": "期限切れ"})
         if retry_status == 401:
             return httpx.Response(401, json={"detail": f"認証に失敗しました {TOKEN} {FRESH_TOKEN} {PASSWORD}"})
-        return httpx.Response(200, json={"holdings": []})
+        return httpx.Response(200, json={"items": [], "portfolio": None})
 
     async def scenario():
-        api, requests = mock_client({("POST", "/user/login"): login, ("GET", "/user/42/portfolio"): portfolio})
+        api, requests = mock_client({("POST", "/user/login"): login, ("GET", "/user/42/lists/7/summary"): watchlist})
         async with api, Client(create_server(api), mode="legacy") as mcp:
-            reply = await mcp.call_tool("get_portfolio", {})
+            reply = await mcp.call_tool("get_watchlist", {"list_id": 7})
             if retry_status == 401:
                 assert reply.is_error
                 assert "HTTP 401 認証に失敗しました" in reply.model_dump_json()
             else:
                 assert not reply.is_error
-                assert reply.structured_content == {"holdings": []}
-        assert requests == [("POST", "/user/login"), ("GET", "/user/42/portfolio")] * 2
+                assert reply.structured_content == {"items": [], "portfolio": None}
+        assert requests == [("POST", "/user/login"), ("GET", "/user/42/lists/7/summary")] * 2
         assert attempts == [f"Bearer {TOKEN}", f"Bearer {FRESH_TOKEN}"]
         for secret in (PASSWORD, TOKEN, FRESH_TOKEN):
             assert secret not in reply.model_dump_json()
@@ -148,7 +146,7 @@ def test_missing_credentials_and_no_default_list():
             server = create_server(api)
             assert await call(server, "list_backtest_strategies") == {"strategies": []}
             with pytest.raises(ToolError, match="TQL_USERNAME と TQL_PASSWORD を設定してください"):
-                await call(server, "get_portfolio")
+                await call(server, "get_watchlist", list_id=7)
         assert requests == [("GET", "/backtest/strategies")]
 
         api, requests = mock_client({
@@ -316,7 +314,7 @@ def test_http_error_mapping_and_redirects(caplog):
         async with api:
             server = create_server(api)
             with pytest.raises(ToolError, match="HTTP 422 パスワードを確認してください") as exc:
-                await call(server, "get_portfolio")
+                await call(server, "get_watchlist", list_id=7)
             assert PASSWORD not in str(exc.value)
             with pytest.raises(ToolError, match="HTTP 429 要求が多すぎます.*Retry-After: 45"):
                 await call(server, "get_financials", symbol="HPQ")

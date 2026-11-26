@@ -12,7 +12,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import require_authenticated_user
-from app.models.db_models import BacktestRun, PortfolioHolding, PriceAlert, StockMemo, User, UserList, UserListItem
+from app.models.db_models import BacktestRun, PriceAlert, StockMemo, User, UserList, UserListItem
 from app.timeutil import to_db
 
 ph = PasswordHasher()
@@ -83,15 +83,14 @@ async def delete_account(user: User, db: AsyncSession) -> bool:
 
 
 async def delete_user_data(
-    user_id: int, db: AsyncSession, *, include_investments: bool = True, include_backtests: bool = True,
+    user_id: int, db: AsyncSession, *, include_alerts: bool = True, include_backtests: bool = True,
 ) -> None:
     # SQLite connections use the default foreign_keys=OFF.
     lists = select(UserList.id).where(UserList.user_id == user_id)
     await db.execute(delete(UserListItem).where(UserListItem.list_id.in_(lists)))
     await db.execute(delete(UserList).where(UserList.user_id == user_id))
     await db.execute(delete(StockMemo).where(StockMemo.user_id == user_id))
-    if include_investments:
-        await db.execute(delete(PortfolioHolding).where(PortfolioHolding.user_id == user_id))
+    if include_alerts:
         await db.execute(delete(PriceAlert).where(PriceAlert.user_id == user_id))
     if include_backtests:
         await db.execute(delete(BacktestRun).where(BacktestRun.user_id == user_id))
@@ -252,6 +251,24 @@ async def get_list_items(list_id: int, db: AsyncSession) -> list[UserListItem]:
     ))
 
 
+async def set_list_cash(user_id: int, list_id: int, cash: int | None, db: AsyncSession) -> None:
+    await lock_user_data(user_id, db)
+    user_list = await require_list(user_id, list_id, db)
+    user_list.cash_jpy = cash
+    await db.commit()
+
+
+async def set_item_shares(user_id: int, list_id: int, symbol: str, shares: float | None, db: AsyncSession) -> None:
+    await lock_user_data(user_id, db)
+    user_list = await require_list(user_id, list_id, db)
+    item = await db.scalar(select(UserListItem).where(UserListItem.list_id == list_id, UserListItem.symbol == symbol))
+    if item is None:
+        raise ValueError(f"{symbol} はリストに存在しません")
+    item.shares = shares
+    user_list.updated_at = to_db()
+    await db.commit()
+
+
 async def get_list_detail(user_id: int, list_id: int, db: AsyncSession) -> dict:
     """リスト詳細（アイテム含む）を取得"""
     user_list = await require_list(user_id, list_id, db)
@@ -260,10 +277,12 @@ async def get_list_detail(user_id: int, list_id: int, db: AsyncSession) -> dict:
     return {
         "id": user_list.id,
         "name": user_list.name,
+        "cash_jpy": user_list.cash_jpy,
         "items": [
             {
                 "symbol": item.symbol,
                 "tags": json.loads(item.tags) if item.tags else [],
+                "shares": item.shares,
             }
             for item in items
         ],

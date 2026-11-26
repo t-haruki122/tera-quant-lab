@@ -5,7 +5,7 @@ import { assertAccessibleControls } from './helpers/a11y.mjs';
 import { fromRepo, pressKey } from './helpers/dom-shim.mjs';
 
 const { bindAuthEvents } = await fromRepo('frontend/js/auth.js');
-const { bindListEvents, closeFilterModal, closeTagModal, openFilterModal, openTagModal, renderListTable } =
+const { bindListEvents, renderListTable } =
     await fromRepo('frontend/js/list.js');
 const { loadFinancials } = await fromRepo('frontend/js/detail.js');
 const { renderStrategies, renderGridResult } = await fromRepo('frontend/js/backtest.js');
@@ -20,21 +20,17 @@ test('every static button and field has an accessible name, including icon-only 
     assert.throws(() => assertAccessibleControls('<input id="sample" placeholder="銘柄">'), /Input without a label/);
     assert.throws(() => assertAccessibleControls('<button aria-labelledby="missing"><svg></svg></button>'), /Button without/);
     assertAccessibleControls('<label for="x">銘柄</label><input id="x"><label>期間<select></select></label>');
-    assert.equal((html.match(/class="modal modal-sm"|class="modal account-settings"|class="modal"/g) ?? []).length,
+    assert.equal((html.match(/class="modal(?: [^"]*)?"/g) ?? []).length,
         (html.match(/role="dialog" aria-modal="true" aria-labelledby="[^"]+"/g) ?? []).length);
 });
 
-test('generated watchlist, tag, financial, and backtest controls also have names and labels', async () => {
+test('generated watchlist, financial, and backtest controls also have names and labels', async () => {
+    state.currentUser = { id: 7 };
     state.listItems = [{ symbol: 'AAPL', name: 'Apple', tags: ['テック'] }, { symbol: '7203.T', loading: true }];
     renderListTable();
     assertAccessibleControls(byId('comparison-tbody').innerHTML);
     assert.match(byId('comparison-tbody').innerHTML, /<a href="#\/stock\/AAPL">AAPL<\/a>/);
-    openTagModal('AAPL');
-    assertAccessibleControls(byId('tag-current-tags').innerHTML);
-    closeTagModal();
-    openFilterModal();
-    assertAccessibleControls(byId('filter-tags-container').innerHTML);
-    closeFilterModal();
+    assert.match(byId('comparison-tbody').innerHTML, /for="shares-AAPL">AAPL の株数<\/label>/);
 
     globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ history: [] }) });
     await loadFinancials('AAPL', {});

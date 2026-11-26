@@ -41,7 +41,6 @@
                 ダッシュボード
             </button>
             <button class="nav-btn" id="btn-backtest-view" type="button">バックテスト</button>
-            <button class="nav-btn" id="btn-portfolio-view" type="button">ポートフォリオ</button>
             <!-- アカウントボタン -->
             <div class="account-section">
                 <button class="nav-btn account-btn" id="account-btn" type="button" aria-label="ログイン、ユーザーメニュー"
@@ -171,7 +170,7 @@
                 <button class="modal-close" id="import-replace-close" type="button" aria-label="閉じる">✕</button>
             </div>
             <form class="modal-body" id="import-replace-form">
-                <p class="modal-message" id="import-replace-message" tabindex="-1">リスト、メモ、保有銘柄、価格アラート、保存済みバックテストのうち、バックアップに含まれる種類のデータを置き換えますか？</p>
+                <p class="modal-message" id="import-replace-message" tabindex="-1">リスト（保有株数と現金を含む）、メモ、価格アラート、保存済みバックテストのうち、バックアップに含まれる種類のデータを置き換えますか？</p>
                 <p class="auth-error hidden" id="import-replace-error" role="alert"></p>
                 <div class="modal-actions">
                     <button class="account-action" id="import-replace-cancel" type="button">キャンセル</button>
@@ -197,51 +196,6 @@
                 <div class="modal-actions">
                     <button class="account-action" id="watchlist-action-cancel" type="button">キャンセル</button>
                     <button class="account-action" id="watchlist-action-submit" type="submit">作成</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <div class="modal-overlay hidden" id="memo-edit-overlay">
-        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="memo-edit-title" tabindex="-1">
-            <div class="modal-header">
-                <h3 id="memo-edit-title">銘柄メモを編集</h3>
-                <button class="modal-close" id="memo-edit-close" type="button" aria-label="閉じる">✕</button>
-            </div>
-            <form class="modal-body" id="memo-edit-form">
-                <div class="form-group">
-                    <label for="memo-edit-input">メモ</label>
-                    <textarea id="memo-edit-input" rows="4" aria-describedby="memo-edit-hint memo-edit-error"></textarea>
-                    <p class="modal-hint" id="memo-edit-hint">Enterで保存、Shift＋Enterで改行</p>
-                </div>
-                <p class="auth-error hidden" id="memo-edit-error" role="alert"></p>
-                <div class="modal-actions">
-                    <button class="account-action" id="memo-edit-cancel" type="button">キャンセル</button>
-                    <button class="account-action" id="memo-edit-submit" type="submit">保存</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <div class="modal-overlay hidden" id="holding-editor-overlay">
-        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="holding-editor-title" tabindex="-1">
-            <div class="modal-header">
-                <h3 id="holding-editor-title">保有銘柄を追加</h3>
-                <button class="modal-close" id="holding-editor-close" type="button" aria-label="閉じる">✕</button>
-            </div>
-            <form class="modal-body" id="holding-editor-form" novalidate>
-                <label class="form-group">ティッカー<input id="holding-symbol" maxlength="20" autocomplete="off" required></label>
-                <label class="form-group">保有数量<input id="holding-shares" type="number" min="0" step="any" required></label>
-                <label class="form-group">平均取得単価（銘柄の通貨）
-                    <input id="holding-avg-cost" type="number" min="0" step="any" required>
-                </label>
-                <label class="form-group">取得日<input id="holding-acquired-on" type="date"></label>
-                <label class="form-group">メモ（任意）<textarea id="holding-note" rows="2" maxlength="2000"></textarea></label>
-                <p class="auth-error hidden" id="holding-editor-error" role="alert"></p>
-                <div class="modal-actions">
-                    <button class="account-action hidden" id="holding-edit-existing" type="button">登録済みの銘柄を編集</button>
-                    <button class="account-action" id="holding-editor-cancel" type="button">キャンセル</button>
-                    <button class="account-action" id="holding-editor-submit" type="submit">保存</button>
                 </div>
             </form>
         </div>
@@ -276,70 +230,23 @@
         </div>
     </div>
 
-    <div class="modal-overlay hidden" id="investment-delete-overlay">
-        <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="investment-delete-title" tabindex="-1">
+    <div class="modal-overlay hidden" id="alert-delete-overlay">
+        <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="alert-delete-title" tabindex="-1">
             <div class="modal-header">
-                <h3 id="investment-delete-title">削除を確認</h3>
-                <button class="modal-close" id="investment-delete-close" type="button" aria-label="閉じる">✕</button>
+                <h3 id="alert-delete-title">削除を確認</h3>
+                <button class="modal-close" id="alert-delete-close" type="button" aria-label="閉じる">✕</button>
             </div>
-            <form class="modal-body" id="investment-delete-form">
-                <p class="modal-message" id="investment-delete-message" tabindex="-1"></p>
-                <p class="auth-error hidden" id="investment-delete-error" role="alert"></p>
+            <form class="modal-body" id="alert-delete-form">
+                <p class="modal-message" id="alert-delete-message" tabindex="-1"></p>
+                <p class="auth-error hidden" id="alert-delete-error" role="alert"></p>
                 <div class="modal-actions">
-                    <button class="account-action" id="investment-delete-cancel" type="button">キャンセル</button>
-                    <button class="account-action account-action-danger" id="investment-delete-submit" type="submit">削除する</button>
+                    <button class="account-action" id="alert-delete-cancel" type="button">キャンセル</button>
+                    <button class="account-action account-action-danger" id="alert-delete-submit" type="submit">削除する</button>
                 </div>
             </form>
         </div>
     </div>
 
-    <!-- タグ編集モーダル -->
-    <div class="modal-overlay hidden" id="tag-modal-overlay">
-        <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="tag-modal-title" tabindex="-1">
-            <div class="modal-header">
-                <h3 id="tag-modal-title">🏷️ タグ編集 — <span id="tag-modal-symbol"></span></h3>
-                <button class="modal-close" id="tag-modal-close" type="button" aria-label="閉じる">✕</button>
-            </div>
-            <div class="modal-body">
-                <div class="tag-current" id="tag-current-tags"></div>
-                <div class="tag-input-row">
-                    <label class="visually-hidden" for="tag-input">新しいタグ</label>
-                    <input type="text" id="tag-input" placeholder="新しいタグを入力..." autocomplete="off">
-                    <button class="btn-primary btn-sm" id="tag-add-btn" type="button">追加</button>
-                </div>
-                <div class="tag-presets">
-                    <span class="tag-preset-label">プリセット:</span>
-                    <button class="tag-preset" type="button" data-preset-tag="テック">テック</button>
-                    <button class="tag-preset" type="button" data-preset-tag="高配当">高配当</button>
-                    <button class="tag-preset" type="button" data-preset-tag="バリュー">バリュー</button>
-                    <button class="tag-preset" type="button" data-preset-tag="グロース">グロース</button>
-                    <button class="tag-preset" type="button" data-preset-tag="ディフェンシブ">ディフェンシブ</button>
-                    <button class="tag-preset" type="button" data-preset-tag="小型株">小型株</button>
-                    <button class="tag-preset" type="button" data-preset-tag="大型株">大型株</button>
-                    <button class="tag-preset" type="button" data-preset-tag="日本株">日本株</button>
-                    <button class="tag-preset" type="button" data-preset-tag="米国株">米国株</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- フィルタ設定モーダル -->
-    <div class="modal-overlay hidden" id="filter-modal-overlay">
-        <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="filter-modal-title" tabindex="-1">
-            <div class="modal-header">
-                <h3 id="filter-modal-title">🔍 タグで絞り込み</h3>
-                <button class="modal-close" id="filter-modal-close" type="button" aria-label="閉じる">✕</button>
-            </div>
-            <div class="modal-body">
-                <div id="filter-tags-container">
-                    <p class="filter-empty-note">タグが設定された銘柄がありません</p>
-                </div>
-                <div class="filter-actions">
-                    <button class="btn-outline-danger" id="filter-clear-btn" type="button">フィルタ解除</button>
-                </div>
-            </div>
-        </div>
-    </div>
 
     <!-- 銘柄追加モーダル -->
     <div class="modal-overlay hidden" id="list-add-modal-overlay">
@@ -393,22 +300,6 @@
             </div>
         </section>
 
-        <!-- ローディング -->
-        <section id="loading-section" class="loading-section hidden">
-            <div class="spinner"></div>
-            <p id="loading-text" role="status">データを取得中...</p>
-        </section>
-
-        <!-- エラー表示 -->
-        <section id="error-section" class="error-section hidden">
-            <div class="error-content">
-                <div class="error-icon">⚠️</div>
-                <h3 id="error-title">エラー</h3>
-                <p id="error-message" role="alert"></p>
-                <button class="btn-retry" id="search-retry-btn" type="button">再試行</button>
-            </div>
-        </section>
-
         <!-- 株式詳細データ -->
         <section id="stock-detail" class="stock-detail hidden">
             <!-- ヘッダー: 会社名・現在株価 -->
@@ -423,10 +314,11 @@
                 <div class="stock-header-right">
                     <div class="price-display" id="price-display"></div>
                     <div class="price-timestamp" id="price-timestamp"></div>
+                    <p class="text-error" id="quote-error" role="alert"></p>
+                    <button class="account-action hidden" id="search-retry-btn" type="button">再試行</button>
                     <small id="quote-stale" class="stale-notice text-muted"></small>
                     <button class="btn-primary btn-sm" id="btn-detail-backtest" type="button">バックテスト</button>
-                    <div class="portfolio-actions detail-investment-actions">
-                        <button class="account-action" id="btn-detail-holding" type="button">ポートフォリオに追加</button>
+                    <div class="detail-investment-actions">
                         <button class="account-action" id="btn-detail-alert" type="button">アラートを追加</button>
                     </div>
                 </div>
@@ -554,9 +446,10 @@
             <div class="list-header-row">
                 <h2>📋 銘柄ダッシュボード</h2>
                 <div class="list-controls">
+                    <button class="account-action" id="watchlist-alerts" type="button" aria-haspopup="dialog">価格アラート</button>
                     <div class="list-add-form">
                         <label class="visually-hidden" for="list-search-input">ウォッチリスト内の銘柄を検索</label>
-                        <input type="text" id="list-search-input" placeholder="ティッカーを検索（#でタグ）..." autocomplete="off">
+                        <input type="text" id="list-search-input" placeholder="ティッカー・会社名を検索" autocomplete="off">
                         <button id="list-add-btn" type="button">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                             追加
@@ -564,8 +457,8 @@
                     </div>
                 </div>
             </div>
-            <p class="list-description">このページを幹として複数の銘柄を管理し、行クリックで各銘柄の詳細ページへ移動できます。列ヘッダーをクリックすると並び替えできます。</p>
-            <p class="list-search-hint">検索: スペースでAND、|でOR、#テック のようにタグ検索</p>
+            <p class="list-description">ログインすると、株数や現金を入力して評価額と構成比を確認できます。</p>
+            <p class="list-search-hint">検索はスペースですべての語、| でいずれかの語に一致します。</p>
             <div class="watchlist-manager hidden" id="watchlist-manager">
                 <label for="watchlist-select">ウォッチリスト</label>
                 <select class="account-action" id="watchlist-select"></select>
@@ -576,13 +469,10 @@
             </div>
             <p class="auth-error hidden" id="watchlist-error" role="alert"></p>
 
-            <!-- アクティブフィルタ表示 -->
-            <div class="active-filter-bar hidden" id="active-filter-bar">
-                <span class="active-filter-label">🏷️ フィルタ中:</span>
-                <span class="active-filter-tag" id="active-filter-tag"></span>
-                <button class="active-filter-clear" id="active-filter-clear" type="button">✕ 解除</button>
-            </div>
+            <p class="text-muted list-refresh" id="watchlist-refresh" role="status"></p>
         </section>
+
+        <section class="watchlist-portfolio hidden" id="watchlist-portfolio" aria-label="保有資産の集計"></section>
 
         <!-- リストが空の場合 -->
         <section id="list-empty" class="list-empty">
@@ -612,8 +502,9 @@
                             <th class="sortable numeric" data-sort="market_cap"><button type="button">会社規模 <span class="sort-arrow" aria-hidden="true"></span></button></th>
                             <th class="sortable numeric" data-sort="mix_index"><button type="button">ミックス指数 <span class="sort-arrow" aria-hidden="true"></span></button></th>
                             <th class="sortable numeric" data-sort="dividend_yield"><button type="button">配当利回り <span class="sort-arrow" aria-hidden="true"></span></button></th>
-                            <th>タグ</th>
-                            <th>メモ</th>
+                            <th class="sortable numeric" data-sort="shares"><button type="button">株数 <span class="sort-arrow" aria-hidden="true"></span></button></th>
+                            <th class="sortable numeric" data-sort="value_jpy"><button type="button">評価額（円） <span class="sort-arrow" aria-hidden="true"></span></button></th>
+                            <th class="sortable numeric" data-sort="weight_pct"><button type="button">比率 <span class="sort-arrow" aria-hidden="true"></span></button></th>
                             <th>操作</th>
                         </tr>
                     </thead>
@@ -621,6 +512,11 @@
                 </table>
             </div>
         </section>
+        <div class="watchlist-cash hidden" id="watchlist-cash">
+            <label for="watchlist-cash-input">現金（円）</label>
+            <input class="watchlist-amount" id="watchlist-cash-input" type="text" inputmode="numeric" autocomplete="off" aria-describedby="watchlist-cash-error">
+            <p class="watchlist-field-error" id="watchlist-cash-error" role="alert"></p>
+        </div>
     </div>
 
     <div class="modal-overlay hidden" id="backtest-run-dialog">
@@ -772,80 +668,31 @@
         </section>
     </div>
 
-    <div id="portfolio-view" class="view">
-        <section class="portfolio-panel" aria-labelledby="portfolio-title">
-            <h2 id="portfolio-title">ポートフォリオ</h2>
-            <div class="card card-body hidden" id="portfolio-login">
-                <p>ポートフォリオと価格アラートを利用するにはログインが必要です。</p>
-                <button class="btn-primary btn-sm" id="portfolio-login-btn" type="button">ログイン</button>
+    <div class="modal-overlay hidden" id="alerts-list-overlay">
+        <div class="modal alerts-list" role="dialog" aria-modal="true" aria-labelledby="alerts-list-title" tabindex="-1">
+            <div class="modal-header">
+                <h3 id="alerts-list-title">価格アラート</h3>
+                <button class="modal-close" id="alerts-list-close" type="button" aria-label="閉じる">✕</button>
             </div>
-            <div id="portfolio-content" class="portfolio-content hidden">
-                <div class="metrics-grid" id="portfolio-totals" aria-label="円換算の合計"></div>
-                <p class="text-muted" id="portfolio-status" role="status"></p>
-                <section class="card card-body" aria-labelledby="portfolio-holdings-title">
-                    <div class="portfolio-heading">
-                        <h3 id="portfolio-holdings-title">保有銘柄</h3>
-                        <div class="portfolio-actions">
-                            <button class="btn-primary btn-sm" id="portfolio-add" type="button">保有銘柄を追加</button>
-                            <button class="account-action" id="portfolio-csv" type="button">CSVをエクスポート</button>
-                            <button class="account-action" id="portfolio-refresh" type="button">評価を更新</button>
-                        </div>
-                    </div>
-                    <p class="auth-error hidden" id="portfolio-error" role="alert"></p>
-                    <div class="table-container">
-                        <table class="data-table portfolio-table" id="portfolio-table" aria-labelledby="portfolio-holdings-title">
-                            <thead><tr>
-                                <th data-sort="symbol" aria-sort="ascending"><button type="button">銘柄 <span aria-hidden="true"></span></button></th>
-                                <th data-sort="shares"><button type="button">数量 <span aria-hidden="true"></span></button></th>
-                                <th data-sort="avg_cost"><button type="button">平均取得単価 <span aria-hidden="true"></span></button></th>
-                                <th data-sort="price"><button type="button">株価 <span aria-hidden="true"></span></button></th>
-                                <th data-sort="day_change_pct"><button type="button">前日比 <span aria-hidden="true"></span></button></th>
-                                <th data-sort="market_value_jpy"><button type="button">評価額（円） <span aria-hidden="true"></span></button></th>
-                                <th data-sort="unrealized_pl_jpy"><button type="button">含み損益（円） <span aria-hidden="true"></span></button></th>
-                                <th data-sort="unrealized_pl_pct"><button type="button">損益率 <span aria-hidden="true"></span></button></th>
-                                <th data-sort="weight_pct"><button type="button">構成比 <span aria-hidden="true"></span></button></th>
-                                <th scope="col">操作</th>
-                            </tr></thead>
-                            <tbody id="portfolio-holdings"></tbody>
-                        </table>
-                    </div>
-                </section>
-                <section class="card card-body" id="portfolio-composition" aria-labelledby="portfolio-composition-title">
-                    <h3 id="portfolio-composition-title">評価額の構成（円換算）</h3>
-                    <div class="portfolio-composition-body">
-                        <div class="chart-container-pie hidden" id="portfolio-plot">
-                            <canvas id="portfolio-chart" role="img" aria-label="保有銘柄別の評価額構成" aria-describedby="portfolio-chart-summary"></canvas>
-                        </div>
-                        <ul class="portfolio-legend hidden" id="portfolio-legend" aria-label="銘柄別の構成比" tabindex="0"></ul>
-                    </div>
-                    <details>
-                        <summary>銘柄別の評価額と構成比</summary>
-                        <p class="portfolio-chart-summary" id="portfolio-chart-summary"></p>
-                    </details>
-                </section>
-                <section class="card card-body" aria-labelledby="portfolio-alerts-title">
-                    <div class="portfolio-heading">
-                        <h3 id="portfolio-alerts-title">価格アラート</h3>
-                        <div class="portfolio-actions">
-                            <button class="btn-primary btn-sm" id="portfolio-alert-add" type="button">アラートを追加</button>
-                            <button class="account-action" id="alert-notification-enable" type="button">ブラウザ通知を有効にする</button>
-                        </div>
-                    </div>
-                    <p class="text-muted" id="alert-notification-status" role="status"></p>
-                    <p class="text-muted" id="portfolio-alert-status" role="status"></p>
-                    <p class="auth-error hidden" id="portfolio-alert-error" role="alert"></p>
-                    <div class="table-container">
-                        <table class="data-table portfolio-table" aria-labelledby="portfolio-alerts-title">
-                            <thead><tr>
-                                <th scope="col">銘柄</th><th scope="col">条件</th><th scope="col">状態</th>
-                                <th scope="col">最終通知</th><th scope="col">操作</th>
-                            </tr></thead>
-                            <tbody id="portfolio-alerts"></tbody>
-                        </table>
-                    </div>
-                </section>
+            <div class="modal-body">
+                <div class="alert-actions">
+                    <button class="btn-primary btn-sm" id="alerts-list-add" type="button">アラートを追加</button>
+                    <button class="account-action" id="alert-notification-enable" type="button">ブラウザ通知を有効にする</button>
+                </div>
+                <p class="text-muted" id="alert-notification-status" role="status"></p>
+                <p class="text-muted" id="alerts-list-status" role="status"></p>
+                <p class="auth-error hidden" id="alerts-list-error" role="alert"></p>
+                <div class="table-container">
+                    <table class="data-table alerts-table" aria-labelledby="alerts-list-title">
+                        <thead><tr>
+                            <th scope="col">銘柄</th><th scope="col">条件</th><th scope="col">状態</th>
+                            <th scope="col">最終通知</th><th scope="col">操作</th>
+                        </tr></thead>
+                        <tbody id="alerts-list-rows"></tbody>
+                    </table>
+                </div>
             </div>
-        </section>
+        </div>
     </div>
 
     <!-- システム統計ビュー -->

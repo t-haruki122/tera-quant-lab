@@ -72,7 +72,7 @@ test('watchlist loads stock data with one summary request and renders partial an
     resetWatchlist();
     const replies = {
         '/user/7/lists': response({ lists: state.watchlists, default_list_id: 8 }),
-        '/user/7/lists/8/summary': response({ items: [
+        '/user/7/lists/8/summary?cached=true': response({ items: [
             { symbol: '7203.T', tags: ['自動車'], price: 2450, mix_index: 8.1, memo: 'メモを保持',
               error: '一部のデータを取得できませんでした。' },
             { symbol: 'AAPL', price: 250, name: 'Apple', currency: 'USD', mix_index: 12 },
@@ -86,7 +86,7 @@ test('watchlist loads stock data with one summary request and renders partial an
     };
 
     await loadDefaultList();
-    assert.deepEqual(calls, ['/user/7/lists', '/user/7/lists/8/summary']);
+    assert.deepEqual(calls, ['/user/7/lists', '/user/7/lists/8/summary?cached=true']);
     assert.ok(state.listItems.every(item => !item.loading));
     const [partial, complete] = state.listItems;
     assert.equal(partial.price, 2450);
@@ -106,7 +106,7 @@ test('adding a saved symbol reloads the summary and preserves rows across a rate
     const calls = [];
     const replies = {
         '/user/7/lists/8/items': response({ symbol: '7203.T' }),
-        '/user/7/lists/8/summary': response({ items: [
+        '/user/7/lists/8/summary?cached=true': response({ items: [
             { symbol: '7203.T', name: 'トヨタ', currency: 'JPY', error: '一部のデータを取得できませんでした。' },
         ] }),
     };
@@ -117,7 +117,7 @@ test('adding a saved symbol reloads the summary and preserves rows across a rate
 
     openListAddModal('7203.t');
     await submitListAddFromModal();
-    assert.deepEqual(calls, [['/user/7/lists/8/items', 'POST'], ['/user/7/lists/8/summary', undefined]]);
+    assert.deepEqual(calls, [['/user/7/lists/8/items', 'POST'], ['/user/7/lists/8/summary?cached=true', undefined]]);
     assert.equal(state.listItems.length, 1);
     assert.ok(!state.listItems[0].loading);
     assert.match(markup(), /トヨタ/);
@@ -138,10 +138,10 @@ test('selecting a saved list makes one request and persists separately per user'
     };
     await loadDefaultList();
     assert.equal(state.currentListId, 9);
-    assert.deepEqual(calls, ['/user/7/lists', '/user/7/lists/9/summary']);
+    assert.deepEqual(calls, ['/user/7/lists', '/user/7/lists/9/summary?cached=true']);
     assert.equal(document.getElementById('watchlist-delete').disabled, false);
     await selectWatchlist(8);
-    assert.deepEqual(calls.slice(2), ['/user/7/lists/8/summary']);
+    assert.deepEqual(calls.slice(2), ['/user/7/lists/8/summary?cached=true']);
     assert.equal(storage.get('stockAnalyzerWatchlist:7'), '8');
     assert.equal(document.getElementById('watchlist-delete').disabled, true);
 });

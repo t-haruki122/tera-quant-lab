@@ -58,7 +58,7 @@ for (const loggedIn of [true, false]) {
                 }
                 if (path === '/user/7/lists') return response({ lists: [{ id: 8, name: 'マイリスト' }], default_list_id: 8 });
                 await data.promise;
-                if (path === '/user/7/lists/8/summary') return response({ items: symbols });
+                if (path === '/user/7/lists/8/summary?cached=true') return response({ items: symbols });
                 const [, , symbol] = path.split('/');
                 const item = symbols.find(entry => entry.symbol === symbol);
                 assert.ok(item, path);
@@ -74,7 +74,7 @@ for (const loggedIn of [true, false]) {
             })();
             await tick();
             assert.ok(calls.includes('/forex/usdjpy'));
-            assert.ok(calls.includes(loggedIn ? '/user/7/lists/8/summary' : '/stock/AAPL'));
+            assert.ok(calls.includes(loggedIn ? '/user/7/lists/8/summary?cached=true' : '/stock/AAPL/snapshot'));
 
             if (rateFirst) {
                 rate.resolve();
@@ -91,8 +91,9 @@ for (const loggedIn of [true, false]) {
                 rate.resolve();
             }
             await Promise.all([ready, rowsReady]);
+            await tick();
             assertRows(true);
-            assert.equal(calls.length, loggedIn ? 3 : 7);
+            assert.equal(calls.length, 3);
         });
     }
 }

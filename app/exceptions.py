@@ -113,6 +113,8 @@ def register_exception_handlers(app: FastAPI):
                 message = f"{field} は 1 以上の有効な整数 ID を指定してください"
             elif field == "symbol":
                 message = "symbol は銘柄を表す文字列を指定してください"
+            elif field == "cash_jpy":
+                message = "現金は0円以上10兆円以下の整数で入力してください"
             elif kind in VALIDATION_LIMITS:
                 key, comparison = VALIDATION_LIMITS[kind]
                 bound = str(context[key]).removesuffix(".0")

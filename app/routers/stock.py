@@ -18,8 +18,16 @@ from app.schemas.stock import (
     NewsResponse,
     StockHistoryResponse,
     StockPriceResponse,
+    StockSnapshot,
 )
-from app.services import finance_service, indicator_service, news_service, profile_service, stock_service
+from app.services import (
+    finance_service,
+    indicator_service,
+    news_service,
+    profile_service,
+    stock_service,
+    watchlist_service,
+)
 from app.timeutil import utcnow
 from app.validation import HistoryInterval, ISODate, Symbol, shift_years
 
@@ -35,6 +43,12 @@ router = APIRouter(prefix="/stock", tags=["stock"], dependencies=[Depends(limit_
 async def get_stock_price(symbol: Symbol, db: AsyncSession = Depends(get_db)):
     """現在の株価を取得"""
     return await stock_service.get_current_price(symbol, db)
+
+
+@router.get("/{symbol}/snapshot", response_model=StockSnapshot, response_model_exclude_unset=True,
+            summary="銘柄の株価・会社情報・投資指数を取得")
+async def get_stock_snapshot(symbol: Symbol, db: AsyncSession = Depends(get_db)):
+    return await watchlist_service.get_snapshot(symbol, db.bind)
 
 
 @router.get(

@@ -15,7 +15,7 @@
 | ニュース | 銘柄関連ニュースの取得 | `GET /stock/{symbol}/news` |
 | 為替 | 通貨ペアの現在レート取得 | `GET /forex/{pair}` |
 | ユーザー機能 | ユーザー登録/ログイン、銘柄リスト管理、タグ管理 | `POST /user/register`、`POST /user/login`、`/user/{user_id}/lists...` |
-| ポートフォリオ | 保有銘柄の管理、円換算評価、CSV出力 | `/user/{user_id}/portfolio` |
+| ウォッチリストの保有資産 | 株数・現金の設定、円換算評価、構成比 | `GET /user/{user_id}/lists/{list_id}/summary` |
 | 価格アラート | アラートの管理・判定 | `/user/{user_id}/alerts`、`POST /user/{user_id}/alerts/check` |
 | バックテスト | 戦略一覧、単一実行、グリッド探索、ポートフォリオ、ウォークフォワード、結果保存 | `GET /backtest/strategies`、`POST /backtest/run`、`POST /backtest/grid`、`POST /backtest/portfolio`、`POST /backtest/walkforward`、`/backtest/runs` |
 | 運用 | API利用統計と稼働状態の取得 | `GET /stats`、`GET /health` |
@@ -82,6 +82,7 @@ EMA は最初の N 本の単純平均で開始し、以降は重み `2 / (N + 1)
 - リストのCSV出力 `GET /user/{user_id}/lists/{list_id}/export.csv`
 - 銘柄追加: `POST /user/{user_id}/lists/{list_id}/items`
 - 銘柄削除: `DELETE /user/{user_id}/lists/{list_id}/items/{symbol}`
+- 銘柄の株数・リストの現金を設定するAPIは「ウォッチリストの保有株数と現金」を参照してください。
 - タグ更新: `PUT /user/{user_id}/lists/{list_id}/items/{symbol}/tags`
 - 銘柄メモ取得/保存: `GET/PUT /user/{user_id}/memo/{symbol}`
 
@@ -126,7 +127,7 @@ JWT の `ver` がアカウントのトークンバージョンと一致する間
 |---|---|---|
 | `POST /user/1/password` | `{"current_password":"old-password","new_password":"new-password"}` | `200`。ログインと同じ形式で新しいトークンを返し、変更前のトークンをすべて失効させます。 |
 | `POST /user/1/logout-all` | なし | `204`。操作に使用したトークンを含め、すべてのトークンを失効させます。 |
-| `DELETE /user/1` | `{"current_password":"current-password"}` | `204`。ユーザー、リスト、銘柄、タグ、メモをまとめて削除します。 |
+| `DELETE /user/1` | `{"current_password":"current-password"}` | `204`。ユーザー、リスト（株数・現金を含む）、タグ、メモ、価格アラート、保存済みバックテストをまとめて削除します。 |
 
 パスワードの不一致や新しいパスワードの文字数不足は日本語の `detail` を含む `400`、必須項目の欠落や型違いは `422` です。現在のパスワードを検証する操作はログインと同じ失敗回数・IP 試行回数の制限を使い、上限到達時に `429` を返します。
 
@@ -136,27 +137,35 @@ JWT の `ver` がアカウントのトークンバージョンと一致する間
 
 `GET /user/1/lists` は `lists` と `default_list_id` を返します。デフォルトは最も早く作成されたリストです。デフォルトリスト（最後の1件を含む）を `DELETE /user/1/lists/2` で削除しようとすると `400` です。ほかのリストを削除すると `200` と `{"message":"リストを削除しました"}` を返します。対象が見つからない場合は `404` です。
 
-`GET /user/1/lists/2/summary` はウォッチリスト表示用のデータを `200` でまとめて返します。
+#### ウォッチリストの保有株数と現金
 
-```json
-{
-  "id": 2,
-  "name": "配当株",
-  "created_at": "2026-11-25T00:00:00",
-  "updated_at": "2026-11-25T00:00:00",
-  "items": [{
-    "symbol": "7203.T", "tags": ["自動車"], "name": "Toyota", "country": "Japan",
-    "sector": "Consumer Cyclical", "price": 2450, "currency": "JPY", "market_cap": 35000000000000,
-    "mix_index": 9.6, "dividend_yield": 2.3, "per": 8, "pbr": 1.2, "memo": "決算を確認", "error": null
-  }, {
-    "symbol": "UNKNOWN", "tags": [], "name": null, "country": null, "sector": null,
-    "price": null, "currency": null, "market_cap": null, "mix_index": null, "dividend_yield": null,
-    "per": null, "pbr": null, "memo": null, "error": "銘柄データを取得できませんでした。"
-  }]
-}
-```
+| メソッドとパス | 本文と応答 |
+|---|---|
+| `PUT /user/{user_id}/lists/{list_id}/items/{symbol}/shares` | `{"shares":1.2345}`。0より大きく10億以下で、小数第4位まで。消去は `{"shares":null}` |
+| `PUT /user/{user_id}/lists/{list_id}/cash` | `{"cash_jpy":50000}`。0円以上10兆円以下の整数。消去は `{"cash_jpy":null}` |
 
-取得できた項目と、銘柄ごとの日本語エラーを同じ行で返します。メモがない場合の `memo` は `null` です。空リストの `items` は `[]` になります。リストが見つからない場合は `404`、データ取得枠を超えた場合は `429` です。銘柄数にかかわらず枠の消費は1回です。`WATCHLIST_SUMMARY_CONCURRENCY` で1リクエスト内に並行取得する銘柄数を指定します（既定値 `8`、正の整数）。
+更新できた場合は保存した値を `200` で返します。対象のリストや銘柄が見つからなければ `404`、入力が不正なら日本語のメッセージと `422` を返します。
+
+`GET /user/1/lists/2/summary` は、リストの `cash_jpy`、銘柄ごとの `shares`、`value_jpy`（円換算評価額）、`weight_pct`（現金を含む合計に対する比率）、タグ、メモとマーケットデータを返します。株数が `null` の銘柄はウォッチ対象です。全銘柄の株数が未入力で現金が `null` または `0` なら `portfolio` は `null` です。株数か正の現金があれば、以下を `portfolio` に返します。
+
+| フィールド | 内容 |
+|---|---|
+| `total_value_jpy`、`stocks_value_jpy`、`cash_jpy`、`cash_ratio_pct` | 円換算合計、株式評価額、現金（未入力は集計上0円）、現金比率 |
+| `by_region` | 日本株（JPY建て）、米国株（USD建て）、その他、現金の順で `label`、`value_jpy`、`pct` |
+| `by_currency` | JPY、USD の順で `label`、`value_jpy`、`pct`。現金は JPY に含む |
+| `by_sector` | 評価額の大きい順の `label`、`value_jpy`、`pct`。比率は評価できた株式が分母。企業プロフィールのセクターがなければ「不明」 |
+| `concentration` | 最大保有銘柄 `largest`（`symbol`、`pct`）、上位5銘柄の合計比率 `top_5_pct`、除外も含む保有銘柄数 `holding_count` |
+| `usd_jpy` | 使用した為替の `rate`、`stale`、`cached_at`。使用可能なレートがなければ `null` |
+| `excluded` | 株価、取引通貨、為替の欠損などで集計から除外した `symbol` と `reason` |
+
+JPY建ては株数×株価、USD建ては株数×株価×USD/JPYで評価します。その他の通貨は `value_jpy` と `weight_pct` が `null` になり、`warning` を返します。構成比と集中度の分母は、評価できた株式と現金の合計です。分母が0の比率は `null` です。評価できた株式が0件の場合も、最大保有銘柄と上位5銘柄比率は `null` です。取得原価、取得日、損益は設計上管理対象外です。
+
+`?cached=true` を付けるとDBのキャッシュだけを読みます。期限切れのデータは `stale: true` と `cached_at` 付きで返し、株価・企業プロフィール・投資指標のいずれかのキャッシュがなければ `pending: true` を返します。キャッシュのない項目は `null` です。通常の概要取得では銘柄に応じて外部取得を試み、一部の失敗は各行の `error` に表示します。通常取得のデータ取得枠の消費は銘柄数にかかわらず1回です。 `WATCHLIST_SUMMARY_CONCURRENCY`（既定値8）で1リクエスト内の同時取得銘柄数を設定します。
+
+`GET /stock/{symbol}/snapshot` は株価・会社情報・投資指標を並行取得し、ダッシュボード用の項目をまとめて返します。部分取得時も `200` を返し、取得失敗の項目は省略して `error` に日本語メッセージを入れます。ダッシュボードはキャッシュの概要を描画してからこのAPIで銘柄を順次更新し、円換算の集計はキャッシュの概要を再取得して反映します。
+
+旧 `/user/{user_id}/portfolio` 配下のAPIは廃止しました。マイグレーション `0007` は旧保有銘柄を各ユーザーのデフォルトリストに追加するか、登録済み銘柄の株数に合算します。株数は旧データの精度を保ったまま移行します。旧保有銘柄の取得単価、取得日、保有メモを破棄してテーブルを削除します。ダウングレードでは旧テーブルを空で再作成し、新しい株数・現金列を削除します。
+
 
 #### JSONバックアップとCSV出力
 
@@ -164,16 +173,15 @@ JWT の `ver` がアカウントのトークンバージョンと一致する間
 
 ```json
 {
-  "version": 3,
+  "version": 4,
   "exported_at": "2026-11-25T12:00:00Z",
   "username": "taro",
   "lists": [{
     "name": "配当株",
-    "items": [{"symbol": "7203.T", "tags": ["自動車"], "added_at": "2026-11-25T08:00:00Z"}]
+    "cash_jpy": 50000,
+    "items": [{"symbol": "7203.T", "shares": 10, "tags": ["自動車"], "added_at": "2026-11-25T08:00:00Z"}]
   }],
   "memos": [{"symbol": "7203.T", "memo": "決算を確認", "updated_at": "2026-11-25T09:00:00Z"}],
-  "holdings": [{"symbol": "7203.T", "shares": 10, "avg_cost": 2500, "acquired_on": "2026-11-24",
-    "note": null, "created_at": "2026-11-25T10:00:00Z", "updated_at": "2026-11-25T10:00:00Z"}],
   "alerts": [{"symbol": "7203.T", "kind": "above", "threshold": 3000, "enabled": true, "note": null,
     "created_at": "2026-11-25T10:00:00Z", "last_triggered_at": null, "last_triggered_market_date": null,
     "trigger_count": 0, "armed": true}],
@@ -185,9 +193,10 @@ JWT の `ver` がアカウントのトークンバージョンと一致する間
 
 `POST /user/1/import?mode=merge` の本文には、エクスポートした JSON をそのまま指定できます。データはURLのアカウントに取り込みます。本文の `username` はバックアップ元の記録です。
 
-- `merge`（既定）は未登録のデータを追加します。同じリスト名の内容を統合し、既存の空でないメモを保持します。既存メモが空（空白のみを含む）の場合、取り込むメモが空でなければ更新します。保有銘柄はティッカーで照合します。アラートはティッカー、条件、基準値、有効状態、メモが一致する件数を照合し、既存の通知履歴を保持します。
-- `replace` はバックアップに含まれる種類のデータを置き換えます。バージョン1はリストとメモ、バージョン2はさらに保有銘柄と価格アラート、バージョン3は保存済みバックテストも対象です。どちらのモードも1回のトランザクションで確定します。
-- 銘柄の表記を正規化します。リストや銘柄メモの項目が銘柄形式やリスト名の条件を満たさない場合は、理由付きでスキップします。保有銘柄とアラートの件数には登録上限が適用されます。
+- `merge`（既定）は未登録のデータを追加します。同じリスト名の内容を統合し、既存の空でないメモを保持します。既存メモが空（空白のみを含む）の場合、取り込むメモが空でなければ更新します。バージョン4の株数と現金は未入力欄に取り込み、設定済みの値を保持します。アラートはティッカー、条件、基準値、有効状態、メモが一致する件数を照合し、既存の通知履歴を保持します。
+- `replace` はバックアップに含まれる種類のデータを置き換えます。バージョン1はリストとメモ、バージョン2からは価格アラート、バージョン3からは保存済みバックテストも対象です。どちらのモードも1回のトランザクションで確定します。
+- バージョン2・3の旧 `holdings` はデフォルトリストに取り込み、同じティッカーの株数を合算します。旧取得単価・取得日・保有メモは破棄します。同じ旧バックアップを複数回 `merge` するとその都度株数が加算されます。
+- 銘柄の表記を正規化します。リストや銘柄メモの項目が銘柄形式やリスト名の条件を満たさない場合は、理由付きでスキップします。価格アラートの件数には登録上限が適用されます。
 - 保存済みバックテストは名前、種類、作成日時、メモ、リクエスト、結果が一致する項目を照合します。取り込み時に新しいIDを採番し、バックテストの保存件数・サイズの上限を適用します。
 
 ```json
@@ -199,28 +208,12 @@ JWT の `ver` がアカウントのトークンバージョンと一致する間
 
 上記は `200` の応答例です。`USER_IMPORT_MAX_BYTES`（既定値 `33554432`、正の整数）を超える本文は `413` です。JSON の構文、必須項目、型、バージョン、モードが正しくない場合や、定義外の項目がある場合は `422` です。
 
-`GET /user/1/lists/2/export.csv` は `200` と `Content-Disposition: attachment; filename="watchlist-2-2026-11-25.csv"` を返します。UTF-8 BOM付きで、列は `symbol,name,tags,memo` の順です。企業名はキャッシュにあれば出力します。表計算ソフトで数式として解釈される値には、引用符の内側にタブを付けます。リストが見つからない場合は `404` です。
+`GET /user/1/lists/2/export.csv` は `200` と `Content-Disposition: attachment; filename="watchlist-2-2026-11-25.csv"` を返します。UTF-8 BOM付きで、列は `symbol,name,tags,memo,shares` の順です。企業名はキャッシュにあれば出力します。表計算ソフトで数式として解釈される値には、引用符の内側にタブを付けます。リストが見つからない場合は `404` です。
 
 ```csv
-"symbol","name","tags","memo"
-"7203.T","Toyota","自動車, 高配当","決算を確認"
+"symbol","name","tags","memo","shares"
+"7203.T","Toyota","自動車, 高配当","決算を確認","10.0"
 ```
-
-#### ポートフォリオ
-
-| メソッドとパス | 操作 |
-|---|---|
-| `GET /user/{user_id}/portfolio` | 保有銘柄と評価額を返す |
-| `POST /user/{user_id}/portfolio` | 保有銘柄を追加する（`201`） |
-| `PUT /user/{user_id}/portfolio/{holding_id}` | 数量、平均取得単価、取得日、メモを更新する。銘柄の変更も可 |
-| `DELETE /user/{user_id}/portfolio/{holding_id}` | 保有銘柄を削除する（`204`） |
-| `GET /user/{user_id}/portfolio/export.csv` | 保有銘柄の入力データをCSVで出力する |
-
-登録時は `symbol`、`shares`（0より大きい数値）、`avg_cost`（銘柄の通貨で0以上の数値）を指定します。更新時の `symbol` は省略または `null` で現在の銘柄を維持します。`acquired_on`（`YYYY-MM-DD`）と `note`（2,000文字以内）は省略または `null` にできます。銘柄ごとに1件登録でき、重複時は `409`、`PORTFOLIO_MAX_HOLDINGS`（既定値200件）到達時は `400` です。CSVは UTF-8 BOM付きで、列は `symbol,shares,avg_cost,acquired_on,note` の順です。
-
-一覧は `holdings` に銘柄名、通貨、現在価格、取得額、評価額、含み損益・損益率、前日比と騰落率（取得できる場合）、円換算額と円換算の評価額に占める構成比を返します。換算には `usd_jpy` を使い、JPYはそのまま集計します。USD/JPY以外の為替ペアは現行の為替サービスの対象外です。価格取得や換算ができない銘柄には `error` が付き、換算不可なら `fx_unavailable` も付きます。`totals` の円換算合計は評価と換算ができた銘柄で計算し、除外があれば `partial: true` を返します。取得額または評価額の合計が0の場合、対応する損益率または構成比は `null` です。
-
-キャッシュを代用した株価には行ごとに `stale` と `cached_at` が付きます。応答全体にはキャッシュ代用の有無と、そのうち最古の `cached_at` が付きます。為替には `forex_stale` と `forex_cached_at` が付きます。
 
 #### 価格アラート
 

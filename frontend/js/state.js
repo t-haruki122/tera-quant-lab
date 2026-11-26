@@ -32,6 +32,8 @@ export const state = {
     exchangeRateCachedAt: null,
 
     listItems: [],
+    listCash: null,
+    listPortfolio: null,
     sortKey: 'symbol',
     sortAsc: true,
 
@@ -43,9 +45,7 @@ export const state = {
     pendingDeleteSymbol: null,
     pendingDeleteTimer: null,
 
-    activeTagFilter: null,
     listSearchQuery: '',
-    tagEditSymbol: null,
 
     authMode: 'login',
 };

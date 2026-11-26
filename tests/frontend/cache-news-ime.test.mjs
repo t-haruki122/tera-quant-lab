@@ -7,7 +7,7 @@ const response = (body, status = 200) => ({ ok: status === 200, status, json: as
 globalThis.fetch = async () => response({ rate: 150 });
 const { App } = await fromRepo('frontend/app.js');
 const { fetchAPI } = await fromRepo('frontend/js/api.js');
-const { loadFinancials, loadNews, renderStockHeader, showSection } = await fromRepo('frontend/js/detail.js');
+const { loadFinancials, loadNews, loadStock, renderStockHeader, showSection } = await fromRepo('frontend/js/detail.js');
 const { renderListTable } = await fromRepo('frontend/js/list.js');
 const { cache, state } = await fromRepo('frontend/js/state.js');
 const { formatNewsDate } = await fromRepo('frontend/js/utils.js');
@@ -22,7 +22,6 @@ test('older Enter handlers ignore IME composition and keyCode 229', () => {
     const handlers = {
         'search-input': 'searchStock',
         'list-add-modal-input': 'submitListAddFromModal',
-        'tag-input': 'addTagFromInput',
         'auth-password': 'submitAuth',
     };
     const deps = Object.fromEntries(Object.values(handlers).map(name => [name, () => calls.push(name)]));
@@ -108,7 +107,8 @@ test('financials still show stale values when the uncached histories fail', asyn
         ? response({ eps: 25, ...cached })
         : response({ detail: payload }, 503);
     await loadFinancials('TEST', {});
-    const html = byId('financials-body').innerHTML;
+    const html = ['financials-summary', 'financial-history-panel', 'dividend-history-chart-container']
+        .map(id => byId(id).innerHTML).join('');
     assert.match(html, /最新データを取得できなかったため、2026\/11\/25 19:00 時点/);
     assert.match(html, /25\.00/);
     assert.match(html, /&lt;img/);
@@ -123,4 +123,47 @@ test('browser API cache retries a stale result on the next lookup', async () => 
     assert.deepEqual(await fetchAPI('/stock/TEST'), { price: 2 });
     assert.deepEqual(await fetchAPI('/stock/TEST'), { price: 2 });
     assert.equal(calls, 2);
+});
+
+
+test('stock detail renders each available panel while unrelated requests are pending', async () => {
+    cache.clear();
+    elements.clear();
+    const quote = Promise.withResolvers();
+    const profile = Promise.withResolvers();
+    const financeHistory = Promise.withResolvers();
+    const tick = () => new Promise(resolve => setImmediate(resolve));
+    globalThis.fetch = async path => {
+        switch (path.split('?')[0]) {
+            case '/stock/7203.T': return quote.promise;
+            case '/stock/7203.T/profile': return profile.promise;
+            case '/stock/7203.T/financials/history': return financeHistory.promise;
+            case '/stock/7203.T/financials': return response({ eps: 25 });
+            case '/stock/7203.T/indicators': return response({ pbr: 1, per: 10, mix_index: 10 });
+            case '/stock/7203.T/news': return response({ news: [{ title: '先に届いたニュース' }] });
+            default: return response({ history: [] });
+        }
+    };
+    const finish = loadStock('7203.T');
+    await tick();
+    assert.equal(byId('stock-detail').classList.contains('hidden'), false);
+    assert.equal(byId('price-display').textContent, '…');
+    assert.match(byId('profile-body').innerHTML, /skeleton-lines/);
+    // The shim records the scaffold markup without parsing its children.
+    assert.match(byId('financials-body').innerHTML, /id="financial-history-panel"><div class="skeleton-lines"/);
+    assert.equal(byId('financial-history-panel').innerHTML, '');
+    assert.match(byId('financials-summary').innerHTML, /25\.00/);
+    assert.match(byId('news-body').innerHTML, /先に届いたニュース/);
+    assert.match(byId('indicators-body').innerHTML, /ミックス指数[\s\S]*10 <span class="indicator-badge good">/);
+
+    profile.resolve(response({ name: 'トヨタ', sector: '輸送', currency: 'JPY' }));
+    await tick();
+    assert.equal(byId('company-name').textContent, 'トヨタ');
+    assert.match(byId('profile-body').innerHTML, /輸送/);
+    assert.equal(byId('price-display').textContent, '…');
+    quote.resolve(response({ symbol: '7203.T', price: 2500, currency: 'JPY' }));
+    financeHistory.resolve(response({ history: [] }));
+    await finish;
+    assert.match(byId('price-display').textContent, /2,500/);
+    assert.match(byId('financial-history-panel').innerHTML, /<canvas/);
 });

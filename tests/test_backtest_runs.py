@@ -243,7 +243,7 @@ def test_backup_roundtrip_legacy_replace_and_account_deletion(client, users, his
     response = client.post("/backtest/runs", headers=alice["headers"], json={**body, "note": "記録"})
     assert response.status_code == 201
     backup = client.get(f"/user/{alice['id']}/export", headers=alice["headers"]).json()
-    assert backup["version"] == 3 and len(backup["backtest_runs"]) == 1
+    assert backup["version"] == 4 and len(backup["backtest_runs"]) == 1
     path = f"/user/{bob['id']}/import"
     restored = client.post(path + "?mode=replace", headers=bob["headers"], json=backup).json()
     assert restored["imported"]["backtest_runs"] == 1
@@ -252,6 +252,9 @@ def test_backup_roundtrip_legacy_replace_and_account_deletion(client, users, his
     for version, omitted in [(2, {"backtest_runs"}), (1, {"backtest_runs", "holdings", "alerts"})]:
         legacy = {key: value for key, value in backup.items() if key not in omitted}
         legacy["version"] = version
+        legacy["lists"] = [{"name": lst["name"], "items": []} for lst in backup["lists"]]
+        if version == 2:
+            legacy["holdings"] = []
         assert client.post(path + "?mode=replace", headers=bob["headers"], json=legacy).status_code == 200
     exported = client.get(f"/user/{bob['id']}/export", headers=bob["headers"]).json()
     assert exported["backtest_runs"] == backup["backtest_runs"]

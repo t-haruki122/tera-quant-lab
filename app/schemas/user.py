@@ -1,13 +1,14 @@
 """ユーザー・リスト・タグ関連のPydanticスキーマ"""
 
 from datetime import date, datetime
-from typing import Any, Literal
+from decimal import Decimal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, StrictInt
 
 from app.schemas.backtest import RunKind, RunName, RunNote
-from app.schemas.investments import AlertKind, Cost, Note, Shares, Threshold
-from app.schemas.stock import CachedResponse
+from app.schemas.investments import AlertKind, Note, Threshold
+from app.schemas.stock import StockSnapshot
 from app.validation import Symbol
 
 # --- ユーザー ---
@@ -63,10 +64,32 @@ class TagUpdateRequest(BaseModel):
     tags: list[str]
 
 
+def validate_shares(value: object) -> float:
+    message = "株数は0より大きく10億以下の数値を小数第4位までで入力してください"
+    if type(value) not in (int, float):
+        raise ValueError(message)
+    shares = Decimal(str(value))
+    if not shares.is_finite() or not 0 < shares <= 10**9 or shares != round(shares, 4):
+        raise ValueError(message)
+    return float(shares)
+
+
+CashJPY = Annotated[int, Field(strict=True, ge=0, le=10**13)]
+
+
+class SharesRequest(BaseModel):
+    shares: Annotated[float, BeforeValidator(validate_shares)] | None
+
+
+class CashRequest(BaseModel):
+    cash_jpy: CashJPY | None
+
+
 class ListItemResponse(BaseModel):
     """リストアイテムレスポンス"""
     symbol: str
     tags: list[str]
+    shares: float | None = None
 
 
 class ListResponse(BaseModel):
@@ -82,6 +105,7 @@ class ListDetailResponse(BaseModel):
     id: int
     name: str
     items: list[ListItemResponse]
+    cash_jpy: int | None = None
     created_at: str
     updated_at: str
 
@@ -109,23 +133,58 @@ class StockMemoResponse(BaseModel):
     updated_at: str | None = None
 
 
-class ListSummaryItem(ListItemResponse, CachedResponse):
-    name: str | None = None
-    country: str | None = None
-    sector: str | None = None
-    price: float | None = None
-    currency: str | None = None
-    market_cap: int | float | None = None
-    mix_index: float | None = None
-    dividend_yield: float | None = None
-    per: float | None = None
-    pbr: float | None = None
+class ListSummaryItem(ListItemResponse, StockSnapshot):
     memo: str | None = None
-    error: str | None = None
+    value_jpy: float | None = None
+    weight_pct: float | None = None
+    warning: str | None = None
+
+
+class PortfolioWeight(BaseModel):
+    label: str
+    value_jpy: float
+    pct: float | None
+
+
+class HoldingWeight(BaseModel):
+    symbol: str
+    pct: float
+
+
+class Concentration(BaseModel):
+    largest: HoldingWeight | None
+    top_5_pct: float | None
+    holding_count: int
+
+
+class PortfolioFX(BaseModel):
+    rate: float
+    stale: bool = False
+    cached_at: str | None = None
+
+
+class ExcludedHolding(BaseModel):
+    symbol: str
+    reason: str
+
+
+class ListPortfolio(BaseModel):
+    total_value_jpy: float
+    stocks_value_jpy: float
+    cash_jpy: int
+    cash_ratio_pct: float | None
+    by_region: list[PortfolioWeight]
+    by_currency: list[PortfolioWeight]
+    by_sector: list[PortfolioWeight]
+    concentration: Concentration
+    usd_jpy: PortfolioFX | None
+    excluded: list[ExcludedHolding]
 
 
 class ListSummaryResponse(ListResponse):
     items: list[ListSummaryItem]
+    cash_jpy: int | None = None
+    portfolio: ListPortfolio | None = None
 
 
 class BackupModel(BaseModel):
@@ -136,11 +195,14 @@ class BackupItem(BackupModel):
     symbol: str
     tags: list[str]
     added_at: datetime | None
+    # A migrated legacy holding may exceed the limits on new edits.
+    shares: Annotated[float, Field(gt=0, allow_inf_nan=False)] | None = None
 
 
 class BackupList(BackupModel):
     name: str
     items: list[BackupItem]
+    cash_jpy: CashJPY | None = None
 
 
 class BackupMemo(BackupModel):
@@ -151,8 +213,8 @@ class BackupMemo(BackupModel):
 
 class BackupHolding(BackupModel):
     symbol: Symbol
-    shares: Shares
-    avg_cost: Cost
+    shares: Annotated[float, Field(gt=0, allow_inf_nan=False)]
+    avg_cost: Annotated[float, Field(ge=0, allow_inf_nan=False)]
     acquired_on: date | None
     note: Note | None
     created_at: datetime
@@ -181,15 +243,18 @@ class BackupBacktestRun(BackupModel):
     note: RunNote | None
 
 
-class UserBackup(BackupModel):
+class UserBackupData(BackupModel):
     version: StrictInt
     exported_at: datetime
     username: str
     lists: list[BackupList]
     memos: list[BackupMemo]
-    holdings: list[BackupHolding] = Field(default_factory=list)
     alerts: list[BackupAlert] = Field(default_factory=list)
     backtest_runs: list[BackupBacktestRun] = Field(default_factory=list)
+
+
+class UserBackup(UserBackupData):
+    holdings: list[BackupHolding] = Field(default_factory=list)
 
 
 class ImportCounts(BaseModel):

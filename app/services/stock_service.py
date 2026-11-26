@@ -166,30 +166,33 @@ def _aggregate_history(records: list[dict], interval: str) -> list[dict]:
     return aggregated
 
 
-@coalesce
-async def get_current_price(symbol: str, db: AsyncSession) -> dict:
-    """現在の株価を取得（キャッシュ優先）"""
-    window = CacheWindow(get_settings().cache_ttl_current_price)
-    stmt = (
-        select(StockPrice)
-        .where(StockPrice.symbol == symbol)
-        .where(StockPrice.cached_at >= window.usable_since)
+def quote_query(symbol):
+    return (
+        select(StockPrice).where(StockPrice.symbol == symbol)
         .where(StockPrice.interval == "quote")
         .order_by(StockPrice.cached_at.desc(), StockPrice.id.desc())
         .limit(1)
     )
-    record = (await db.execute(stmt)).scalar_one_or_none()
-    cached = None
-    if record is not None:
-        metadata = {
-            "name": record.quote_name, "currency": record.quote_currency,
-            "day_change": record.quote_day_change, "day_change_pct": record.quote_day_change_pct,
-            "market_time": record.quote_market_time, "market_date": record.quote_market_date,
-        }
-        cached = (record.cached_at, {
-            "symbol": record.symbol, "price": record.close, "timestamp": utc_iso(record.timestamp),
-            **{key: value for key, value in metadata.items() if value is not None},
-        })
+
+
+def cached_quote(record: StockPrice) -> dict:
+    metadata = {
+        "name": record.quote_name, "currency": record.quote_currency,
+        "day_change": record.quote_day_change, "day_change_pct": record.quote_day_change_pct,
+        "market_time": record.quote_market_time, "market_date": record.quote_market_date,
+    }
+    return {
+        "symbol": record.symbol, "price": record.close, "timestamp": utc_iso(record.timestamp),
+        **{key: value for key, value in metadata.items() if value is not None},
+    }
+
+
+@coalesce
+async def get_current_price(symbol: str, db: AsyncSession) -> dict:
+    """現在の株価を取得（キャッシュ優先）"""
+    window = CacheWindow(get_settings().cache_ttl_current_price)
+    record = await db.scalar(quote_query(symbol).where(StockPrice.cached_at >= window.usable_since))
+    cached = (record.cached_at, cached_quote(record)) if record is not None else None
     # Release the read session before the shared refresh opens its write session.
     await db.rollback()
     return await cached_response(f"quote:{symbol}", window, cached, lambda: refresh_quote(symbol, db))

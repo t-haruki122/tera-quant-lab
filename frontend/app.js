@@ -6,14 +6,14 @@ import { state } from './js/state.js';
 import { fetchAPI } from './js/api.js';
 import { fetchStats } from './js/stats.js';
 import { updateAccountUI, submitAuth, bindAuthEvents } from './js/auth.js';
-import { loadDefaultList, submitListAddFromModal, addTagFromInput, setListSearchQuery, bindListEvents, renderListTable } from './js/list.js';
+import { loadDefaultList, submitListAddFromModal, setListSearchQuery, bindListEvents, renderListTable } from './js/list.js';
 import { searchStock, loadStock, bindDetailEvents, refreshDetailPrices, refreshDetailHistory } from './js/detail.js';
 import { bindChartEvents, updatePeriodControls } from './js/chart.js';
 import { bindComparisonEvents } from './js/comparison.js';
 import { parseRoute, serializeRoute } from './js/router.js';
 import { bindFinancialChartEvents } from './js/financial-chart.js';
 import { bindBacktestEvents, openBacktest, refreshBacktestSession, updateBacktestSymbols } from './js/backtest.js';
-import { bindPortfolioEvents, refreshPortfolioSession, showAlertCheckResult } from './js/portfolio.js';
+import { bindAlertDialogEvents, closeAlerts, showAlertCheckResult } from './js/alert-dialog.js';
 import { createAlertPolling } from './js/alerts.js';
 
 let activeApp = null;
@@ -30,7 +30,6 @@ export class App {
         this.updateAccountUI = deps.updateAccountUI ?? updateAccountUI;
         this.loadDefaultList = deps.loadDefaultList ?? loadDefaultList;
         this.submitListAddFromModal = deps.submitListAddFromModal ?? submitListAddFromModal;
-        this.addTagFromInput = deps.addTagFromInput ?? addTagFromInput;
         this.setListSearchQuery = deps.setListSearchQuery ?? setListSearchQuery;
         this.submitAuth = deps.submitAuth ?? submitAuth;
         this.searchStock = deps.searchStock ?? searchStock;
@@ -44,8 +43,8 @@ export class App {
         this.bindFinancialChartEvents = deps.bindFinancialChartEvents ?? bindFinancialChartEvents;
         this.bindBacktestEvents = deps.bindBacktestEvents ?? bindBacktestEvents;
         this.openBacktest = deps.openBacktest ?? openBacktest;
-        this.bindPortfolioEvents = deps.bindPortfolioEvents ?? bindPortfolioEvents;
-        this.refreshPortfolioSession = deps.refreshPortfolioSession ?? refreshPortfolioSession;
+        this.bindAlertDialogEvents = deps.bindAlertDialogEvents ?? bindAlertDialogEvents;
+        this.closeAlerts = deps.closeAlerts ?? closeAlerts;
 
         this.document = deps.documentRef ?? document;
         this.window = deps.windowRef ?? window;
@@ -92,7 +91,7 @@ export class App {
         this.currentView = view;
         this.document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
         this.document.getElementById(`${this.currentView}-view`)?.classList.add('active');
-        for (const name of ['list', 'backtest', 'portfolio']) {
+        for (const name of ['list', 'backtest']) {
             const button = this.document.getElementById(`btn-${name}-view`);
             button?.classList.toggle('active', view === name);
             if (view === name) button?.setAttribute('aria-current', 'page');
@@ -100,7 +99,7 @@ export class App {
         }
         if (changedView) this.document.getElementById('main-content')?.focus();
         this.syncStatsPolling();
-        this.refreshPortfolioSession(view === 'portfolio');
+        if (changedView) this.closeAlerts();
         if (this.currentView === 'backtest') this.openBacktest(symbol, { run });
         if (this.currentView === 'detail') {
             const periodChanged = period !== this.state.currentPeriod;
@@ -151,10 +150,6 @@ export class App {
             if (isSubmitEnter(e)) this.submitListAddFromModal();
         });
 
-        this.document.getElementById('tag-input')?.addEventListener('keydown', e => {
-            if (isSubmitEnter(e)) this.addTagFromInput();
-        });
-
         this.document.getElementById('auth-password')?.addEventListener('keydown', e => {
             if (isSubmitEnter(e)) this.submitAuth();
         });
@@ -162,7 +157,6 @@ export class App {
         this.document.getElementById('logo-home-btn')?.addEventListener('click', () => this.switchView('list'));
         this.document.getElementById('btn-list-view')?.addEventListener('click', () => this.switchView('list'));
         this.document.getElementById('btn-backtest-view')?.addEventListener('click', () => this.switchView('backtest'));
-        this.document.getElementById('btn-portfolio-view')?.addEventListener('click', () => this.switchView('portfolio'));
         this.document.getElementById('btn-detail-backtest')?.addEventListener('click', () => this.switchView('backtest', this.state.currentSymbol));
         this.document.querySelectorAll('.period-btn[data-period]').forEach(button => {
             button.addEventListener('click', () => this.switchView('detail', this.state.currentSymbol, button.dataset.period));
@@ -173,17 +167,13 @@ export class App {
         });
         this.document.addEventListener('accountchange', () => {
             this.alertPolling.sync();
-            this.refreshPortfolioSession(this.currentView === 'portfolio');
+            this.closeAlerts();
             if (this.currentView === 'backtest' || !this.state.currentUser) refreshBacktestSession();
             if (this.currentView === 'detail' && this.route?.symbol) this.loadDetail(this.route.symbol);
         });
         this.document.addEventListener('watchlistchange', () => {
             if (this.currentView === 'backtest') updateBacktestSymbols();
         });
-        this.document.addEventListener('investmentchange', () => {
-            if (this.currentView === 'portfolio') this.refreshPortfolioSession(true);
-        });
-
         this.bindAuthEvents();
         this.bindListEvents();
         this.bindDetailEvents();
@@ -191,7 +181,7 @@ export class App {
         this.bindComparisonEvents();
         this.bindFinancialChartEvents();
         this.bindBacktestEvents();
-        this.bindPortfolioEvents();
+        this.bindAlertDialogEvents();
     }
 
     async restoreUserSession() {

@@ -19,6 +19,7 @@ INSTRUCTIONS = """\
 データは利用者のローカルアプリに由来します。yfinance などから取得したキャッシュには遅延や欠損があり得ます。
 stale と cached_at を確認し、数値を引用するときは銘柄と日付を添えてください。
 赤字や債務超過などで PER または PBR が 0 以下の場合、mix_index は null です。利益が極端に小さい場合、PER は非常に大きくなります。
+保有株数・現金・構成比は get_watchlist で取得できます。取得原価・損益は設計上記録しません。集計の除外銘柄も確認してください。
 分析、論点整理、リスクの指摘を行い、売買の最終判断は利用者が行う前提で答えてください。
 読み取り専用です。書き込み操作はできません。バックテストの実行結果は保存されません。
 """
@@ -79,17 +80,12 @@ def create_server(client: TQLClient) -> MCPServer[None]:
 
     @server.tool(annotations=MARKET_READ)
     async def get_watchlist(list_id: SQLiteID | None = None) -> dict[str, Any]:
-        """ウォッチリストの株価、指標、タグ、メモを取得します。ID を省略すると既定のリストを使います。"""
+        """ウォッチリストの株価、指標、タグ、メモ、保有株数、円換算評価額、現金と構成比を取得します。ID を省略すると既定のリストを使います。"""
         if list_id is None:
             list_id = (await list_watchlists()).get("default_list_id")
             if list_id is None:
                 raise ToolError("既定のウォッチリストがありません。")
         return await client.get_user(f"/lists/{list_id}/summary")
-
-    @server.tool(annotations=MARKET_READ)
-    async def get_portfolio() -> dict[str, Any]:
-        """保有銘柄、評価額、損益、構成比と円換算の合計を取得します。"""
-        return await client.get_user("/portfolio")
 
     @server.tool(annotations=LOCAL_READ)
     async def get_price_alerts() -> dict[str, Any]:

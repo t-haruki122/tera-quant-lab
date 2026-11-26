@@ -120,7 +120,7 @@ export function renderDividendHistoryChart(history, currency) {
     document.getElementById('dividend-chart-summary').textContent = `${labels.at(-1)} 年間1株配当 ${perShareSeries.at(-1) ?? '—'} ${currency ?? ''}、利回り ${yieldSeries.at(-1) == null ? '—' : `${yieldSeries.at(-1)}%`}`;
 
     let currencyPrefix = `${currency || ''} `;
-    if (!currency || currency === 'USD') currencyPrefix = '$';
+    if (currency === 'USD') currencyPrefix = '$';
     if (currency === 'JPY') currencyPrefix = '¥';
 
     state.dividendChartInstance = new Chart(canvas.getContext('2d'), {

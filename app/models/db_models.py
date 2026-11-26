@@ -180,6 +180,7 @@ class UserList(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
+    cash_jpy: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=to_db, nullable=False
     )
@@ -200,6 +201,7 @@ class UserListItem(SymbolMixin, Base):
     symbol: Mapped[str] = mapped_column(String(20), nullable=False)
     tags: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON文字列 例: '["テック","高配当"]'
     added_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    shares: Mapped[float | None] = mapped_column(Float)
 
 
 class StockMemo(SymbolMixin, Base):
@@ -216,26 +218,6 @@ class StockMemo(SymbolMixin, Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=to_db, onupdate=to_db, nullable=False
     )
-
-
-class PortfolioHolding(SymbolMixin, Base):
-    __tablename__ = "portfolio_holdings"
-    __table_args__ = (
-        UniqueConstraint("user_id", "symbol", name="uq_portfolio_user_symbol"),
-        CheckConstraint("shares > 0", name="ck_portfolio_shares"),
-        CheckConstraint("avg_cost >= 0", name="ck_portfolio_avg_cost"),
-        {"sqlite_autoincrement": True},
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    symbol: Mapped[str] = mapped_column(String(20))
-    shares: Mapped[float] = mapped_column(Float)
-    avg_cost: Mapped[float] = mapped_column(Float)
-    acquired_on: Mapped[UTCDate | None] = mapped_column(Date)
-    note: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=to_db)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=to_db, onupdate=to_db)
 
 
 class PriceAlert(SymbolMixin, Base):

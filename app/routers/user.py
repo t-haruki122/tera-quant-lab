@@ -13,6 +13,7 @@ from app.database import get_db
 from app.models.db_models import User
 from app.rate_limit import client_ip, limiter
 from app.schemas.user import (
+    CashRequest,
     ChangePasswordRequest,
     ConfirmPasswordRequest,
     ImportResult,
@@ -25,10 +26,12 @@ from app.schemas.user import (
     ListSummaryResponse,
     ListUpdateRequest,
     MessageResponse,
+    SharesRequest,
     StockMemoRequest,
     StockMemoResponse,
     TagUpdateRequest,
     UserBackup,
+    UserBackupData,
     UserLoginRequest,
     UserRegisterRequest,
     UserResponse,
@@ -141,7 +144,7 @@ async def delete_account(
         require_authenticated_user(None)
 
 
-@router.get("/{user_id}/export", response_model=UserBackup, summary="アカウントデータをJSONで出力")
+@router.get("/{user_id}/export", response_model=UserBackupData, summary="アカウントデータをJSONで出力")
 async def export_account(
     response: Response, user: User = Depends(require_user_owner), db: AsyncSession = Depends(get_db),
 ):
@@ -168,9 +171,11 @@ async def import_account(
             for error in e.errors(include_input=False)
         ]
         raise HTTPException(422, errors) from e
-    if backup.version not in (1, 2, user_backup_service.BACKUP_VERSION):
+    if backup.version not in (1, 2, 3, user_backup_service.BACKUP_VERSION):
         raise HTTPException(422, "対応していないバックアップのバージョンです")
-    expected = {"holdings", "alerts"} if backup.version >= 2 else set()
+    expected = {"alerts"} if backup.version >= 2 else set()
+    if backup.version in (2, 3):
+        expected.add("holdings")
     if backup.version >= 3:
         expected.add("backtest_runs")
     if backup.model_fields_set & {"holdings", "alerts", "backtest_runs"} != expected:
@@ -258,13 +263,40 @@ async def get_list_detail(user_id: SQLiteID, list_id: SQLiteID, db: AsyncSession
 @router.get("/{user_id}/lists/{list_id}/summary", response_model=ListSummaryResponse, summary="銘柄リストの概要を取得")
 async def list_summary(
     list_id: SQLiteID, request: Request, user: User = Depends(require_user_owner), db: AsyncSession = Depends(get_db),
+    *, cached: bool = False,
 ):
     settings = get_settings()
-    limiter.data(request, settings, user_id=user.id)
+    if not cached:
+        limiter.data(request, settings, user_id=user.id)
     try:
-        return await watchlist_service.get_list_summary(user.id, list_id, db, settings.watchlist_summary_concurrency)
+        return await watchlist_service.get_list_summary(
+            user.id, list_id, db, settings.watchlist_summary_concurrency, cached=cached,
+        )
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
+
+
+@router.put("/{user_id}/lists/{list_id}/cash", response_model=CashRequest, summary="リストの現金を設定")
+async def set_list_cash(
+    list_id: SQLiteID, req: CashRequest, user: User = Depends(require_user_owner), db: AsyncSession = Depends(get_db),
+):
+    try:
+        await user_service.set_list_cash(user.id, list_id, req.cash_jpy, db)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+    return req
+
+
+@router.put("/{user_id}/lists/{list_id}/items/{symbol}/shares", response_model=SharesRequest, summary="銘柄の株数を設定")
+async def set_item_shares(
+    list_id: SQLiteID, symbol: Symbol, req: SharesRequest,
+    user: User = Depends(require_user_owner), db: AsyncSession = Depends(get_db),
+):
+    try:
+        await user_service.set_item_shares(user.id, list_id, symbol, req.shares, db)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+    return req
 
 
 @router.get("/{user_id}/lists/{list_id}/export.csv", summary="銘柄リストをCSVで出力")
@@ -341,6 +373,7 @@ async def add_item(
         return ListItemResponse(
             symbol=item.symbol,
             tags=json.loads(item.tags) if item.tags else [],
+            shares=item.shares,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -379,6 +412,7 @@ async def update_tags(
         return ListItemResponse(
             symbol=item.symbol,
             tags=json.loads(item.tags) if item.tags else [],
+            shares=item.shares,
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e

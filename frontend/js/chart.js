@@ -46,6 +46,13 @@ export function updateChartVisibility() {
     }
 }
 
+export function updateChartCurrency(currency) {
+    if (currency === state.currentChartCurrency) return;
+    state.currentChartCurrency = currency;
+    if (activeHistoryRequest) activeHistoryRequest.currency = currency;
+    updateChartVisibility();
+}
+
 export async function loadChart(symbol, period, currency) {
     resetPriceChart();
     const interval = chartInterval(period);
@@ -66,7 +73,7 @@ export async function loadChart(symbol, period, currency) {
         }
         state.currentChartHistory = data.history;
         byId('history-stale').textContent = staleMessage(data);
-        renderChart(data.history, currency);
+        renderChart(data.history, state.currentChartCurrency);
     } catch (error) {
         if (isCurrent()) byId('chart-history-status').textContent = error.message;
     } finally {
@@ -171,30 +178,34 @@ function chartOptions({ xLabels = true, offset = false, y = {}, tooltip = {}, le
     };
 }
 
+function chartPrice(value, currency) {
+    return currency ? formatCurrency(value, currency) : value?.toLocaleString('ja-JP') ?? '—';
+}
+
 function ohlcTooltip({ open, high, low, close }, currency) {
     const direction = close === open ? '＝' : close > open ? '▲' : '▼';
-    return [`${direction} 始値 ${formatCurrency(open, currency)}`, `高値 ${formatCurrency(high, currency)}`,
-        `安値 ${formatCurrency(low, currency)}`, `終値 ${formatCurrency(close, currency)}`];
+    return [`${direction} 始値 ${chartPrice(open, currency)}`, `高値 ${chartPrice(high, currency)}`,
+        `安値 ${chartPrice(low, currency)}`, `終値 ${chartPrice(close, currency)}`];
 }
 
 export function renderChart(history, currency) {
     destroyCharts();
     if (!history.length) return;
-    const scale = (!currency || currency === 'USD') && state.exchangeRateUSDJPY || 1;
+    const scale = currency === 'USD' && state.exchangeRateUSDJPY || 1;
     const labels = history.map(bar => bar.date);
     const enabled = new Set(toggles.filter(key => byId(`toggle-${key}`).checked));
     const datasets = buildChartDatasets(history, { type: chartType, enabled, scale, colors: palette() });
     const first = history[0];
     const last = history.at(-1);
     const change = first.close ? formatPercent((last.close / first.close - 1) * 100) : '—';
-    byId('price-chart-summary').textContent = `${last.date} 終値 ${formatCurrency(last.close, currency)}、期間騰落率 ${change}`;
+    byId('price-chart-summary').textContent = `${last.date} 終値 ${chartPrice(last.close, currency)}、期間騰落率 ${change}`;
 
     const candles = chartType === 'candlestick';
     const tooltip = {
         filter: item => !item.dataset.wick || !Number.isFinite(history[item.dataIndex].open),
         callbacks: {
             label: item => item.dataset.candle || item.dataset.wick ? ohlcTooltip(history[item.dataIndex], currency)
-                : `${item.dataset.label} ${formatCurrency(item.parsed.y / scale, currency)}`,
+                : `${item.dataset.label} ${chartPrice(item.parsed.y / scale, currency)}`,
         },
     };
     state.priceChart = new Chart(byId('price-chart').getContext('2d'), {

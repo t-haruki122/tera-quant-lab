@@ -6,7 +6,7 @@ from math import isfinite
 
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 
-from app.cache import PROVIDER_FAILURES
+from app.cache import FOREX_TTL_SECONDS, PROVIDER_FAILURES, CacheWindow
 from app.exceptions import SymbolNotFoundError
 from app.services import forex_service, stock_service
 
@@ -53,3 +53,10 @@ async def fetch_usd_jpy(bind: Bind) -> dict:
     except Exception:
         logger.exception("USD/JPY lookup failed")
         return {}
+
+
+async def cached_usd_jpy(db: AsyncSession) -> dict:
+    row = await forex_service.read_cached_rate(forex_service.USD_JPY, db)
+    if row is None:
+        return {}
+    return {"rate": row.close, **CacheWindow(FOREX_TTL_SECONDS).metadata(row.cached_at)}

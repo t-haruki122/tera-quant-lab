@@ -18,20 +18,22 @@ USD_JPY = "USDJPY=X"
 FOREX_INTERVAL = "forex"
 
 
+async def read_cached_rate(pair: str, db: AsyncSession) -> StockPrice | None:
+    return await db.scalar(
+        select(StockPrice)
+        .where(StockPrice.symbol == pair, StockPrice.interval == FOREX_INTERVAL)
+        .order_by(StockPrice.cached_at.desc(), StockPrice.id.desc())
+        .limit(1)
+    )
+
+
 @coalesce
 async def get_exchange_rate(pair: str, db: AsyncSession) -> dict:
     """指定された為替ペアの現在のレートを取得（キャッシュ優先）。"""
     window = CacheWindow(FOREX_TTL_SECONDS)
-    stmt = (
-        select(StockPrice)
-        .where(StockPrice.symbol == pair, StockPrice.interval == FOREX_INTERVAL,
-               StockPrice.cached_at >= window.usable_since)
-        .order_by(StockPrice.cached_at.desc(), StockPrice.id.desc())
-        .limit(1)
-    )
-    record = (await db.scalars(stmt)).first()
+    record = await read_cached_rate(pair, db)
     cached = None
-    if record is not None:
+    if record is not None and record.cached_at >= window.usable_since:
         cached = (record.cached_at, {
             "pair": record.symbol, "rate": record.close, "timestamp": utc_iso(record.timestamp),
         })

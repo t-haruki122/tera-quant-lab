@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { elements, fromRepo, pressKey, storage } from './helpers/dom-shim.mjs';
 
-const { bindListEvents, editStockMemo, renderWatchlistSelector } = await fromRepo('frontend/js/list.js');
+const { bindListEvents, renderWatchlistSelector } = await fromRepo('frontend/js/list.js');
 const { cache, state } = await fromRepo('frontend/js/state.js');
 const byId = id => document.getElementById(id);
 const isHidden = id => byId(id).classList.contains('hidden');
@@ -35,7 +35,7 @@ function mockLists(mutate) {
         calls.push([path, method, body]);
         if (method !== 'GET') return mutate(path, method, body);
         if (path === root) return reply({ lists: state.watchlists, default_list_id: DEFAULT.id });
-        if (/\/summary$/.test(path)) return reply({ items: [] });
+        if (/\/summary\?cached=true$/.test(path)) return reply({ items: [] });
         assert.fail(`Unexpected request: ${path}`);
     };
     return calls;
@@ -68,7 +68,7 @@ test('create dialog validates the name inline and submits a trimmed name on Ente
     pressKey(overlay(), nameField(), 'Enter');
     await tick();
     assert.deepEqual(calls, [
-        [root, 'POST', { name: '配当株' }], [root, 'GET', undefined], [`${root}/10/summary`, 'GET', undefined],
+        [root, 'POST', { name: '配当株' }], [root, 'GET', undefined], [`${root}/10/summary?cached=true`, 'GET', undefined],
     ]);
     assert.equal(state.currentListId, 10);
     assert.equal(isHidden('watchlist-action-overlay'), true);
@@ -130,51 +130,10 @@ test('delete renders an untrusted list name as text and calls the API only after
     pressKey(overlay(), message, 'Enter');
     await tick();
     assert.deepEqual(calls, [
-        [`${root}/9`, 'DELETE', undefined], [root, 'GET', undefined], [`${root}/8/summary`, 'GET', undefined],
+        [`${root}/9`, 'DELETE', undefined], [root, 'GET', undefined], [`${root}/8/summary?cached=true`, 'GET', undefined],
     ]);
     assert.equal(state.currentListId, DEFAULT.id);
     assert.equal(remove.disabled, true);
     assert.equal(isHidden('watchlist-action-overlay'), true);
     assert.equal(document.activeElement, byId('watchlist-select'));
-});
-
-test('memo dialog keeps the existing save API and supports edits, newlines, errors and clearing', async () => {
-    reset();
-    state.listItems = [{ symbol: 'AAPL', memo: '前のメモ' }];
-    const calls = [];
-    globalThis.fetch = async (path, options) => {
-        const body = JSON.parse(options.body);
-        calls.push([path, options.method, body]);
-        if (calls.length === 1) return reply({ detail: 'もう一度お試しください' }, 400);
-        return reply(body);
-    };
-    const input = byId('memo-edit-input');
-    input.tagName = 'TEXTAREA';
-    editStockMemo('AAPL');
-    assert.equal(input.value, '前のメモ');
-    assert.equal(document.activeElement, input);
-    const memoOverlay = byId('memo-edit-overlay');
-    assert.equal(pressKey(memoOverlay, input, 'Enter', { shiftKey: true }).defaultPrevented, false);
-    assert.deepEqual(calls, []);
-
-    input.value = '新しい行\n次の行';
-    pressKey(memoOverlay, input, 'Enter');
-    await tick();
-    assert.equal(isHidden('memo-edit-overlay'), false);
-    assert.match(byId('memo-edit-error').textContent, /もう一度お試しください/);
-    pressKey(memoOverlay, input, 'Enter');
-    await tick();
-    assert.equal(isHidden('memo-edit-overlay'), true);
-    assert.equal(state.listItems[0].memo, '新しい行\n次の行');
-
-    editStockMemo('AAPL');
-    input.value = '  ';
-    pressKey(memoOverlay, input, 'Enter');
-    await tick();
-    assert.equal(state.listItems[0].memo, null);
-    assert.deepEqual(calls, [
-        ['/user/7/memo/AAPL', 'PUT', { memo: '新しい行\n次の行' }],
-        ['/user/7/memo/AAPL', 'PUT', { memo: '新しい行\n次の行' }],
-        ['/user/7/memo/AAPL', 'PUT', { memo: null }],
-    ]);
 });

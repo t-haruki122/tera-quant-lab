@@ -85,7 +85,7 @@ def test_ownership_of_lists_items_tags_and_memos(client, users):
     assert client.put(own + "/memo/AAPL", headers=alice["headers"], json={"memo": "secret"}).status_code == 200
     assert client.get(own + "/memo/AAPL", headers=alice["headers"]).json()["memo"] == "secret"
     assert client.get(f"/user/{bob['id']}/memo/AAPL", headers=bob["headers"]).json()["memo"] is None
-    assert client.get(path, headers=alice["headers"]).json()["items"] == [{"symbol": "AAPL", "tags": ["mine"]}]
+    assert client.get(path, headers=alice["headers"]).json()["items"] == [{"symbol": "AAPL", "tags": ["mine"], "shares": None}]
     assert client.delete(path + "/items/AAPL", headers=alice["headers"]).status_code == 200
     created = client.post(own + "/lists", headers=alice["headers"], json={"name": "new"}).json()
     new_path = f"{own}/lists/{created['id']}"

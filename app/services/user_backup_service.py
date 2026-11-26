@@ -6,18 +6,19 @@ import json
 import re
 from collections import Counter, defaultdict
 from datetime import UTC
+from decimal import Decimal
+from math import isfinite
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.models.db_models import CompanyProfile, PortfolioHolding, PriceAlert, StockMemo, User, UserList, UserListItem
+from app.models.db_models import CompanyProfile, PriceAlert, StockMemo, User, UserList, UserListItem
 from app.schemas.backtest import SaveRunRequest
-from app.schemas.investments import AlertResponse, HoldingResponse
+from app.schemas.investments import AlertResponse
 from app.schemas.user import (
     BackupAlert,
     BackupBacktestRun,
-    BackupHolding,
     BackupItem,
     BackupList,
     BackupMemo,
@@ -25,13 +26,14 @@ from app.schemas.user import (
     ImportResult,
     SkippedEntry,
     UserBackup,
+    UserBackupData,
 )
-from app.services import backtest_runs_service, portfolio_service, price_alert_service, user_service
+from app.services import backtest_runs_service, price_alert_service, user_service
 from app.services.watchlist_service import get_list_memos
 from app.timeutil import to_db, utcnow
 from app.validation import normalize_symbol
 
-BACKUP_VERSION = 3
+BACKUP_VERSION = 4
 
 
 async def read_user_data(user_id: int, db: AsyncSession):
@@ -49,16 +51,17 @@ async def read_user_data(user_id: int, db: AsyncSession):
     return lists, items, memos
 
 
-async def export_backup(user: User, db: AsyncSession) -> UserBackup:
+async def export_backup(user: User, db: AsyncSession) -> UserBackupData:
     lists, items, memos = await read_user_data(user.id, db)
-    return UserBackup(
+    return UserBackupData(
         version=BACKUP_VERSION,
         exported_at=utcnow(),
         username=user.username,
         lists=[
-            BackupList(name=lst.name, items=[
+            BackupList(name=lst.name, cash_jpy=lst.cash_jpy, items=[
                 BackupItem(
                     symbol=item.symbol,
+                    shares=item.shares,
                     tags=json.loads(item.tags) if item.tags else [],
                     added_at=item.added_at.replace(tzinfo=UTC) if item.added_at else None,
                 )
@@ -69,10 +72,6 @@ async def export_backup(user: User, db: AsyncSession) -> UserBackup:
         memos=[
             BackupMemo(symbol=memo.symbol, memo=memo.memo, updated_at=memo.updated_at.replace(tzinfo=UTC))
             for memo in memos.values()
-        ],
-        holdings=[
-            BackupHolding.model_validate(HoldingResponse.model_validate(row).model_dump(exclude={"id"}))
-            for row in await portfolio_service.holdings_for_user(user.id, db)
         ],
         alerts=[
             BackupAlert.model_validate(AlertResponse.model_validate(row).model_dump(exclude={"id"}))
@@ -92,7 +91,7 @@ async def import_backup(user_id: int, backup: UserBackup, mode: str, db: AsyncSe
     await user_service.lock_user_data(user_id, db)
     if mode == "replace":
         await user_service.delete_user_data(
-            user_id, db, include_investments=backup.version >= 2, include_backtests=backup.version >= 3,
+            user_id, db, include_alerts=backup.version >= 2, include_backtests=backup.version >= 3,
         )
     lists, items, memos = await read_user_data(user_id, db)
     by_name = {}
@@ -115,6 +114,8 @@ async def import_backup(user_id: int, backup: UserBackup, mode: str, db: AsyncSe
             await db.flush()
             by_name[name] = lst
             counts.lists += 1
+        if lst.cash_jpy is None and source.cash_jpy is not None:
+            lst.cash_jpy = source.cash_jpy
 
         for source_item in source.items:
             try:
@@ -138,6 +139,9 @@ async def import_backup(user_id: int, backup: UserBackup, mode: str, db: AsyncSe
                 tags = json.loads(item.tags) if item.tags else []
                 existing_tags = set(tags)
                 additions = list(dict.fromkeys(tag for tag in source_item.tags if tag not in existing_tags))
+            if item.shares is None and source_item.shares is not None:
+                item.shares = source_item.shares
+                counts.holdings += 1
             if additions:
                 item.tags = json.dumps(tags + additions, ensure_ascii=False)
                 counts.tags += len(additions)
@@ -160,8 +164,10 @@ async def import_backup(user_id: int, backup: UserBackup, mode: str, db: AsyncSe
         counts.memos += 1
 
     result = ImportResult(imported=counts, skipped=skipped)
+    if backup.holdings:
+        await import_legacy_holdings(user_id, backup, items, result, db)
     if backup.version >= 2:
-        await import_investments(user_id, backup, result, db)
+        await import_alerts(user_id, backup, result, db)
     if backup.version >= 3:
         await import_backtests(user_id, backup, result, db)
     await db.commit()
@@ -193,22 +199,39 @@ def alert_key(alert: PriceAlert | BackupAlert) -> tuple[str, str, float, bool, s
     return alert.symbol, alert.kind, alert.threshold, alert.enabled, alert.note
 
 
-async def import_investments(user_id: int, backup: UserBackup, result: ImportResult, db: AsyncSession) -> None:
-    settings = get_settings()
-    symbols = {row.symbol for row in await portfolio_service.holdings_for_user(user_id, db)}
-    for holding in backup.holdings:
-        entry = f"保有銘柄 / {holding.symbol}"
-        if holding.symbol in symbols:
-            result.skipped.append(SkippedEntry(entry=entry, reason="この銘柄は登録済みです。"))
-        elif len(symbols) >= settings.portfolio_max_holdings:
-            result.skipped.append(SkippedEntry(entry=entry, reason="保有銘柄の登録上限に達しています。"))
-        else:
-            data = holding.model_dump()
-            data.update(created_at=to_db(holding.created_at), updated_at=to_db(holding.updated_at))
-            db.add(PortfolioHolding(user_id=user_id, **data))
-            symbols.add(holding.symbol)
-            result.imported.holdings += 1
+async def import_legacy_holdings(user_id: int, backup: UserBackup, items, result: ImportResult, db: AsyncSession) -> None:
+    await db.flush()
+    default_list = await user_service.find_default_list(user_id, db)
+    if default_list is None:
+        default_list = UserList(user_id=user_id, name=user_service.DEFAULT_LIST_NAME)
+        db.add(default_list)
+        await db.flush()
+        result.imported.lists += 1
 
+    default_items = items[default_list.id]
+    normalized_items = {}
+    for symbol, item in default_items.items():
+        normalized_items.setdefault(symbol.upper(), item)
+    for holding in backup.holdings:
+        item = default_items.get(holding.symbol) or normalized_items.get(holding.symbol)
+        if item is None:
+            item = UserListItem(
+                list_id=default_list.id, symbol=holding.symbol, added_at=to_db(holding.created_at),
+            )
+            default_items[holding.symbol] = item
+            db.add(item)
+            result.imported.items += 1
+        shares = float(Decimal(str(item.shares or 0)) + Decimal(str(holding.shares)))
+        if not isfinite(shares):
+            result.skipped.append(SkippedEntry(entry=holding.symbol, reason="株数の合計が大きすぎます。"))
+            continue
+        item.symbol = holding.symbol
+        item.shares = shares
+        result.imported.holdings += 1
+
+
+async def import_alerts(user_id: int, backup: UserBackup, result: ImportResult, db: AsyncSession) -> None:
+    settings = get_settings()
     alerts = await price_alert_service.alerts_for_user(user_id, db)
     existing = Counter(alert_key(alert) for alert in alerts)
     for alert in backup.alerts:
@@ -240,29 +263,19 @@ def csv_cell(value: str | None) -> str:
     return text
 
 
-async def export_portfolio_csv(user_id: int, db: AsyncSession) -> str:
-    holdings = await portfolio_service.holdings_for_user(user_id, db)
-    output = io.StringIO(newline="")
-    writer = csv.writer(output, quoting=csv.QUOTE_ALL)
-    writer.writerow(("symbol", "shares", "avg_cost", "acquired_on", "note"))
-    for row in holdings:
-        writer.writerow((csv_cell(row.symbol), row.shares, row.avg_cost, row.acquired_on, csv_cell(row.note)))
-    return "\ufeff" + output.getvalue()
-
-
 async def export_list_csv(user_id: int, list_id: int, db: AsyncSession) -> str:
     await user_service.require_list(user_id, list_id, db)
     memos = await get_list_memos(user_id, list_id, db)
     rows = await db.execute(
-        select(UserListItem.symbol, CompanyProfile.name, UserListItem.tags)
+        select(UserListItem.symbol, CompanyProfile.name, UserListItem.tags, UserListItem.shares)
         .outerjoin(CompanyProfile, CompanyProfile.symbol == UserListItem.symbol)
         .where(UserListItem.list_id == list_id)
         .order_by(UserListItem.id)
     )
     output = io.StringIO(newline="")
     writer = csv.writer(output, quoting=csv.QUOTE_ALL)
-    writer.writerow(("symbol", "name", "tags", "memo"))
-    for symbol, name, tags in rows:
+    writer.writerow(("symbol", "name", "tags", "memo", "shares"))
+    for symbol, name, tags, shares in rows:
         tag_text = ", ".join(json.loads(tags)) if tags else ""
-        writer.writerow(map(csv_cell, (symbol, name, tag_text, memos.get(symbol))))
+        writer.writerow([*map(csv_cell, (symbol, name, tag_text, memos.get(symbol))), shares])
     return "\ufeff" + output.getvalue()

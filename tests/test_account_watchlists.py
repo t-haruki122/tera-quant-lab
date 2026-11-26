@@ -174,7 +174,8 @@ def test_summary_caps_symbols_and_charges_once(client, users, settings, monkeypa
     assert complete == {
         "symbol": "AAPL", "tags": ["tag"], "name": "Company", "country": "US", "sector": "Tech",
         "price": 120, "currency": "USD", "market_cap": 1000, "mix_index": 8, "dividend_yield": 2,
-        "per": 4, "pbr": 2, "memo": None, "error": None,
+        "per": 4, "pbr": 2, "memo": None, "error": None, "shares": None, "pending": False,
+        "value_jpy": None, "weight_pct": None, "warning": None,
     }
     assert error["symbol"] == "BAD" and error["memo"] == "retain memo"
     assert error["error"] == "銘柄データを取得できませんでした。"
@@ -245,15 +246,20 @@ def test_backup_replace_round_trip(client, users):
     put_memo(client, alice, "TSLA", None)
     add_item(client, bob, "MSFT", ["obsolete"])
     put_memo(client, bob, "MSFT", "obsolete")
+    path = list_path(alice)
+    assert client.put(path + "/items/AAPL/shares", headers=alice["headers"], json={"shares": 1.2345}).status_code == 200
+    assert client.put(path + "/cash", headers=alice["headers"], json={"cash_jpy": 1_000_001}).status_code == 200
     backup = exported(client, alice)
-    assert set(backup) == {"version", "exported_at", "username", "lists", "memos", "holdings", "alerts", "backtest_runs"}
-    assert backup["version"] == 3 and backup["username"] == "alice"
+    assert set(backup) == {"version", "exported_at", "username", "lists", "memos", "alerts", "backtest_runs"}
+    assert backup["version"] == 4 and backup["username"] == "alice"
+    assert backup["lists"][0]["cash_jpy"] == 1_000_001
+    assert backup["lists"][0]["items"][0]["shares"] == 1.2345
     assert backup["exported_at"].endswith("Z")
     assert backup["lists"][0]["items"][0]["added_at"].endswith("Z")
     imported = client.post(prefix(bob) + "/import?mode=replace", headers=bob["headers"], json=backup)
     assert imported.status_code == 200
     assert imported.json() == {
-        "imported": {"lists": 2, "items": 2, "tags": 3, "memos": 2, "holdings": 0, "alerts": 0, "backtest_runs": 0}, "skipped": [],
+        "imported": {"lists": 2, "items": 2, "tags": 3, "memos": 2, "holdings": 1, "alerts": 0, "backtest_runs": 0}, "skipped": [],
     }
     copy = exported(client, bob)
     assert copy["username"] == "bob"
@@ -298,7 +304,7 @@ def test_backup_size_and_schema(client, users, settings):
         response = client.post(path, headers=alice["headers"], content=payload)
         assert response.status_code == 422
         assert response.json()["detail"][0]["msg"] == "バックアップの形式が正しくありません"
-    for invalid in (dict(backup, version="1"), dict(backup, extra=True), dict(backup, version=4)):
+    for invalid in (dict(backup, version="1"), dict(backup, extra=True), dict(backup, version=5), dict(backup, holdings=[])):
         assert client.post(path, headers=alice["headers"], json=invalid).status_code == 422
     settings.user_import_max_bytes = 100
     response = client.post(path, headers=alice["headers"], content=iter([b"x" * 50, b"x" * 51]))
@@ -333,6 +339,7 @@ def test_csv_quotes_fields_and_neutralizes_formulas(client, users, settings):
     put_memo(client, alice, "AAPL", 'line 1, "quoted"\nline 2')
     put_memo(client, alice, "MSFT", " \t@SUM(1)")
     put_memo(client, bob, "AAPL", "private data")
+    client.put(list_path(alice) + "/items/AAPL/shares", headers=alice["headers"], json={"shares": 1.125})
     with closing(sqlite3.connect(make_url(settings.database_url).database)) as db, db:
         db.execute("INSERT INTO company_profiles (symbol, name, cached_at) VALUES (?, ?, ?)", ("AAPL", "=NAME()", utc_iso()))
     response = client.get(list_path(alice) + "/export.csv", headers=alice["headers"])
@@ -340,7 +347,7 @@ def test_csv_quotes_fields_and_neutralizes_formulas(client, users, settings):
     assert response.headers["content-type"].startswith("text/csv")
     assert response.headers["content-disposition"].startswith("attachment;")
     assert list(csv.reader(io.StringIO(response.content.decode("utf-8-sig")))) == [
-        ["symbol", "name", "tags", "memo"],
-        ["AAPL", "\t=NAME()", '\t+SUM(1,2), quotes"', 'line 1, "quoted"\nline 2'],
-        ["MSFT", "", "", "\t \t@SUM(1)"],
+        ["symbol", "name", "tags", "memo", "shares"],
+        ["AAPL", "\t=NAME()", '\t+SUM(1,2), quotes"', 'line 1, "quoted"\nline 2', "1.125"],
+        ["MSFT", "", "", "\t \t@SUM(1)", ""],
     ]

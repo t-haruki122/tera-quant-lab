@@ -8,6 +8,23 @@ class CachedResponse(BaseModel):
     stale: bool | None = Field(default=None, exclude_if=lambda value: value is None)
     cached_at: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
+
+class StockSnapshot(CachedResponse):
+    symbol: str
+    name: str | None = None
+    country: str | None = None
+    sector: str | None = None
+    price: float | None = None
+    currency: str | None = None
+    market_cap: int | float | None = None
+    mix_index: float | None = None
+    dividend_yield: float | None = None
+    per: float | None = None
+    pbr: float | None = None
+    pending: bool = False
+    error: str | None = None
+
+
 # --- 株価 ---
 
 class StockPriceResponse(CachedResponse):
