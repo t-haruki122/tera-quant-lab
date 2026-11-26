@@ -79,9 +79,10 @@ export function submitAccountDeletion(event) {
 }
 
 export function renderImportResult(result) {
-    const { lists, items, tags, memos } = result.imported;
+    const { lists, items, tags, memos, holdings = 0, alerts = 0 } = result.imported;
     const lines = [
         `取り込み結果　リスト ${lists} 件、銘柄 ${items} 件、タグ ${tags} 件、メモ ${memos} 件`,
+        `保有銘柄 ${holdings} 件、価格アラート ${alerts} 件`,
         `スキップ ${result.skipped.length} 件`,
         ...result.skipped.map(({ entry, reason }) => `${entry} — ${reason}`),
     ];
@@ -105,6 +106,7 @@ function requestImport(event) {
         const result = await fetchAPI(`${path}/import?mode=${encodeURIComponent(mode)}`, { method: 'POST', body: file });
         input.value = '';
         renderImportResult(result);
+        document.dispatchEvent(new Event('investmentchange'));
         if (mode === 'replace') resetListSession();
         await loadDefaultList(mode === 'replace' ? '' : state.currentListId);
     };

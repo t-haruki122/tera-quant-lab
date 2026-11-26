@@ -13,6 +13,8 @@ import { bindComparisonEvents } from './js/comparison.js';
 import { parseRoute, serializeRoute } from './js/router.js';
 import { bindFinancialChartEvents } from './js/financial-chart.js';
 import { bindBacktestEvents, openBacktest, refreshBacktestSession, updateBacktestSymbols } from './js/backtest.js';
+import { bindPortfolioEvents, refreshPortfolioSession, showAlertCheckResult } from './js/portfolio.js';
+import { createAlertPolling } from './js/alerts.js';
 
 let activeApp = null;
 
@@ -42,6 +44,8 @@ export class App {
         this.bindFinancialChartEvents = deps.bindFinancialChartEvents ?? bindFinancialChartEvents;
         this.bindBacktestEvents = deps.bindBacktestEvents ?? bindBacktestEvents;
         this.openBacktest = deps.openBacktest ?? openBacktest;
+        this.bindPortfolioEvents = deps.bindPortfolioEvents ?? bindPortfolioEvents;
+        this.refreshPortfolioSession = deps.refreshPortfolioSession ?? refreshPortfolioSession;
 
         this.document = deps.documentRef ?? document;
         this.window = deps.windowRef ?? window;
@@ -49,6 +53,10 @@ export class App {
         this.setIntervalFn = deps.setIntervalFn ?? window.setInterval.bind(window);
         this.clearIntervalFn = deps.clearIntervalFn ?? window.clearInterval.bind(window);
         this.statsPollingMs = deps.statsPollingMs ?? 10_000;
+        this.alertPolling = deps.alertPolling ?? createAlertPolling({
+            getUser: () => this.state.currentUser, isHidden: () => this.document.hidden,
+            request: this.fetchAPI, onResult: showAlertCheckResult,
+        });
 
         this.currentView = 'list';
         this.route = null;
@@ -84,7 +92,7 @@ export class App {
         this.currentView = view;
         this.document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
         this.document.getElementById(`${this.currentView}-view`)?.classList.add('active');
-        for (const name of ['list', 'backtest']) {
+        for (const name of ['list', 'backtest', 'portfolio']) {
             const button = this.document.getElementById(`btn-${name}-view`);
             button?.classList.toggle('active', view === name);
             if (view === name) button?.setAttribute('aria-current', 'page');
@@ -92,6 +100,7 @@ export class App {
         }
         if (changedView) this.document.getElementById('main-content')?.focus();
         this.syncStatsPolling();
+        this.refreshPortfolioSession(view === 'portfolio');
         if (this.currentView === 'backtest') this.openBacktest(symbol);
         if (this.currentView === 'detail') {
             const periodChanged = period !== this.state.currentPeriod;
@@ -153,17 +162,26 @@ export class App {
         this.document.getElementById('logo-home-btn')?.addEventListener('click', () => this.switchView('list'));
         this.document.getElementById('btn-list-view')?.addEventListener('click', () => this.switchView('list'));
         this.document.getElementById('btn-backtest-view')?.addEventListener('click', () => this.switchView('backtest'));
+        this.document.getElementById('btn-portfolio-view')?.addEventListener('click', () => this.switchView('portfolio'));
         this.document.getElementById('btn-detail-backtest')?.addEventListener('click', () => this.switchView('backtest', this.state.currentSymbol));
         this.document.querySelectorAll('.period-btn[data-period]').forEach(button => {
             button.addEventListener('click', () => this.switchView('detail', this.state.currentSymbol, button.dataset.period));
         });
-        this.document.addEventListener('visibilitychange', () => this.syncStatsPolling());
+        this.document.addEventListener('visibilitychange', () => {
+            this.syncStatsPolling();
+            this.alertPolling.sync();
+        });
         this.document.addEventListener('accountchange', () => {
+            this.alertPolling.sync();
+            this.refreshPortfolioSession(this.currentView === 'portfolio');
             if (this.currentView === 'backtest' || !this.state.currentUser) refreshBacktestSession();
             if (this.currentView === 'detail' && this.route?.symbol) this.loadDetail(this.route.symbol);
         });
         this.document.addEventListener('watchlistchange', () => {
             if (this.currentView === 'backtest') updateBacktestSymbols();
+        });
+        this.document.addEventListener('investmentchange', () => {
+            if (this.currentView === 'portfolio') this.refreshPortfolioSession(true);
         });
 
         this.bindAuthEvents();
@@ -173,6 +191,7 @@ export class App {
         this.bindComparisonEvents();
         this.bindFinancialChartEvents();
         this.bindBacktestEvents();
+        this.bindPortfolioEvents();
     }
 
     async restoreUserSession() {

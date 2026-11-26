@@ -168,8 +168,12 @@ async def import_account(
             for error in e.errors(include_input=False)
         ]
         raise HTTPException(422, errors) from e
-    if backup.version != user_backup_service.BACKUP_VERSION:
+    if backup.version not in (1, user_backup_service.BACKUP_VERSION):
         raise HTTPException(422, "対応していないバックアップのバージョンです")
+    investment_fields = {"holdings", "alerts"}
+    expected = set() if backup.version == 1 else investment_fields
+    if backup.model_fields_set & investment_fields != expected:
+        raise HTTPException(422, "バックアップの形式が正しくありません")
     return await user_backup_service.import_backup(user.id, backup, mode, db)
 
 

@@ -41,6 +41,7 @@
                 ダッシュボード
             </button>
             <button class="nav-btn" id="btn-backtest-view" type="button">バックテスト</button>
+            <button class="nav-btn" id="btn-portfolio-view" type="button">ポートフォリオ</button>
             <!-- アカウントボタン -->
             <div class="account-section">
                 <button class="nav-btn account-btn" id="account-btn" type="button" aria-label="ログイン、ユーザーメニュー"
@@ -146,7 +147,7 @@
                     </section>
                     <form class="account-settings-section" id="account-delete-form">
                         <h4>アカウント削除</h4>
-                        <p class="text-muted">すべてのリスト、タグ、メモが削除されます。</p>
+                        <p class="text-muted">すべてのリスト、タグ、メモ、保有銘柄、価格アラートが削除されます。</p>
                         <div class="form-group">
                             <label for="account-delete-username">確認のためユーザー名を入力</label>
                             <input id="account-delete-username" type="text" autocomplete="off" required>
@@ -166,11 +167,11 @@
     <div class="modal-overlay hidden" id="import-replace-overlay">
         <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="import-replace-title" tabindex="-1" aria-describedby="import-replace-message">
             <div class="modal-header">
-                <h3 id="import-replace-title">リストとメモの置き換え</h3>
+                <h3 id="import-replace-title">アカウントデータの置き換え</h3>
                 <button class="modal-close" id="import-replace-close" type="button" aria-label="閉じる">✕</button>
             </div>
             <form class="modal-body" id="import-replace-form">
-                <p class="modal-message" id="import-replace-message" tabindex="-1">現在のすべてのリストとメモを置き換えますか？</p>
+                <p class="modal-message" id="import-replace-message" tabindex="-1">リスト、メモ、保有銘柄、価格アラートのうち、バックアップに含まれる種類のデータを置き換えますか？</p>
                 <p class="auth-error hidden" id="import-replace-error" role="alert"></p>
                 <div class="modal-actions">
                     <button class="account-action" id="import-replace-cancel" type="button">キャンセル</button>
@@ -217,6 +218,76 @@
                 <div class="modal-actions">
                     <button class="account-action" id="memo-edit-cancel" type="button">キャンセル</button>
                     <button class="account-action" id="memo-edit-submit" type="submit">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay hidden" id="holding-editor-overlay">
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="holding-editor-title" tabindex="-1">
+            <div class="modal-header">
+                <h3 id="holding-editor-title">保有銘柄を追加</h3>
+                <button class="modal-close" id="holding-editor-close" type="button" aria-label="閉じる">✕</button>
+            </div>
+            <form class="modal-body" id="holding-editor-form" novalidate>
+                <label class="form-group">ティッカー<input id="holding-symbol" maxlength="20" autocomplete="off" required></label>
+                <label class="form-group">保有数量<input id="holding-shares" type="number" min="0" step="any" required></label>
+                <label class="form-group">平均取得単価（銘柄の通貨）
+                    <input id="holding-avg-cost" type="number" min="0" step="any" required>
+                </label>
+                <label class="form-group">取得日<input id="holding-acquired-on" type="date"></label>
+                <label class="form-group">メモ（任意）<textarea id="holding-note" rows="2" maxlength="2000"></textarea></label>
+                <p class="auth-error hidden" id="holding-editor-error" role="alert"></p>
+                <div class="modal-actions">
+                    <button class="account-action hidden" id="holding-edit-existing" type="button">登録済みの銘柄を編集</button>
+                    <button class="account-action" id="holding-editor-cancel" type="button">キャンセル</button>
+                    <button class="account-action" id="holding-editor-submit" type="submit">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay hidden" id="alert-editor-overlay">
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="alert-editor-title" tabindex="-1">
+            <div class="modal-header">
+                <h3 id="alert-editor-title">価格アラートを追加</h3>
+                <button class="modal-close" id="alert-editor-close" type="button" aria-label="閉じる">✕</button>
+            </div>
+            <form class="modal-body" id="alert-editor-form" novalidate>
+                <label class="form-group">ティッカー<input id="alert-symbol" maxlength="20" autocomplete="off" required></label>
+                <label class="form-group">条件
+                    <select id="alert-kind">
+                        <option value="above">指定価格以上</option>
+                        <option value="below">指定価格以下</option>
+                        <option value="change_pct">当日の騰落率（絶対値）</option>
+                    </select>
+                </label>
+                <label class="form-group"><span id="alert-threshold-label">基準価格（銘柄の通貨）</span>
+                    <input id="alert-threshold" type="number" min="0" step="any" required>
+                </label>
+                <label class="toggle-label"><input id="alert-enabled" type="checkbox">有効</label>
+                <label class="form-group">メモ（任意）<textarea id="alert-note" rows="2" maxlength="2000"></textarea></label>
+                <p class="auth-error hidden" id="alert-editor-error" role="alert"></p>
+                <div class="modal-actions">
+                    <button class="account-action" id="alert-editor-cancel" type="button">キャンセル</button>
+                    <button class="account-action" id="alert-editor-submit" type="submit">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay hidden" id="investment-delete-overlay">
+        <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="investment-delete-title" tabindex="-1">
+            <div class="modal-header">
+                <h3 id="investment-delete-title">削除を確認</h3>
+                <button class="modal-close" id="investment-delete-close" type="button" aria-label="閉じる">✕</button>
+            </div>
+            <form class="modal-body" id="investment-delete-form">
+                <p class="modal-message" id="investment-delete-message" tabindex="-1"></p>
+                <p class="auth-error hidden" id="investment-delete-error" role="alert"></p>
+                <div class="modal-actions">
+                    <button class="account-action" id="investment-delete-cancel" type="button">キャンセル</button>
+                    <button class="account-action account-action-danger" id="investment-delete-submit" type="submit">削除する</button>
                 </div>
             </form>
         </div>
@@ -354,6 +425,10 @@
                     <div class="price-timestamp" id="price-timestamp"></div>
                     <small id="quote-stale" class="stale-notice text-muted"></small>
                     <button class="btn-primary btn-sm" id="btn-detail-backtest" type="button">バックテスト</button>
+                    <div class="portfolio-actions detail-investment-actions">
+                        <button class="account-action" id="btn-detail-holding" type="button">ポートフォリオに追加</button>
+                        <button class="account-action" id="btn-detail-alert" type="button">アラートを追加</button>
+                    </div>
                 </div>
             </div>
 
@@ -616,6 +691,82 @@
                     <div class="table-container" id="backtest-trades"></div>
                 </div>
             </section>
+        </section>
+    </div>
+
+    <div id="portfolio-view" class="view">
+        <section class="portfolio-panel" aria-labelledby="portfolio-title">
+            <h2 id="portfolio-title">ポートフォリオ</h2>
+            <div class="card card-body hidden" id="portfolio-login">
+                <p>ポートフォリオと価格アラートを利用するにはログインが必要です。</p>
+                <button class="btn-primary btn-sm" id="portfolio-login-btn" type="button">ログイン</button>
+            </div>
+            <div id="portfolio-content" class="portfolio-content hidden">
+                <div class="metrics-grid" id="portfolio-totals" aria-label="円換算の合計"></div>
+                <p class="text-muted" id="portfolio-status" role="status"></p>
+                <section class="card card-body" aria-labelledby="portfolio-holdings-title">
+                    <div class="portfolio-heading">
+                        <h3 id="portfolio-holdings-title">保有銘柄</h3>
+                        <div class="portfolio-actions">
+                            <button class="btn-primary btn-sm" id="portfolio-add" type="button">保有銘柄を追加</button>
+                            <button class="account-action" id="portfolio-csv" type="button">CSVをエクスポート</button>
+                            <button class="account-action" id="portfolio-refresh" type="button">評価を更新</button>
+                        </div>
+                    </div>
+                    <p class="auth-error hidden" id="portfolio-error" role="alert"></p>
+                    <div class="table-container">
+                        <table class="data-table portfolio-table" id="portfolio-table" aria-labelledby="portfolio-holdings-title">
+                            <thead><tr>
+                                <th data-sort="symbol" aria-sort="ascending"><button type="button">銘柄 <span aria-hidden="true"></span></button></th>
+                                <th data-sort="shares"><button type="button">数量 <span aria-hidden="true"></span></button></th>
+                                <th data-sort="avg_cost"><button type="button">平均取得単価 <span aria-hidden="true"></span></button></th>
+                                <th data-sort="price"><button type="button">株価 <span aria-hidden="true"></span></button></th>
+                                <th data-sort="day_change_pct"><button type="button">前日比 <span aria-hidden="true"></span></button></th>
+                                <th data-sort="market_value_jpy"><button type="button">評価額（円） <span aria-hidden="true"></span></button></th>
+                                <th data-sort="unrealized_pl_jpy"><button type="button">含み損益（円） <span aria-hidden="true"></span></button></th>
+                                <th data-sort="unrealized_pl_pct"><button type="button">損益率 <span aria-hidden="true"></span></button></th>
+                                <th data-sort="weight_pct"><button type="button">構成比 <span aria-hidden="true"></span></button></th>
+                                <th scope="col">操作</th>
+                            </tr></thead>
+                            <tbody id="portfolio-holdings"></tbody>
+                        </table>
+                    </div>
+                </section>
+                <section class="card card-body" id="portfolio-composition" aria-labelledby="portfolio-composition-title">
+                    <h3 id="portfolio-composition-title">評価額の構成（円換算）</h3>
+                    <div class="portfolio-composition-body">
+                        <div class="chart-container-pie hidden" id="portfolio-plot">
+                            <canvas id="portfolio-chart" role="img" aria-label="保有銘柄別の評価額構成" aria-describedby="portfolio-chart-summary"></canvas>
+                        </div>
+                        <ul class="portfolio-legend hidden" id="portfolio-legend" aria-label="銘柄別の構成比" tabindex="0"></ul>
+                    </div>
+                    <details>
+                        <summary>銘柄別の評価額と構成比</summary>
+                        <p class="portfolio-chart-summary" id="portfolio-chart-summary"></p>
+                    </details>
+                </section>
+                <section class="card card-body" aria-labelledby="portfolio-alerts-title">
+                    <div class="portfolio-heading">
+                        <h3 id="portfolio-alerts-title">価格アラート</h3>
+                        <div class="portfolio-actions">
+                            <button class="btn-primary btn-sm" id="portfolio-alert-add" type="button">アラートを追加</button>
+                            <button class="account-action" id="alert-notification-enable" type="button">ブラウザ通知を有効にする</button>
+                        </div>
+                    </div>
+                    <p class="text-muted" id="alert-notification-status" role="status"></p>
+                    <p class="text-muted" id="portfolio-alert-status" role="status"></p>
+                    <p class="auth-error hidden" id="portfolio-alert-error" role="alert"></p>
+                    <div class="table-container">
+                        <table class="data-table portfolio-table" aria-labelledby="portfolio-alerts-title">
+                            <thead><tr>
+                                <th scope="col">銘柄</th><th scope="col">条件</th><th scope="col">状態</th>
+                                <th scope="col">最終通知</th><th scope="col">操作</th>
+                            </tr></thead>
+                            <tbody id="portfolio-alerts"></tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
         </section>
     </div>
 

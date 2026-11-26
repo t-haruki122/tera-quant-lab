@@ -3,7 +3,19 @@
 from datetime import date as UTCDate
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from app.database import Base
@@ -40,6 +52,12 @@ class StockPrice(SymbolMixin, Base):
     low: Mapped[float | None] = mapped_column(Float, nullable=True)
     close: Mapped[float] = mapped_column(Float, nullable=False)
     volume: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    quote_name: Mapped[str | None] = mapped_column(String(200))
+    quote_currency: Mapped[str | None] = mapped_column(String(10))
+    quote_day_change: Mapped[float | None] = mapped_column(Float)
+    quote_day_change_pct: Mapped[float | None] = mapped_column(Float)
+    quote_market_time: Mapped[str | None] = mapped_column(String(32))
+    quote_market_date: Mapped[str | None] = mapped_column(String(10))
     cached_at: Mapped[datetime] = mapped_column(
         DateTime, default=to_db, nullable=False
     )
@@ -179,3 +197,46 @@ class StockMemo(SymbolMixin, Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=to_db, onupdate=to_db, nullable=False
     )
+
+
+class PortfolioHolding(SymbolMixin, Base):
+    __tablename__ = "portfolio_holdings"
+    __table_args__ = (
+        UniqueConstraint("user_id", "symbol", name="uq_portfolio_user_symbol"),
+        CheckConstraint("shares > 0", name="ck_portfolio_shares"),
+        CheckConstraint("avg_cost >= 0", name="ck_portfolio_avg_cost"),
+        {"sqlite_autoincrement": True},
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    symbol: Mapped[str] = mapped_column(String(20))
+    shares: Mapped[float] = mapped_column(Float)
+    avg_cost: Mapped[float] = mapped_column(Float)
+    acquired_on: Mapped[UTCDate | None] = mapped_column(Date)
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=to_db)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=to_db, onupdate=to_db)
+
+
+class PriceAlert(SymbolMixin, Base):
+    __tablename__ = "price_alerts"
+    __table_args__ = (
+        CheckConstraint("kind IN ('above', 'below', 'change_pct')", name="ck_price_alert_kind"),
+        CheckConstraint("threshold > 0", name="ck_price_alert_threshold"),
+        CheckConstraint("trigger_count >= 0", name="ck_price_alert_trigger_count"),
+        {"sqlite_autoincrement": True},
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    symbol: Mapped[str] = mapped_column(String(20))
+    kind: Mapped[str] = mapped_column(String(10))
+    threshold: Mapped[float] = mapped_column(Float)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=to_db)
+    last_triggered_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_triggered_market_date: Mapped[UTCDate | None] = mapped_column(Date)
+    trigger_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    armed: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")

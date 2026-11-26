@@ -12,7 +12,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import require_authenticated_user
-from app.models.db_models import StockMemo, User, UserList, UserListItem
+from app.models.db_models import PortfolioHolding, PriceAlert, StockMemo, User, UserList, UserListItem
 from app.timeutil import to_db
 
 ph = PasswordHasher()
@@ -82,16 +82,19 @@ async def delete_account(user: User, db: AsyncSession) -> bool:
     return True
 
 
-async def delete_user_data(user_id: int, db: AsyncSession) -> None:
+async def delete_user_data(user_id: int, db: AsyncSession, *, include_investments: bool = True) -> None:
     # SQLite connections use the default foreign_keys=OFF.
     lists = select(UserList.id).where(UserList.user_id == user_id)
     await db.execute(delete(UserListItem).where(UserListItem.list_id.in_(lists)))
     await db.execute(delete(UserList).where(UserList.user_id == user_id))
     await db.execute(delete(StockMemo).where(StockMemo.user_id == user_id))
+    if include_investments:
+        await db.execute(delete(PortfolioHolding).where(PortfolioHolding.user_id == user_id))
+        await db.execute(delete(PriceAlert).where(PriceAlert.user_id == user_id))
 
 
-async def lock_watchlists(user_id: int, db: AsyncSession) -> None:
-    # Acquire SQLite's write lock before checking names or reading merge state.
+async def lock_user_data(user_id: int, db: AsyncSession) -> None:
+    # Acquire SQLite's write lock before checking limits or reading merge state.
     owner = await db.scalar(
         update(User).where(User.id == user_id).values(token_version=User.token_version)
         .returning(User.id)
@@ -160,7 +163,7 @@ async def get_or_create_default_list(user_id: int, db: AsyncSession) -> UserList
     user_list = await find_default_list(user_id, db)
     if user_list:
         return user_list
-    await lock_watchlists(user_id, db)
+    await lock_user_data(user_id, db)
     user_list = await find_default_list(user_id, db)
     if user_list:
         return user_list
@@ -214,7 +217,7 @@ async def get_user_lists(user_id: int, db: AsyncSession) -> list[UserList]:
 async def create_list(user_id: int, name: str, db: AsyncSession) -> UserList:
     """リストを作成"""
     name = normalize_list_name(name)
-    await lock_watchlists(user_id, db)
+    await lock_user_data(user_id, db)
     await check_list_name(user_id, name, db)
     now = to_db()
     user_list = UserList(
@@ -267,7 +270,7 @@ async def get_list_detail(user_id: int, list_id: int, db: AsyncSession) -> dict:
 
 async def update_list(user_id: int, list_id: int, name: str, db: AsyncSession) -> UserList:
     """リスト名を更新"""
-    await lock_watchlists(user_id, db)
+    await lock_user_data(user_id, db)
     user_list = await require_list(user_id, list_id, db)
     await check_list_name(user_id, name, db, exclude_id=list_id)
 
@@ -280,7 +283,7 @@ async def update_list(user_id: int, list_id: int, name: str, db: AsyncSession) -
 
 async def delete_list(user_id: int, list_id: int, db: AsyncSession) -> None:
     """リストを削除（アイテムもCASCADE削除）"""
-    await lock_watchlists(user_id, db)
+    await lock_user_data(user_id, db)
     user_list = await require_list(user_id, list_id, db)
     if user_list is await find_default_list(user_id, db):
         raise ProtectedList("デフォルトリスト（最後の1件を含む）は削除できません")
@@ -300,7 +303,7 @@ async def add_list_item(
 ) -> UserListItem:
     """リストにアイテムを追加"""
     symbol = symbol.upper()
-    await lock_watchlists(user_id, db)
+    await lock_user_data(user_id, db)
     # リスト所有権チェック
     result = await db.execute(
         select(UserList).where(UserList.id == list_id, UserList.user_id == user_id)
@@ -342,7 +345,7 @@ async def remove_list_item(
 ) -> None:
     """リストからアイテムを削除"""
     symbol = symbol.upper()
-    await lock_watchlists(user_id, db)
+    await lock_user_data(user_id, db)
     # リスト所有権チェック
     result = await db.execute(
         select(UserList).where(UserList.id == list_id, UserList.user_id == user_id)
@@ -368,7 +371,7 @@ async def update_item_tags(
 ) -> UserListItem:
     """アイテムのタグを更新"""
     symbol = symbol.upper()
-    await lock_watchlists(user_id, db)
+    await lock_user_data(user_id, db)
     # リスト所有権チェック
     result = await db.execute(
         select(UserList).where(UserList.id == list_id, UserList.user_id == user_id)
@@ -411,7 +414,7 @@ async def save_stock_memo(
     db: AsyncSession,
 ) -> StockMemo:
     """ユーザーの銘柄メモを保存（作成または更新）"""
-    await lock_watchlists(user_id, db)
+    await lock_user_data(user_id, db)
     symbol = symbol.upper()
     normalized_symbol = symbol.upper()
     existing_memo = await get_stock_memo(user_id, normalized_symbol, db)

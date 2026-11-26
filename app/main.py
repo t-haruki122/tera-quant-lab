@@ -18,7 +18,7 @@ from app.config import SECRET_KEY_MESSAGE, get_settings
 from app.database import init_db
 from app.exceptions import register_exception_handlers
 from app.middleware import InternalErrorMiddleware, RequestIDFilter, RequestMiddleware
-from app.routers import backtest, forex, stats, stock, user
+from app.routers import backtest, forex, investments, stats, stock, user
 from app.services.cache_warmer import warm_cache_periodically
 from app.stats import stats as app_stats
 
@@ -138,6 +138,7 @@ app.add_middleware(
 # ルーター登録
 app.include_router(stock.router)
 app.include_router(user.router)
+app.include_router(investments.router)
 app.include_router(stats.router)
 app.include_router(forex.router)
 app.include_router(backtest.router)

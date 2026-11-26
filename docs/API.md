@@ -15,6 +15,8 @@
 | ニュース | 銘柄関連ニュースの取得 | `GET /stock/{symbol}/news` |
 | 為替 | 通貨ペアの現在レート取得 | `GET /forex/{pair}` |
 | ユーザー機能 | ユーザー登録/ログイン、銘柄リスト管理、タグ管理 | `POST /user/register`、`POST /user/login`、`/user/{user_id}/lists...` |
+| ポートフォリオ | 保有銘柄の管理、円換算評価、CSV出力 | `/user/{user_id}/portfolio` |
+| 価格アラート | アラートの管理・判定 | `/user/{user_id}/alerts`、`POST /user/{user_id}/alerts/check` |
 | バックテスト | 戦略一覧、単一実行、グリッド探索 | `GET /backtest/strategies`、`POST /backtest/run`、`POST /backtest/grid` |
 | 運用 | API利用統計と稼働状態の取得 | `GET /stats`、`GET /health` |
 
@@ -156,18 +158,23 @@ JWT の `ver` がアカウントのトークンバージョンと一致する間
 
 #### JSONバックアップとCSV出力
 
-`GET /user/1/export` は `200` と `Content-Disposition: attachment; filename="watchlists-2026-11-25.json"` を返します。ファイル名の日付は UTC です。JSON はリストと銘柄、タグ、メモを含みます。
+`GET /user/1/export` は `200` と `Content-Disposition: attachment; filename="watchlists-2026-11-25.json"` を返します。ファイル名の日付は UTC です。JSON にはリスト、銘柄、タグ、メモ、保有銘柄、価格アラートが含まれます。
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "exported_at": "2026-11-25T12:00:00Z",
   "username": "taro",
   "lists": [{
     "name": "配当株",
     "items": [{"symbol": "7203.T", "tags": ["自動車"], "added_at": "2026-11-25T08:00:00Z"}]
   }],
-  "memos": [{"symbol": "7203.T", "memo": "決算を確認", "updated_at": "2026-11-25T09:00:00Z"}]
+  "memos": [{"symbol": "7203.T", "memo": "決算を確認", "updated_at": "2026-11-25T09:00:00Z"}],
+  "holdings": [{"symbol": "7203.T", "shares": 10, "avg_cost": 2500, "acquired_on": "2026-11-24",
+    "note": null, "created_at": "2026-11-25T10:00:00Z", "updated_at": "2026-11-25T10:00:00Z"}],
+  "alerts": [{"symbol": "7203.T", "kind": "above", "threshold": 3000, "enabled": true, "note": null,
+    "created_at": "2026-11-25T10:00:00Z", "last_triggered_at": null, "last_triggered_market_date": null,
+    "trigger_count": 0, "armed": true}]
 }
 ```
 
@@ -175,13 +182,13 @@ JWT の `ver` がアカウントのトークンバージョンと一致する間
 
 `POST /user/1/import?mode=merge` の本文には、エクスポートした JSON をそのまま指定できます。データはURLのアカウントに取り込みます。本文の `username` はバックアップ元の記録です。
 
-- `merge`（既定）は未登録のリスト・銘柄・タグ・メモを追加します。同じリスト名の内容を統合し、既存の空でないメモを保持します。既存メモが空（空白のみを含む）の場合、取り込むメモが空でなければ更新します。
-- `replace` はアカウントのリストとメモをすべて置き換えます。どちらのモードも1回のトランザクションで確定します。
-- 銘柄の表記を正規化します。有効な銘柄形式やリスト名の条件を満たさない項目は理由付きでスキップします。
+- `merge`（既定）は未登録のデータを追加します。同じリスト名の内容を統合し、既存の空でないメモを保持します。既存メモが空（空白のみを含む）の場合、取り込むメモが空でなければ更新します。保有銘柄はティッカーで照合します。アラートはティッカー、条件、基準値、有効状態、メモが一致する件数を照合し、既存の通知履歴を保持します。
+- `replace` はバックアップに含まれる種類のデータを置き換えます。バージョン1のバックアップも取り込めます。バージョン1の置き換え対象はリストとメモです。どちらのモードも1回のトランザクションで確定します。
+- 銘柄の表記を正規化します。リストや銘柄メモの項目が銘柄形式やリスト名の条件を満たさない場合は、理由付きでスキップします。保有銘柄とアラートの件数には登録上限が適用されます。
 
 ```json
 {
-  "imported": {"lists": 1, "items": 1, "tags": 1, "memos": 1},
+  "imported": {"lists": 1, "items": 1, "tags": 1, "memos": 1, "holdings": 1, "alerts": 1},
   "skipped": [{"entry": "配当株 / A/B", "reason": "symbol は英数字または ^ . = - で20文字以内にしてください"}]
 }
 ```
@@ -194,6 +201,44 @@ JWT の `ver` がアカウントのトークンバージョンと一致する間
 "symbol","name","tags","memo"
 "7203.T","Toyota","自動車, 高配当","決算を確認"
 ```
+
+#### ポートフォリオ
+
+| メソッドとパス | 操作 |
+|---|---|
+| `GET /user/{user_id}/portfolio` | 保有銘柄と評価額を返す |
+| `POST /user/{user_id}/portfolio` | 保有銘柄を追加する（`201`） |
+| `PUT /user/{user_id}/portfolio/{holding_id}` | 数量、平均取得単価、取得日、メモを更新する。銘柄の変更も可 |
+| `DELETE /user/{user_id}/portfolio/{holding_id}` | 保有銘柄を削除する（`204`） |
+| `GET /user/{user_id}/portfolio/export.csv` | 保有銘柄の入力データをCSVで出力する |
+
+登録時は `symbol`、`shares`（0より大きい数値）、`avg_cost`（銘柄の通貨で0以上の数値）を指定します。更新時の `symbol` は省略または `null` で現在の銘柄を維持します。`acquired_on`（`YYYY-MM-DD`）と `note`（2,000文字以内）は省略または `null` にできます。銘柄ごとに1件登録でき、重複時は `409`、`PORTFOLIO_MAX_HOLDINGS`（既定値200件）到達時は `400` です。CSVは UTF-8 BOM付きで、列は `symbol,shares,avg_cost,acquired_on,note` の順です。
+
+一覧は `holdings` に銘柄名、通貨、現在価格、取得額、評価額、含み損益・損益率、前日比と騰落率（取得できる場合）、円換算額と円換算の評価額に占める構成比を返します。換算には `usd_jpy` を使い、JPYはそのまま集計します。USD/JPY以外の為替ペアは現行の為替サービスの対象外です。価格取得や換算ができない銘柄には `error` が付き、換算不可なら `fx_unavailable` も付きます。`totals` の円換算合計は評価と換算ができた銘柄で計算し、除外があれば `partial: true` を返します。取得額または評価額の合計が0の場合、対応する損益率または構成比は `null` です。
+
+キャッシュを代用した株価には行ごとに `stale` と `cached_at` が付きます。応答全体にはキャッシュ代用の有無と、そのうち最古の `cached_at` が付きます。為替には `forex_stale` と `forex_cached_at` が付きます。
+
+#### 価格アラート
+
+| メソッドとパス | 操作 |
+|---|---|
+| `GET /user/{user_id}/alerts` | アラート一覧を返す |
+| `POST /user/{user_id}/alerts` | アラートを追加する（`201`） |
+| `PUT /user/{user_id}/alerts/{alert_id}` | アラートの条件や有効状態を更新する |
+| `DELETE /user/{user_id}/alerts/{alert_id}` | アラートを削除する（`204`） |
+| `POST /user/{user_id}/alerts/check` | 有効なアラートを判定して `fired` と `skipped` を返す |
+
+作成・更新では `symbol`、`kind`（`above`、`below`、`change_pct`）、`threshold`（0より大きい数値）を指定します。`enabled` の既定値は `true` で、`note` は2,000文字以内です。`above` は価格が基準値以上、`below` は基準値以下、`change_pct` は当日の騰落率の絶対値が指定したパーセント以上で成立します。`PRICE_ALERT_MAX_PER_USER`（既定値100件）到達時は `400` です。
+
+成立時は `last_triggered_at` と `trigger_count` を更新し、判定値 `observed_value` 付きで `fired` に返します。`above` と `below` では、`ALERT_COOLDOWN_MINUTES`（既定値60分）の間は再通知を抑制します。一度発火すると `armed` が解除され、価格が反対側に戻ったことを次回以降の判定で確認すると再設定されます。銘柄・条件・基準値の変更でも `armed` を再設定し、クールダウンは直近の通知時刻から続きます。
+
+`change_pct` は銘柄の取引日につき最大1回通知し、通知した取引日を `last_triggered_market_date` に保存します。提供元の市場時刻を取引所のタイムゾーンで日付に変換します。タイムゾーンが得られない場合は市場時刻のUTC日付を使用し、市場時刻が得られない場合は判定時点のUTC日付につき最大1回通知します。休場中も同じ市場時刻の株価が返る限り再通知しません。銘柄を変更すると記録済みの取引日を解除します。
+
+キャッシュ代用の古い株価、取得に失敗した株価、判定値が欠けた株価は理由付きで `skipped` に返します。この場合、通知状態を更新しません。判定はチェックAPIの呼び出し時に実行します。
+
+両機能で、他のユーザーのURLへのアクセスは `403`、本人のURLから所有していない項目を更新・削除すると `404` です。評価とアラート判定はそれぞれデータ取得枠を1回消費し、上限時は `429` を返します。銘柄の同時取得数は `WATCHLIST_SUMMARY_CONCURRENCY`（既定値8）で制限します。
+
+保有銘柄とアラートを追加するときや、更新でティッカーを変更するときは株価サービスで銘柄を確認します。銘柄が見つからない場合は `404` です。提供元の一時的な障害や利用上限で確認できない場合は保存できます。
 
 #### ログイン・登録のレート制限
 

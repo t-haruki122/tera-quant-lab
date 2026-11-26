@@ -2,8 +2,9 @@
 
 import logging
 import math
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pandas as pd
 import yfinance as yf
@@ -27,6 +28,24 @@ def _finite_history_value(value: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
+def _market_time_fields(info: dict[str, Any]) -> dict[str, str]:
+    epoch = _finite_history_value(info.get("regularMarketTime"))
+    if epoch is None:
+        return {}
+    try:
+        market_time = datetime.fromtimestamp(epoch, UTC)
+    except (ValueError, OverflowError, OSError):
+        return {}
+    session_date = market_time.date()
+    zone = info.get("exchangeTimezoneName")
+    if isinstance(zone, str) and zone:
+        try:
+            session_date = market_time.astimezone(ZoneInfo(zone)).date()
+        except (ValueError, OverflowError, ZoneInfoNotFoundError):
+            pass
+    return {"market_time": utc_iso(market_time), "market_date": session_date.isoformat()}
+
+
 class YFinanceClient:
     """yfinanceライブラリを使用した株価・財務データ取得クライアント"""
 
@@ -42,18 +61,27 @@ class YFinanceClient:
         ticker = yf.Ticker(symbol)
         info = ticker.info
         # 価格を取得（複数のフィールドをフォールバック）
-        price = (
-            info.get("currentPrice")
-            or info.get("regularMarketPrice")
-            or info.get("previousClose")
-        )
+        current = _finite_history_value(info.get("currentPrice") or info.get("regularMarketPrice"))
+        previous = _finite_history_value(info.get("regularMarketPreviousClose") or info.get("previousClose"))
+        price = current if current is not None else previous
         if price is None:
             raise SymbolNotFoundError(symbol)
-        timestamp = utc_iso()
+        change = _finite_history_value(info.get("regularMarketChange"))
+        change_pct = _finite_history_value(info.get("regularMarketChangePercent"))
+        if current is not None and previous is not None and previous > 0:
+            if change is None:
+                change = current - previous
+            if change_pct is None:
+                change_pct = (current / previous - 1) * 100
         return {
             "symbol": symbol.upper(),
             "price": float(price),
-            "timestamp": timestamp,
+            "timestamp": utc_iso(),
+            "name": info.get("shortName") or info.get("longName"),
+            "currency": info.get("currency"),
+            "day_change": change,
+            "day_change_pct": change_pct,
+            **_market_time_fields(info),
         }
 
     @external_call

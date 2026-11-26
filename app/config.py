@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = Field(default=1440, gt=0)
     user_import_max_bytes: int = Field(default=1_048_576, gt=0)
     watchlist_summary_concurrency: int = Field(default=8, gt=0)
+    portfolio_max_holdings: int = Field(default=200, gt=0)
+    price_alert_max_per_user: int = Field(default=100, gt=0)
+    alert_cooldown_minutes: int = Field(default=60, gt=0)
 
     # Same-origin frontend needs no CORS. Cookies are never enabled.
     cors_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)

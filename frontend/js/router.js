@@ -10,6 +10,7 @@ export function parseRoute(hash) {
     const [path, query = ''] = hash.split(/\?(.*)/s, 2);
     const params = new URLSearchParams(query);
     if (path === '#/stats' && !query) return { view: 'stats' };
+    if (path === '#/portfolio' && !query) return { view: 'portfolio' };
     if (path === '#/backtest') {
         const raw = params.get('symbol');
         const symbol = normalizeSymbol(raw);
@@ -33,6 +34,7 @@ export function parseRoute(hash) {
 export function serializeRoute({ view, symbol, period }) {
     symbol = normalizeSymbol(symbol);
     if (view === 'stats') return '#/stats';
+    if (view === 'portfolio') return '#/portfolio';
     if (view === 'backtest') return symbol ? `#/backtest?symbol=${encodeURIComponent(symbol)}` : '#/backtest';
     if (view === 'detail' && symbol) {
         const code = Object.keys(periods).find(key => periods[key] === period);

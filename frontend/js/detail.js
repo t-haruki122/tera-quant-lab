@@ -13,6 +13,10 @@ import { renderFinancialHistoryChart, renderDividendHistoryChart } from './finan
 let displayedQuote = null;
 let detailRequestId = 0;
 
+export function getDetailQuote() {
+    return displayedQuote;
+}
+
 // ===== Search =====
 export function quickSearch(symbol) {
     document.getElementById('search-input').value = symbol;

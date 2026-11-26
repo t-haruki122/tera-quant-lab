@@ -1,23 +1,35 @@
-"""Export and atomically restore user-owned watchlists and memos."""
+"""Export and atomically restore user-owned data."""
 
 import csv
 import io
 import json
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import UTC
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.db_models import CompanyProfile, StockMemo, User, UserList, UserListItem
-from app.schemas.user import BackupItem, BackupList, BackupMemo, ImportCounts, ImportResult, SkippedEntry, UserBackup
-from app.services import user_service
+from app.config import get_settings
+from app.models.db_models import CompanyProfile, PortfolioHolding, PriceAlert, StockMemo, User, UserList, UserListItem
+from app.schemas.investments import AlertResponse, HoldingResponse
+from app.schemas.user import (
+    BackupAlert,
+    BackupHolding,
+    BackupItem,
+    BackupList,
+    BackupMemo,
+    ImportCounts,
+    ImportResult,
+    SkippedEntry,
+    UserBackup,
+)
+from app.services import portfolio_service, price_alert_service, user_service
 from app.services.watchlist_service import get_list_memos
 from app.timeutil import to_db, utcnow
 from app.validation import normalize_symbol
 
-BACKUP_VERSION = 1
+BACKUP_VERSION = 2
 
 
 async def read_user_data(user_id: int, db: AsyncSession):
@@ -56,13 +68,21 @@ async def export_backup(user: User, db: AsyncSession) -> UserBackup:
             BackupMemo(symbol=memo.symbol, memo=memo.memo, updated_at=memo.updated_at.replace(tzinfo=UTC))
             for memo in memos.values()
         ],
+        holdings=[
+            BackupHolding.model_validate(HoldingResponse.model_validate(row).model_dump(exclude={"id"}))
+            for row in await portfolio_service.holdings_for_user(user.id, db)
+        ],
+        alerts=[
+            BackupAlert.model_validate(AlertResponse.model_validate(row).model_dump(exclude={"id"}))
+            for row in await price_alert_service.alerts_for_user(user.id, db)
+        ],
     )
 
 
 async def import_backup(user_id: int, backup: UserBackup, mode: str, db: AsyncSession) -> ImportResult:
-    await user_service.lock_watchlists(user_id, db)
+    await user_service.lock_user_data(user_id, db)
     if mode == "replace":
-        await user_service.delete_user_data(user_id, db)
+        await user_service.delete_user_data(user_id, db, include_investments=backup.version == BACKUP_VERSION)
     lists, items, memos = await read_user_data(user_id, db)
     by_name = {}
     for lst in lists:
@@ -128,8 +148,54 @@ async def import_backup(user_id: int, backup: UserBackup, mode: str, db: AsyncSe
         memo.updated_at = to_db(source_memo.updated_at)
         counts.memos += 1
 
+    result = ImportResult(imported=counts, skipped=skipped)
+    if backup.version == BACKUP_VERSION:
+        await import_investments(user_id, backup, result, db)
     await db.commit()
-    return ImportResult(imported=counts, skipped=skipped)
+    return result
+
+
+def alert_key(alert: PriceAlert | BackupAlert) -> tuple[str, str, float, bool, str | None]:
+    return alert.symbol, alert.kind, alert.threshold, alert.enabled, alert.note
+
+
+async def import_investments(user_id: int, backup: UserBackup, result: ImportResult, db: AsyncSession) -> None:
+    settings = get_settings()
+    symbols = {row.symbol for row in await portfolio_service.holdings_for_user(user_id, db)}
+    for holding in backup.holdings:
+        entry = f"保有銘柄 / {holding.symbol}"
+        if holding.symbol in symbols:
+            result.skipped.append(SkippedEntry(entry=entry, reason="この銘柄は登録済みです。"))
+        elif len(symbols) >= settings.portfolio_max_holdings:
+            result.skipped.append(SkippedEntry(entry=entry, reason="保有銘柄の登録上限に達しています。"))
+        else:
+            data = holding.model_dump()
+            data.update(created_at=to_db(holding.created_at), updated_at=to_db(holding.updated_at))
+            db.add(PortfolioHolding(user_id=user_id, **data))
+            symbols.add(holding.symbol)
+            result.imported.holdings += 1
+
+    alerts = await price_alert_service.alerts_for_user(user_id, db)
+    existing = Counter(alert_key(alert) for alert in alerts)
+    for alert in backup.alerts:
+        key = alert_key(alert)
+        if existing[key]:
+            existing[key] -= 1
+        elif len(alerts) + result.imported.alerts >= settings.price_alert_max_per_user:
+            result.skipped.append(SkippedEntry(
+                entry=f"価格アラート / {alert.symbol}", reason="価格アラートの登録上限に達しています。",
+            ))
+        else:
+            data = alert.model_dump()
+            data.update(
+                created_at=to_db(alert.created_at),
+                last_triggered_at=to_db(alert.last_triggered_at) if alert.last_triggered_at else None,
+            )
+            if (alert.kind == "change_pct" and alert.last_triggered_at
+                    and "last_triggered_market_date" not in alert.model_fields_set):
+                data["last_triggered_market_date"] = to_db(alert.last_triggered_at).date()
+            db.add(PriceAlert(user_id=user_id, **data))
+            result.imported.alerts += 1
 
 
 def csv_cell(value: str | None) -> str:
@@ -138,6 +204,16 @@ def csv_cell(value: str | None) -> str:
     if text.startswith(("\t", "\r", "\n")) or re.match(r"^[\s\x00-\x1f]*[=+@＝＋－＠-]", text):
         return "\t" + text
     return text
+
+
+async def export_portfolio_csv(user_id: int, db: AsyncSession) -> str:
+    holdings = await portfolio_service.holdings_for_user(user_id, db)
+    output = io.StringIO(newline="")
+    writer = csv.writer(output, quoting=csv.QUOTE_ALL)
+    writer.writerow(("symbol", "shares", "avg_cost", "acquired_on", "note"))
+    for row in holdings:
+        writer.writerow((csv_cell(row.symbol), row.shares, row.avg_cost, row.acquired_on, csv_cell(row.note)))
+    return "\ufeff" + output.getvalue()
 
 
 async def export_list_csv(user_id: int, list_id: int, db: AsyncSession) -> str:

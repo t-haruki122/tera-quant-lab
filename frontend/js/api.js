@@ -41,6 +41,7 @@ export async function fetchAPI(endpoint, options = {}, errorMessage = 'リクエ
         const requestIdSuffix = requestId ? `（リクエストID: ${requestId}）` : '';
         throw Object.assign(new Error((message || `${errorMessage}（HTTP ${res.status}）`) + requestIdSuffix), {
             status: res.status,
+            retryAfter: res.headers?.get('Retry-After'),
         });
     }
 

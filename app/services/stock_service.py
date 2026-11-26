@@ -181,7 +181,15 @@ async def get_current_price(symbol: str, db: AsyncSession) -> dict:
     record = (await db.execute(stmt)).scalar_one_or_none()
     cached = None
     if record is not None:
-        cached = (record.cached_at, {"symbol": record.symbol, "price": record.close, "timestamp": utc_iso(record.timestamp)})
+        metadata = {
+            "name": record.quote_name, "currency": record.quote_currency,
+            "day_change": record.quote_day_change, "day_change_pct": record.quote_day_change_pct,
+            "market_time": record.quote_market_time, "market_date": record.quote_market_date,
+        }
+        cached = (record.cached_at, {
+            "symbol": record.symbol, "price": record.close, "timestamp": utc_iso(record.timestamp),
+            **{key: value for key, value in metadata.items() if value is not None},
+        })
     # Release the read session before the shared refresh opens its write session.
     await db.rollback()
     return await cached_response(f"quote:{symbol}", window, cached, lambda: refresh_quote(symbol, db))
@@ -199,6 +207,12 @@ async def refresh_quote(symbol: str, db: AsyncSession) -> dict:
         interval="quote",
         timestamp=datetime.fromisoformat(data["timestamp"].replace("Z", "+00:00")),
         close=data["price"],
+        quote_name=data.get("name"),
+        quote_currency=data.get("currency"),
+        quote_day_change=data.get("day_change"),
+        quote_day_change_pct=data.get("day_change_pct"),
+        quote_market_time=data.get("market_time"),
+        quote_market_date=data.get("market_date"),
     )
     await upsert_cache(db, StockPrice, values)
     await db.commit()

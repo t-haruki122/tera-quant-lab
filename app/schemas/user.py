@@ -1,10 +1,11 @@
 """ユーザー・リスト・タグ関連のPydanticスキーマ"""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
+from app.schemas.investments import AlertKind, Cost, Note, Shares, Threshold
 from app.schemas.stock import CachedResponse
 from app.validation import Symbol
 
@@ -147,12 +148,37 @@ class BackupMemo(BackupModel):
     updated_at: datetime
 
 
+class BackupHolding(BackupModel):
+    symbol: Symbol
+    shares: Shares
+    avg_cost: Cost
+    acquired_on: date | None
+    note: Note | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class BackupAlert(BackupModel):
+    symbol: Symbol
+    kind: AlertKind
+    threshold: Threshold
+    enabled: bool
+    note: Note | None
+    created_at: datetime
+    last_triggered_at: datetime | None
+    last_triggered_market_date: date | None = None
+    trigger_count: int = Field(ge=0, le=2**63 - 1)
+    armed: bool
+
+
 class UserBackup(BackupModel):
     version: StrictInt
     exported_at: datetime
     username: str
     lists: list[BackupList]
     memos: list[BackupMemo]
+    holdings: list[BackupHolding] = Field(default_factory=list)
+    alerts: list[BackupAlert] = Field(default_factory=list)
 
 
 class ImportCounts(BaseModel):
@@ -160,6 +186,8 @@ class ImportCounts(BaseModel):
     items: int = 0
     tags: int = 0
     memos: int = 0
+    holdings: int = 0
+    alerts: int = 0
 
 
 class SkippedEntry(BaseModel):

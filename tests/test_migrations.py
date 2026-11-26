@@ -28,8 +28,9 @@ def test_fresh_startup_and_second_upgrade_are_idempotent(async_db):
         assert not logger.disabled
         async with engine.connect() as connection:
             tables = await connection.run_sync(lambda conn: inspect(conn).get_table_names())
-            assert set(tables) == set(LegacyBase.metadata.tables) | {"alembic_version", "api_stats_daily"}
-            assert await connection.scalar(text("SELECT version_num FROM alembic_version")) == "0004"
+            added = {"alembic_version", "api_stats_daily", "portfolio_holdings", "price_alerts"}
+            assert set(tables) == set(LegacyBase.metadata.tables) | added
+            assert await connection.scalar(text("SELECT version_num FROM alembic_version")) == "0005"
             columns = await connection.run_sync(lambda conn: inspect(conn).get_columns("users"))
             token_version = next(column for column in columns if column["name"] == "token_version")
             assert not token_version["nullable"]
@@ -129,7 +130,7 @@ def test_upgrade_0003_and_downgrade_0004_keep_users_and_watchlists(settings):
             return {name: connection.execute(select_legacy_columns(name)).all() for name in rows}
 
         before = snapshot()
-        upgrade(connection)
+        upgrade(connection, "0004")
         assert connection.scalar(text("SELECT token_version FROM users WHERE id=10")) == 0
         assert connection.scalar(text("SELECT added_at FROM user_list_items WHERE id=30")) is None
         assert snapshot() == before
@@ -147,3 +148,61 @@ def test_upgrade_0003_and_downgrade_0004_keep_users_and_watchlists(settings):
 
 def select_legacy_columns(table):
     return LegacyBase.metadata.tables[table].select()
+
+
+def test_upgrade_populated_0004_and_downgrade_0005(settings):
+    engine = create_engine(settings.database_url.replace("+aiosqlite", ""))
+    with engine.connect() as connection:
+        connection.exec_driver_sql("PRAGMA foreign_keys = ON")
+        connection.commit()
+        with connection.begin():
+            upgrade(connection, "0004")
+            now = to_db()
+            old_rows = {
+                "users": dict(id=1, username="existing", password_hash="hash", created_at=now),
+                "user_lists": dict(id=1, user_id=1, name="監視", created_at=now, updated_at=now),
+                "user_list_items": dict(id=1, list_id=1, symbol="AAPL", tags='["長期"]'),
+                "stock_memos": dict(id=1, user_id=1, symbol="AAPL", memo="メモ", updated_at=now),
+                "stock_prices": dict(id=1, symbol="AAPL", timestamp=now, close=150, cached_at=now),
+            }
+            for table, row in old_rows.items():
+                connection.execute(LegacyBase.metadata.tables[table].insert().values(**row))
+            connection.execute(text("UPDATE stock_prices SET interval = 'quote' WHERE id = 1"))
+            inspector = inspect(connection)
+            columns = {
+                table: ", ".join(column["name"] for column in inspector.get_columns(table))
+                for table in old_rows
+            }
+
+            def snapshot():
+                return {name: connection.execute(text(f"SELECT {names} FROM {name}")).all()
+                        for name, names in columns.items()}
+
+            before = snapshot()
+            upgrade(connection)
+            assert snapshot() == before
+            assert connection.scalar(text("SELECT quote_currency FROM stock_prices")) is None
+            assert connection.scalar(text("SELECT quote_market_time FROM stock_prices")) is None
+            assert connection.scalar(text("SELECT quote_market_date FROM stock_prices")) is None
+            connection.execute(text(
+                "INSERT INTO portfolio_holdings (user_id, symbol, shares, avg_cost, created_at, updated_at) "
+                "VALUES (1, 'AAPL', 1, 100, :now, :now)"
+            ), {"now": now})
+            connection.execute(text(
+                "INSERT INTO price_alerts (user_id, symbol, kind, threshold, created_at) "
+                "VALUES (1, 'AAPL', 'above', 150, :now)"
+            ), {"now": now})
+            assert connection.scalar(text("SELECT last_triggered_market_date FROM price_alerts")) is None
+            assert connection.execute(text("PRAGMA foreign_key_check")).all() == []
+            for table in ("portfolio_holdings", "price_alerts"):
+                assert inspect(connection).get_foreign_keys(table)[0]["options"]["ondelete"] == "CASCADE"
+
+            config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+            config.attributes["connection"] = connection
+            command.downgrade(config, "0004")
+            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0004"
+            assert not {"portfolio_holdings", "price_alerts"} & set(inspect(connection).get_table_names())
+            removed = {"quote_currency", "quote_market_time", "quote_market_date"}
+            assert not removed & {column["name"] for column in inspect(connection).get_columns("stock_prices")}
+            assert snapshot() == before
+    engine.dispose()

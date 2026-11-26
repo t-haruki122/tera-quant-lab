@@ -27,14 +27,14 @@ export function formatPercent(value) {
     return percentFormatter.format(value) + '%';
 }
 
-export function formatCurrency(value, currency) {
+export function formatCurrency(value, currency, { convertUSD = true } = {}) {
     if (value == null) return '—';
     try {
         let displayValue = value;
         let displayCurrency = currency || 'USD';
 
         // USDの場合は円換算する
-        if (displayCurrency === 'USD' && state.exchangeRateUSDJPY) {
+        if (convertUSD && displayCurrency === 'USD' && state.exchangeRateUSDJPY) {
             displayValue = value * state.exchangeRateUSDJPY;
             displayCurrency = 'JPY';
         }
