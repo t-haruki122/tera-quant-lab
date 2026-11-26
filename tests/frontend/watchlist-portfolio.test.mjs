@@ -5,6 +5,7 @@ import { assertAccessibleControls } from './helpers/a11y.mjs';
 import { elements, fromRepo, pressKey } from './helpers/dom-shim.mjs';
 
 const { state, cache } = await fromRepo('frontend/js/state.js');
+const { updateAccountUI } = await fromRepo('frontend/js/auth.js');
 const { bindListEvents, selectWatchlist, resetListSession, sortTable } = await fromRepo('frontend/js/list.js');
 
 const byId = id => document.getElementById(id);
@@ -14,6 +15,17 @@ const response = (data, status = 200) => ({ ok: status === 200, status, json: as
 const root = '/user/7/lists';
 const summary = id => `${root}/${id}/summary?cached=true`;
 const html = readFileSync('frontend/index.html', 'utf8');
+
+test('dashboard subtitle follows sign-in and sign-out', () => {
+    const guest = 'ログインすると、株数や現金を入力して評価額と構成比を確認できます。';
+    assert.ok(html.includes(guest));
+    state.currentUser = { id: 7, username: 'alice' };
+    updateAccountUI();
+    assert.equal(byId('list-description').textContent, '株数と現金を入力すると、評価額と構成比を表示します。');
+    state.currentUser = null;
+    updateAccountUI();
+    assert.equal(byId('list-description').textContent, guest);
+});
 
 function reset() {
     elements.clear();

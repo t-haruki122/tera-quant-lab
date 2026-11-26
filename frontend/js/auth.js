@@ -66,6 +66,9 @@ export function updateAccountUI() {
     const menuSettings = document.getElementById('account-menu-settings');
     const accountBtn = document.getElementById('account-btn');
 
+    document.getElementById('list-description').textContent = state.currentUser
+        ? '株数と現金を入力すると、評価額と構成比を表示します。'
+        : 'ログインすると、株数や現金を入力して評価額と構成比を確認できます。';
     if (state.currentUser) {
         btnLabel.textContent = state.currentUser.username;
         menuUser.classList.remove('hidden');

@@ -63,7 +63,7 @@ test('registry, parameter controls, and watchlist escape text and attributes', a
     assert.deepEqual(urls, ['/backtest/strategies']);
     assert.equal(el('login').classList.contains('hidden'), true);
     assert.equal(el('form').classList.contains('hidden'), false);
-    assertEscaped(el('symbols').innerHTML);
+    assertEscaped(el('watchlist-symbol').innerHTML);
     assertEscaped(el('strategy').innerHTML);
     assertEscaped(el('params').innerHTML);
     assertEscaped(el('grid-params').innerHTML);

@@ -50,6 +50,13 @@ class YFinanceClient:
     """yfinanceライブラリを使用した株価・財務データ取得クライアント"""
 
     @external_call
+    def search_symbols(self, query: str) -> list[dict[str, Any]]:
+        return yf.Search(
+            query, max_results=20, news_count=0, lists_count=0, include_cb=False,
+            enable_fuzzy_query=True, recommended=0, timeout=5,
+        ).quotes
+
+    @external_call
     def get_current_price(self, symbol: str) -> dict[str, Any]:
         """
         現在の株価を取得

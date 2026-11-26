@@ -18,8 +18,9 @@ from app.config import SECRET_KEY_MESSAGE, get_settings
 from app.database import init_db
 from app.exceptions import register_exception_handlers
 from app.middleware import InternalErrorMiddleware, RequestIDFilter, RequestMiddleware
-from app.routers import backtest, forex, investments, stats, stock, user
+from app.routers import backtest, forex, investments, stats, stock, symbols, user
 from app.services.cache_warmer import warm_cache_periodically
+from app.services.symbol_directory import initialize_symbol_directory
 from app.stats import stats as app_stats
 
 
@@ -73,6 +74,7 @@ async def lifespan(app: FastAPI):
         # yfinance 1.8 applies this setting to its timezone, cookie, and ISIN caches.
         yfinance.set_tz_cache_location(str(cache_dir))
     await init_db()
+    symbol_task = asyncio.create_task(initialize_symbol_directory(settings))
     flush_task = asyncio.create_task(app_stats.flush_periodically(settings.stats_flush_seconds))
     warm_task = None
     if settings.cache_warm_enabled:
@@ -84,12 +86,15 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         flush_task.cancel()
+        symbol_task.cancel()
         if warm_task is not None:
             warm_task.cancel()
             with suppress(asyncio.CancelledError):
                 await warm_task
         with suppress(asyncio.CancelledError):
             await flush_task
+        with suppress(asyncio.CancelledError):
+            await symbol_task
         await app_stats.flush()
         await database.engine.dispose()
         logger.info("Application shutdown completed")
@@ -142,6 +147,7 @@ app.include_router(investments.router)
 app.include_router(stats.router)
 app.include_router(forex.router)
 app.include_router(backtest.router)
+app.include_router(symbols.router)
 
 # 例外ハンドラー登録
 register_exception_handlers(app)

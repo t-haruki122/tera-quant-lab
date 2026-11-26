@@ -49,9 +49,9 @@ async def check_health() -> str | None:
         return None
 
 
-async def init_db():
-    """マイグレーション適用と期限切れキャッシュの削除。"""
-    # Register models even when init_db is called without importing the routers.
+async def upgrade_db() -> None:
+    """設定済みのデータベースにマイグレーションを適用します。"""
+    # Register models even when called without importing the routers.
     importlib.import_module("app.models.db_models")
 
     def upgrade(connection):
@@ -62,6 +62,11 @@ async def init_db():
     ensure_sqlite_directory(engine.url)
     async with engine.begin() as conn:
         await conn.run_sync(upgrade)
+
+
+async def init_db():
+    """マイグレーション適用と期限切れキャッシュの削除。"""
+    await upgrade_db()
 
     from app.cache import purge_cache
 

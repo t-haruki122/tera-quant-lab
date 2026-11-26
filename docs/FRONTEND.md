@@ -12,6 +12,7 @@
 - APIヘルパー: `frontend/js/api.js`
 - 共有状態: `frontend/js/state.js`
 - 詳細表示: `frontend/js/detail.js`
+- 銘柄検索の候補表示 `frontend/js/symbol-combobox.js`
 - 価格チャート: `frontend/js/chart.js`
 - 銘柄比較: `frontend/js/comparison.js`
 - ハッシュルーティング: `frontend/js/router.js`
@@ -46,6 +47,10 @@ uv run uvicorn app.main:app --reload --reload-dir app
 | `#/stats` | システム統計 |
 
 期間は `1M`、`3M`、`6M`、`1Y`、`2Y`、`10Y` から選べます。銘柄は URL エンコードし、API と同じルールで検証します。不正なハッシュはブラウザーの履歴を増やさず `#/` に置き換え、ウォッチリストを表示します。ブラウザーの戻る・進むで銘柄や期間を移動でき、ログインやログアウト後も現在のルートを保持します。
+
+## 銘柄検索
+
+ダッシュボードの「追加」、銘柄詳細の検索欄、バックテストの単一銘柄欄で、「トヨタ」「apple」「7203」などを入力すると候補が表示されます。候補にはティッカー、会社名、市場区分（入手できた場合）が表示されます。上下キーと Enter、またはクリックで候補を選べます。Esc で候補を閉じ、ティッカーを直接入力して Enter で確定することもできます。日本語入力の変換中は検索を待機します。
 
 ## 株価チャートと騰落率の比較
 

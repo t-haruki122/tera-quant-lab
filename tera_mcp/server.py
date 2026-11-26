@@ -16,6 +16,7 @@ from app.validation import HistoryInterval, SQLiteID, normalize_symbol, shift_ye
 from tera_mcp.client import JSONObject, TQLClient
 
 INSTRUCTIONS = """\
+ティッカーが分からないときは search_symbols を使ってください。
 データは利用者のローカルアプリに由来します。yfinance などから取得したキャッシュには遅延や欠損があり得ます。
 stale と cached_at を確認し、数値を引用するときは銘柄と日付を添えてください。
 赤字や債務超過などで PER または PBR が 0 以下の場合、mix_index は null です。利益が極端に小さい場合、PER は非常に大きくなります。
@@ -91,6 +92,16 @@ def create_server(client: TQLClient) -> MCPServer[None]:
     async def get_price_alerts() -> dict[str, Any]:
         """設定済みの価格アラートと履歴情報を取得します。"""
         return await client.get_user("/alerts")
+
+    @server.tool(annotations=MARKET_READ)
+    async def search_symbols(
+        query: str, limit: Annotated[int, Field(ge=1, le=20)] = 10,
+    ) -> dict[str, Any]:
+        """会社名や銘柄コードから日本株・米国株のティッカーを検索します。"""
+        query = query.strip()
+        if not 1 <= len(query) <= 50:
+            raise ToolError("検索語は前後の空白を除いて1〜50文字で指定してください。")
+        return await client.get("/symbols/search", params={"q": query, "limit": str(limit)})
 
     @server.tool(annotations=MARKET_READ)
     async def get_stock(symbol: str) -> dict[str, Any]:

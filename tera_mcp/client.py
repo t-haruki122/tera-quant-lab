@@ -17,6 +17,7 @@ _GET_PATHS = re.compile(
     r"/stock/(?:[A-Z0-9]|%5E)(?:[A-Z0-9.\-]|%5E|%3D){0,19}"
     r"(?:/history|/profile|/indicators|/financials(?:/history)?|/news)?"
     r"|/forex/[A-Z]{6}(?:%3DX)?"
+    r"|/symbols/search"
     r"|/user/[1-9][0-9]*/(?:lists(?:/[1-9][0-9]*/summary)?|alerts)"
     r"|/backtest/(?:strategies|runs(?:/[1-9][0-9]*)?)"
 )

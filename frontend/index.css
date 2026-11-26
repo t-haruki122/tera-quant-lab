@@ -210,6 +210,7 @@ body {
 
 .search-input-wrapper input {
     flex: 1;
+    min-width: 0;
     background: none;
     border: none;
     color: var(--text-primary);
@@ -220,6 +221,34 @@ body {
 
 .search-input-wrapper input::placeholder {
     color: var(--text-muted);
+}
+
+.symbol-combobox {
+    position: relative;
+}
+
+.symbol-options {
+    position: absolute;
+    inset: calc(100% + 0.25rem) 0 auto;
+    z-index: 10;
+    max-height: min(16rem, 40vh);
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-secondary);
+    box-shadow: var(--shadow-lg);
+}
+
+.symbol-options [role="option"] {
+    padding: var(--space-sm) var(--space-md);
+    color: var(--text-primary);
+    cursor: pointer;
+    overflow-wrap: anywhere;
+}
+
+.symbol-options [role="option"]:hover,
+.symbol-options [aria-selected="true"] {
+    background: var(--bg-card-hover);
 }
 
 #search-btn {
@@ -1118,6 +1147,13 @@ button.account-action:not(:disabled):hover {
 .table-company {
     color: var(--text-primary);
     font-weight: 500;
+}
+
+@media (min-width: 64rem) {
+    #comparison-table .table-company {
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
 }
 
 .table-market-cap {

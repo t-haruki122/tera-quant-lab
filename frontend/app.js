@@ -15,6 +15,7 @@ import { bindFinancialChartEvents } from './js/financial-chart.js';
 import { bindBacktestEvents, openBacktest, refreshBacktestSession, updateBacktestSymbols } from './js/backtest.js';
 import { bindAlertDialogEvents, closeAlerts, showAlertCheckResult } from './js/alert-dialog.js';
 import { createAlertPolling } from './js/alerts.js';
+import { bindSymbolCombobox } from './js/symbol-combobox.js';
 
 let activeApp = null;
 
@@ -138,17 +139,16 @@ export class App {
             e.preventDefault();
             this.document.getElementById('main-content')?.focus();
         });
-        this.document.getElementById('search-input')?.addEventListener('keydown', e => {
-            if (isSubmitEnter(e)) this.searchStock();
-        });
+        bindSymbolCombobox(this.document.getElementById('search-input'),
+            this.document.getElementById('search-symbol-options'), { onSubmit: this.searchStock, request: this.fetchAPI });
 
         this.document.getElementById('list-search-input')?.addEventListener('input', e => {
             this.setListSearchQuery(e.target.value);
         });
 
-        this.document.getElementById('list-add-modal-input')?.addEventListener('keydown', e => {
-            if (isSubmitEnter(e)) this.submitListAddFromModal();
-        });
+        bindSymbolCombobox(this.document.getElementById('list-add-modal-input'),
+            this.document.getElementById('list-add-symbol-options'),
+            { onSubmit: this.submitListAddFromModal, request: this.fetchAPI });
 
         this.document.getElementById('auth-password')?.addEventListener('keydown', e => {
             if (isSubmitEnter(e)) this.submitAuth();

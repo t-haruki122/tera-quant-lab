@@ -10,6 +10,7 @@
 
 | 分類 | 主な機能 | 主なエンドポイント |
 |---|---|---|
+| 銘柄検索 | 会社名・銘柄コード・ティッカーから日米の銘柄を検索 | `GET /symbols/search` |
 | 株価 | 現在価格、過去価格の取得 | `GET /stock/{symbol}`、`GET /stock/{symbol}/history` |
 | 企業分析 | 財務情報、企業プロフィール、投資指標の取得 | `GET /stock/{symbol}/financials`、`GET /stock/{symbol}/profile`、`GET /stock/{symbol}/indicators` |
 | ニュース | 銘柄関連ニュースの取得 | `GET /stock/{symbol}/news` |
@@ -21,6 +22,16 @@
 | 運用 | API利用統計と稼働状態の取得 | `GET /stats`、`GET /health` |
 
 ## 主な機能詳細
+
+### 銘柄検索
+
+`GET /symbols/search?q=トヨタ&limit=10` は認証不要です。`q` は前後の空白を除いて1〜50文字、`limit` は1〜20件（既定10件）です。全角と半角、英字の大小、ひらがなとカタカナの違いを揃え、ティッカー・日本の銘柄コードの完全一致、ティッカーの前方一致、会社名の前方一致・部分一致・類似一致の順に候補を返します。
+
+```json
+{"items":[{"symbol":"7203.T","name":"トヨタ自動車","market":"JP","segment":"プライム","sector":"輸送用機器","is_etf":false,"source":"jpx"}]}
+```
+
+`market` は `JP` または `US` です。`segment` と `sector` は情報がない場合に `null` になります。`source` は JPX の `jpx`、Nasdaq Trader の `nasdaqtrader`、キャッシュ済みの企業プロフィールの `profile`、Yahoo Finance の `yahoo` のいずれかです。ローカル候補が3件未満か銘柄ディレクトリが空のときは Yahoo Finance に検索語を送り、候補を補います。Yahoo Finance が応答できない場合も HTTP `200` でローカル候補を返します。
 
 ### 1. 株価・分析データ
 
@@ -255,7 +266,7 @@ JPY建ては株数×株価、USD建ては株数×株価×USD/JPYで評価しま�
 | `RATE_LIMIT_LOGIN_IP_WINDOW_SECONDS` | `300` | IP試行を数える期間（秒） |
 | `RATE_LIMIT_REGISTER_ATTEMPTS` | `5` | IPごとの登録試行上限 |
 | `RATE_LIMIT_REGISTER_WINDOW_SECONDS` | `3600` | 登録試行を数える期間（秒） |
-| `RATE_LIMIT_DATA_REQUESTS` | `600` | 株価・分析・為替・ウォッチリスト概要・バックテストの共通リクエスト上限 |
+| `RATE_LIMIT_DATA_REQUESTS` | `600` | 銘柄検索・株価・分析・為替・ウォッチリスト概要・バックテストの共通リクエスト上限 |
 | `RATE_LIMIT_DATA_WINDOW_SECONDS` | `60` | データリクエストを数える期間（秒） |
 
 回数・期間は正の整数を指定してください。データ取得ルートとバックテストの実行・探索ルートは、有効なトークンがあればユーザー ID、なければ接続元 IP で同じ枠を使用します。キャッシュから応答した場合も枠を消費します。プロキシ経由で接続元 IP を判定するには `TRUSTED_PROXIES` を設定してください。接続元が取得できない場合は共通の `unknown` キーを使います。 [デプロイ手順](DEPLOY.md)

@@ -28,15 +28,35 @@ def test_fresh_startup_and_second_upgrade_are_idempotent(async_db):
         assert not logger.disabled
         async with engine.connect() as connection:
             tables = await connection.run_sync(lambda conn: inspect(conn).get_table_names())
-            added = {"alembic_version", "api_stats_daily", "price_alerts", "backtest_runs"}
+            added = {"alembic_version", "api_stats_daily", "price_alerts", "backtest_runs", "symbol_directory"}
             assert set(tables) == set(LegacyBase.metadata.tables) | added
-            assert await connection.scalar(text("SELECT version_num FROM alembic_version")) == "0007"
+            assert await connection.scalar(text("SELECT version_num FROM alembic_version")) == "0008"
             columns = await connection.run_sync(lambda conn: inspect(conn).get_columns("users"))
             token_version = next(column for column in columns if column["name"] == "token_version")
             assert not token_version["nullable"]
         await engine.dispose()
 
     asyncio.run(scenario())
+
+
+def test_symbol_directory_upgrade_downgrade(settings):
+    engine = create_engine(settings.database_url.replace("+aiosqlite", ""))
+    with engine.begin() as connection:
+        upgrade(connection, "0007")
+        connection.execute(text("INSERT INTO users (id, username, password_hash, created_at) "
+                                "VALUES (1, 'keep', 'hash', CURRENT_TIMESTAMP)"))
+        upgrade(connection, "0008")
+        table = "symbol_directory"
+        assert inspect(connection).get_pk_constraint(table)["constrained_columns"] == ["symbol"]
+        connection.execute(text("INSERT INTO symbol_directory "
+                                "VALUES ('130A.T', 'テスト', 'テスト', 'JP', NULL, NULL, 0, 'jpx', CURRENT_TIMESTAMP)"))
+        config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+        config.attributes["connection"] = connection
+        command.downgrade(config, "0007")
+        assert not inspect(connection).has_table(table)
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0007"
+        assert connection.scalar(text("SELECT username FROM users WHERE id = 1")) == "keep"
+    engine.dispose()
 
 
 def test_upgrade_legacy_duplicates_normalization_constraints_and_user_data(settings):

@@ -55,6 +55,8 @@ class Settings(BaseSettings):
     cache_warm_enabled: bool = False
     cache_warm_interval_minutes: int = Field(default=30, gt=0)
     cache_warm_concurrency: int = Field(default=2, gt=0)
+    symbol_directory_enabled: bool = True
+    symbol_directory_max_age_days: int = Field(default=7, gt=0)
     yfinance_cache_dir: str = ""
     stats_flush_seconds: float = Field(default=60, gt=0, allow_inf_nan=False)
 

@@ -39,6 +39,11 @@ const element = () => {
         },
         children: [],
         appendChild(child) { this.children.push(child); child.parentElement = this; },
+        replaceChildren(...children) {
+            for (const child of this.children) child.parentElement = null;
+            this.children = [];
+            for (const child of children) this.appendChild(child);
+        },
         contains(child) { return child === this || this.children.some(node => node.contains(child)); },
         focus() { document.activeElement = this; },
         closest(selector) { return selector === 'button' && this.tagName === 'BUTTON' ? this : null; },

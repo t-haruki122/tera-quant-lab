@@ -3,6 +3,7 @@ import { openAuthModal } from './auth.js';
 import { bindSavedRuns, refreshSavedPanel } from './backtest-saved.js';
 import { normalizeSymbol } from './router.js';
 import { state } from './state.js';
+import { bindSymbolCombobox } from './symbol-combobox.js';
 import { escapeAttr, escapeHtml } from './utils.js';
 
 const byId = id => document.getElementById(`backtest-${id}`);
@@ -91,10 +92,10 @@ function updateControls() {
 }
 
 export function updateBacktestSymbols() {
-    byId('symbols').innerHTML = state.currentUser?.access_token
+    const options = state.currentUser?.access_token
         ? state.listItems.map(({ symbol }) => option(symbol)).join('')
         : '';
-    byId('watchlist-symbol').innerHTML = option('', '候補を選択') + byId('symbols').innerHTML;
+    byId('watchlist-symbol').innerHTML = option('', '候補を選択') + options;
 }
 
 export function refreshBacktestSession() {
@@ -440,6 +441,9 @@ export function updateBacktestMode() {
 }
 
 export function bindBacktestEvents() {
+    bindSymbolCombobox(byId('symbol'), byId('symbol-options'), {
+        getLocalItems: query => state.listItems.filter(({ symbol }) => symbol.startsWith(query.toUpperCase())),
+    });
     byId('login-btn').addEventListener('click', event => openAuthModal('login', event.currentTarget));
     byId('strategy').addEventListener('change', renderParams);
     byId('mode').addEventListener('change', updateBacktestMode);

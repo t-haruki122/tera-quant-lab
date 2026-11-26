@@ -146,7 +146,7 @@
                     </section>
                     <form class="account-settings-section" id="account-delete-form">
                         <h4>アカウント削除</h4>
-                        <p class="text-muted">すべてのリスト、タグ、メモ、保有銘柄、価格アラート、保存済みバックテストが削除されます。</p>
+                        <p class="text-muted">すべてのリスト、タグ、メモ、保有株数と現金、価格アラート、保存済みバックテストが削除されます。</p>
                         <div class="form-group">
                             <label for="account-delete-username">確認のためユーザー名を入力</label>
                             <input id="account-delete-username" type="text" autocomplete="off" required>
@@ -256,9 +256,11 @@
                 <button class="modal-close" id="list-add-modal-close" type="button" aria-label="閉じる">✕</button>
             </div>
             <div class="modal-body">
-                <div class="form-group">
-                    <label for="list-add-modal-input">ティッカー</label>
-                    <input type="text" id="list-add-modal-input" placeholder="例: AAPL, 7203.T" autocomplete="off">
+                <div class="form-group symbol-combobox">
+                    <label for="list-add-modal-input">会社名・ティッカー</label>
+                    <input type="text" id="list-add-modal-input" placeholder="例: トヨタ、AAPL" autocomplete="off"
+                        role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="list-add-symbol-options">
+                    <div class="symbol-options" id="list-add-symbol-options" role="listbox" aria-label="追加する銘柄の候補" hidden></div>
                 </div>
                 <button class="btn-primary" id="list-add-modal-submit" type="button">リストへ追加</button>
             </div>
@@ -271,13 +273,15 @@
         <!-- 検索バー -->
         <section class="search-section">
             <div class="search-container">
-                <div class="search-input-wrapper">
+                <div class="search-input-wrapper symbol-combobox">
                     <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                    <label class="visually-hidden" for="search-input">銘柄のティッカー</label>
-                    <input type="text" id="search-input" aria-describedby="search-error" placeholder="ティッカーを入力（例: AAPL, TSLA, 7203.T）" autocomplete="off">
+                    <label class="visually-hidden" for="search-input">会社名・ティッカー</label>
+                    <input type="text" id="search-input" aria-describedby="search-error" placeholder="会社名・ティッカー（例: NTT、AAPL）" autocomplete="off"
+                        role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="search-symbol-options">
                     <button id="search-btn" type="button" aria-label="銘柄を検索">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
                     </button>
+                    <div class="symbol-options" id="search-symbol-options" role="listbox" aria-label="詳細を開く銘柄の候補" hidden></div>
                 </div>
             </div>
         </section>
@@ -457,7 +461,7 @@
                     </div>
                 </div>
             </div>
-            <p class="list-description">ログインすると、株数や現金を入力して評価額と構成比を確認できます。</p>
+            <p class="list-description" id="list-description">ログインすると、株数や現金を入力して評価額と構成比を確認できます。</p>
             <p class="list-search-hint">検索はスペースですべての語、| でいずれかの語に一致します。</p>
             <div class="watchlist-manager hidden" id="watchlist-manager">
                 <label for="watchlist-select">ウォッチリスト</label>
@@ -479,7 +483,7 @@
             <div class="empty-content">
                 <div class="empty-icon">📊</div>
                 <h3>銘柄を追加しましょう</h3>
-                <p>上のフォームからティッカーを追加すると、比較テーブルが表示されます。</p>
+                <p>「追加」から会社名やティッカーで銘柄を探すと、比較テーブルに追加できます。</p>
                 <div class="welcome-examples">
                     <button type="button" class="example-chip" data-quick-add="AAPL">AAPL</button>
                     <button type="button" class="example-chip" data-quick-add="GOOGL">GOOGL</button>
@@ -558,10 +562,12 @@
                                 <option value="walkforward">ウォークフォワード</option>
                             </select>
                         </label>
-                        <label class="form-group" id="backtest-symbol-field">銘柄
-                            <input id="backtest-symbol" list="backtest-symbols" maxlength="20" placeholder="AAPL" required>
-                            <datalist id="backtest-symbols"></datalist>
-                        </label>
+                        <div class="form-group symbol-combobox" id="backtest-symbol-field">
+                            <label for="backtest-symbol">銘柄</label>
+                            <input id="backtest-symbol" placeholder="例: トヨタ、AAPL" autocomplete="off" required
+                                role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="backtest-symbol-options">
+                            <div class="symbol-options" id="backtest-symbol-options" role="listbox" aria-label="バックテストする銘柄の候補" hidden></div>
+                        </div>
                         <label class="form-group">開始日<input id="backtest-start" type="date" required></label>
                         <label class="form-group">終了日<input id="backtest-end" type="date" required></label>
                         <label class="form-group">データ間隔

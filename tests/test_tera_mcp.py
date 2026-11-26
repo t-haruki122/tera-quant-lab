@@ -22,7 +22,7 @@ ACCOUNT = Settings(username="alice", password=PASSWORD)
 TOOL_NAMES = {
     "list_watchlists", "get_watchlist", "get_price_alerts", "get_stock", "get_financials",
     "get_price_history", "get_news", "get_exchange_rate", "list_backtest_strategies", "run_backtest",
-    "list_saved_backtests", "get_saved_backtest",
+    "list_saved_backtests", "get_saved_backtest", "search_symbols",
 }
 
 
@@ -47,6 +47,24 @@ async def call(server, name, **arguments):
     result = await server.call_tool(name, arguments)
     assert result.structured_content is not None
     return result.structured_content
+
+
+def test_symbol_search_is_public_and_allowlisted():
+    def result(request):
+        assert "Authorization" not in request.headers
+        assert dict(request.url.params) == {"q": "トヨタ", "limit": "5"}
+        return httpx.Response(200, json={"items": [{"symbol": "7203.T", "source": "jpx"}]})
+
+    async def scenario():
+        api, requests = mock_client({("GET", "/symbols/search"): result}, Settings())
+        async with api:
+            server = create_server(api)
+            assert (await call(server, "search_symbols", query=" トヨタ ", limit=5))["items"][0]["symbol"] == "7203.T"
+            with pytest.raises(ToolError):
+                await api.get("/symbols/refresh")
+            assert requests == [("GET", "/symbols/search")]
+
+    asyncio.run(scenario())
 
 
 def test_lazy_login_reuses_token_and_default_watchlist():

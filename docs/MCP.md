@@ -58,6 +58,9 @@ claude mcp add --transport stdio tera-quant-lab -e 'TQL_BASE_URL=http://127.0.0.
 
 ## 質問例
 
+ティッカーが分からないときは、読み取り専用の `search_symbols(query: str, limit: int = 10)` を使います。会社名や銘柄コードから日本株・米国株の候補を返します。ログインは不要です。たとえば `search_symbols(query="トヨタ")` で `7203.T` を確認し、`get_stock` に渡せます。`limit` は1〜20件です。
+
+- 「NTT のティッカーを調べて」
 - 「ポートフォリオを見て、銘柄や通貨の集中と評価額の気になる点を挙げて」
 - 「HPQ の売上高、純利益、EPS の推移を年度ごとに要約して」
 - 「既定のウォッチリストで、PER・PBR と配当利回りを比較して。データの取得日時も示して」

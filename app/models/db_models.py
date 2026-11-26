@@ -2,6 +2,7 @@
 
 from datetime import date as UTCDate
 from datetime import datetime
+from typing import Literal
 
 from sqlalchemy import (
     JSON,
@@ -21,6 +22,24 @@ from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from app.database import Base
 from app.timeutil import to_db
+
+
+class SymbolDirectoryEntry(Base):
+    __tablename__ = "symbol_directory"
+    __table_args__ = (
+        CheckConstraint("market IN ('JP', 'US')", name="ck_symbol_directory_market"),
+        CheckConstraint("source IN ('jpx', 'nasdaqtrader')", name="ck_symbol_directory_source"),
+    )
+
+    symbol: Mapped[str] = mapped_column(String(20), primary_key=True)
+    name: Mapped[str] = mapped_column(String(300))
+    search_key: Mapped[str] = mapped_column(String(300))
+    market: Mapped[Literal["JP", "US"]] = mapped_column(String(2), index=True)
+    segment: Mapped[str | None] = mapped_column(String(60))
+    sector: Mapped[str | None] = mapped_column(String(100))
+    is_etf: Mapped[bool] = mapped_column(Boolean)
+    source: Mapped[Literal["jpx", "nasdaqtrader"]] = mapped_column(String(12))
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
 
 
 class BacktestRun(Base):

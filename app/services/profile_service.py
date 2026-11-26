@@ -9,6 +9,7 @@ from app.config import get_settings
 from app.exceptions import SymbolNotFoundError
 from app.models.db_models import CompanyProfile, StockPrice
 from app.services import stock_service
+from app.services.symbol_directory import directory
 from app.singleflight import coalesce, fetch
 from app.stats import stats
 from app.validation import currency_code
@@ -47,6 +48,7 @@ async def get_profile(symbol: str, db: AsyncSession) -> dict:
         values = {"symbol": data["symbol"], **{field: data.get(field) for field in fields}}
         await upsert_cache(db, CompanyProfile, values)
         await db.commit()
+        directory.index.remember_profile(symbol, values["name"], values["sector"])
         return data
 
     return await cached_response(f"get_profile:{symbol}", window, cached, refresh)
