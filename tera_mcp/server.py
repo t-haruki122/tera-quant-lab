@@ -12,7 +12,7 @@ from mcp_types import ToolAnnotations
 from pydantic import Field
 
 from app.timeutil import utcnow
-from app.validation import HistoryInterval, SQLiteID, normalize_symbol, shift_years
+from app.validation import HistoryInterval, SQLiteID, fund_code, normalize_symbol, shift_years
 from tera_mcp.client import JSONObject, ToolClient
 
 INSTRUCTIONS = """\
@@ -22,7 +22,8 @@ INSTRUCTIONS = """\
 stale と cached_at を確認し、数値を引用するときは銘柄と日付を添えてください。
 株価水準を評価するときは、ミックス指数に加えて ROE と get_peer_comparison の業種内の中央値・順位を確認してください。
 赤字や債務超過などで PER または PBR が 0 以下の場合、mix_index は null です。利益が極端に小さい場合、PER は非常に大きくなります。
-保有株数・現金・構成比は get_watchlist で取得できます。取得原価・損益は設計上記録しません。集計の除外銘柄も確認してください。
+投資信託は FUND-<協会コード> を使ってください。get_stock で基準価額（1万口あたり）を取得できます。
+保有株数・口数（shares）・現金・資産クラス別の構成比は get_watchlist で取得できます。取得原価・損益は設計上記録しません。集計の除外銘柄も確認してください。
 分析、論点整理、リスクの指摘を行い、売買の最終判断は利用者が行う前提で答えてください。
 読み取り専用です。書き込み操作はできません。バックテストの実行結果は保存されません。
 """
@@ -83,7 +84,7 @@ def create_server(client: ToolClient) -> MCPServer[None]:
 
     @server.tool(annotations=MARKET_READ)
     async def get_watchlist(list_id: SQLiteID | None = None) -> dict[str, Any]:
-        """ウォッチリストの株価、指標、タグ、メモ、保有株数、円換算評価額、現金と構成比を取得します。ID を省略すると既定のリストを使います。"""
+        """ウォッチリストの株価・基準価額、保有株数・口数、円換算評価額、現金、資産クラス別構成比、指標、タグ、メモを取得します。ID を省略すると既定のリストを使います。"""
         if list_id is None:
             list_id = (await list_watchlists()).get("default_list_id")
             if list_id is None:
@@ -99,7 +100,7 @@ def create_server(client: ToolClient) -> MCPServer[None]:
     async def search_symbols(
         query: str, limit: Annotated[int, Field(ge=1, le=20)] = 10,
     ) -> dict[str, Any]:
-        """会社名や銘柄コードから日本株・米国株のティッカーを検索します。"""
+        """名前や銘柄・協会コードから株式と投資信託のシンボルを検索します。"""
         query = query.strip()
         if not 1 <= len(query) <= 50:
             raise ToolError("検索語は前後の空白を除いて1〜50文字で指定してください。")
@@ -109,10 +110,13 @@ def create_server(client: ToolClient) -> MCPServer[None]:
     async def get_stock(symbol: str) -> dict[str, Any]:
         """銘柄の現在株価、企業プロフィール、PER・PBR などの投資指標を取得します。
 
+        投資信託（FUND-<協会コード>）は基準価額、統計、蓄積済みの日次履歴を取得します。
         indicators.debt_to_equity はパーセント単位です（133.16 は 133.16%）。
         """
         symbol = _symbol(symbol)
         path = f"/stock/{quote(symbol, safe='')}"
+        if fund_code(symbol) is not None:
+            return await client.get(f"{path}/fund")
         parts = {"price": path, "profile": f"{path}/profile", "indicators": f"{path}/indicators"}
 
         async def fetch_part(url: str) -> JSONObject:

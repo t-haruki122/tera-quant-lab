@@ -26,6 +26,23 @@ from app.database import Base
 from app.timeutil import to_db
 
 
+class FundNAV(Base):
+    __tablename__ = "fund_navs"
+
+    association_code: Mapped[str] = mapped_column(String(8), primary_key=True)
+    base_date: Mapped[UTCDate] = mapped_column(Date, primary_key=True)
+    nav: Mapped[float] = mapped_column(Float)
+    cancellation_price: Mapped[float | None] = mapped_column(Float)
+    net_assets: Mapped[int | None] = mapped_column(BigInteger)
+    change: Mapped[float | None] = mapped_column(Float)
+    change_pct: Mapped[float | None] = mapped_column(Float)
+    fund_name: Mapped[str] = mapped_column(Text)
+    fund_cd: Mapped[str | None] = mapped_column(String(16))
+    isin: Mapped[str | None] = mapped_column(String(12))
+    fetched_at: Mapped[datetime] = mapped_column(DateTime)
+    stats: Mapped[dict] = mapped_column(JSON)
+
+
 class SymbolDirectoryEntry(Base):
     __tablename__ = "symbol_directory"
     __table_args__ = (

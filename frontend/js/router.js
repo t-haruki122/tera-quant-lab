@@ -1,9 +1,18 @@
 const periods = { '1M': '1mo', '3M': '3mo', '6M': '6mo', '1Y': '1y', '2Y': '2y', '10Y': '10y' };
 export const DEFAULT_PERIOD = '3mo';
 
+export const isFundSymbol = symbol => /^FUND-[A-Z0-9]{8}$/.test(symbol);
+
 export function normalizeSymbol(value) {
-    const symbol = typeof value === 'string' ? value.trim() : '';
-    return /^[A-Za-z0-9^][A-Za-z0-9.^=\-]{0,19}$/.test(symbol) ? symbol.toUpperCase() : null;
+    const valueTrimmed = typeof value === 'string' ? value.trim() : '';
+    if (!/^[A-Za-z0-9^][A-Za-z0-9.^=\-]{0,19}$/.test(valueTrimmed)) return null;
+    const symbol = valueTrimmed.toUpperCase();
+    return symbol.startsWith('FUND-') && !isFundSymbol(symbol) ? null : symbol;
+}
+
+export function normalizeLookupSymbol(value) {
+    const code = value.normalize('NFKC').trim().toUpperCase();
+    return /^[0-9][A-Z0-9]{7}$/.test(code) ? `FUND-${code}` : normalizeSymbol(value);
 }
 
 function runId(value) {

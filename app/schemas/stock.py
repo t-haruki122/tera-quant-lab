@@ -1,5 +1,6 @@
 """Pydantic レスポンススキーマ"""
 
+from datetime import date
 
 from pydantic import BaseModel, Field
 
@@ -13,6 +14,11 @@ class CachedResponse(BaseModel):
 
 class StockSnapshot(CachedResponse):
     symbol: str
+    asset_class: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    association_code: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    base_date: date | None = Field(default=None, exclude_if=lambda value: value is None)
+    unit: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    source_credit: str | None = Field(default=None, exclude_if=lambda value: value is None)
     name: str | None = None
     country: str | None = None
     sector: str | None = None

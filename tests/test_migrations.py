@@ -3,9 +3,11 @@ import importlib
 import logging
 from pathlib import Path
 
+import pytest
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.exc import IntegrityError
 
 from app import database
 from app.timeutil import to_db
@@ -30,10 +32,10 @@ def test_fresh_startup_and_second_upgrade_are_idempotent(async_db):
             tables = await connection.run_sync(lambda conn: inspect(conn).get_table_names())
             added = {
                 "alembic_version", "api_stats_daily", "price_alerts", "backtest_runs", "symbol_directory", "api_tokens",
-                "jq_issues", "jq_fin_summaries", "jq_sync_state",
+                "jq_issues", "jq_fin_summaries", "jq_sync_state", "fund_navs",
             }
             assert set(tables) == set(LegacyBase.metadata.tables) | added
-            assert await connection.scalar(text("SELECT version_num FROM alembic_version")) == "0011"
+            assert await connection.scalar(text("SELECT version_num FROM alembic_version")) == "0012"
             columns = await connection.run_sync(lambda conn: inspect(conn).get_columns("users"))
             token_version = next(column for column in columns if column["name"] == "token_version")
             assert not token_version["nullable"]
@@ -59,6 +61,30 @@ def test_symbol_directory_upgrade_downgrade(settings):
         assert not inspect(connection).has_table(table)
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0007"
         assert connection.scalar(text("SELECT username FROM users WHERE id = 1")) == "keep"
+    engine.dispose()
+
+
+def test_fund_nav_upgrade_uniqueness_and_downgrade(settings):
+    engine = create_engine(settings.database_url.replace("+aiosqlite", ""))
+    with engine.begin() as connection:
+        upgrade(connection, "0011")
+        connection.execute(text("INSERT INTO users (id, username, password_hash, created_at) "
+                                "VALUES (1, 'keep', 'hash', CURRENT_TIMESTAMP)"))
+        assert not inspect(connection).has_table("fund_navs")
+        upgrade(connection, "0012")
+        assert inspect(connection).get_pk_constraint("fund_navs")["constrained_columns"] == ["association_code", "base_date"]
+        insert = text("INSERT INTO fund_navs (association_code, base_date, nav, fund_name, fetched_at, stats) "
+                      "VALUES ('0331418A', :day, 35610, 'オルカン', CURRENT_TIMESTAMP, '{}')")
+        connection.execute(insert, {"day": "2026-11-27"})
+        connection.execute(insert, {"day": "2026-11-30"})
+        with pytest.raises(IntegrityError):
+            connection.execute(insert, {"day": "2026-11-27"})
+        config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+        config.attributes["connection"] = connection
+        command.downgrade(config, "0011")
+        assert not inspect(connection).has_table("fund_navs")
+        assert inspect(connection).has_table("jq_fin_summaries")
+        assert connection.scalar(text("SELECT username FROM users WHERE id=1")) == "keep"
     engine.dispose()
 
 

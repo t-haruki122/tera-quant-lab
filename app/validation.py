@@ -7,12 +7,22 @@ from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BeforeValidator, Field
 
+FUND_PREFIX = "FUND-"
+FUND_CODE = re.compile(r"[0-9A-Z]{8}")
+
+
+def fund_code(symbol: str) -> str | None:
+    return symbol.removeprefix(FUND_PREFIX) if symbol.startswith(FUND_PREFIX) else None
+
 
 def normalize_symbol(value: str) -> str:
     value = value.strip()
     if not re.fullmatch(r"[A-Za-z0-9^][A-Za-z0-9.^=\-]{0,19}", value):
         raise ValueError("symbol は英数字または ^ . = - で20文字以内にしてください")
-    return value.upper()
+    symbol = value.upper()
+    if (code := fund_code(symbol)) is not None and not FUND_CODE.fullmatch(code):
+        raise ValueError("投資信託のシンボルは FUND- に続けて8桁の英数字で指定してください")
+    return symbol
 
 
 def currency_code(value: object) -> str | None:

@@ -2289,6 +2289,14 @@ ul.watchlist-exclusion { padding-inline-start: 1.5rem; }
 .chart-container-bar { height: 280px; }
 .chart-container-line { height: 320px; }
 
+#fund-panels { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-md); }
+.fund-table-wrap { overflow-x: auto; }
+.fund-stats-table { width: 100%; border-collapse: collapse; }
+.fund-stats-table th, .fund-stats-table td { padding: 0.6rem; white-space: nowrap; }
+.fund-stats-table th { text-align: start; }
+#fund-chart-container { height: 240px; }
+.watchlist-shares small { display: block; }
+
 @media (max-width: 800px) {
     .stats-charts-grid {
         grid-template-columns: 1fr;

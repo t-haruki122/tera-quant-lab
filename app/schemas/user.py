@@ -65,7 +65,7 @@ class TagUpdateRequest(BaseModel):
 
 
 def validate_shares(value: object) -> float:
-    message = "株数は0より大きく10億以下の数値を小数第4位までで入力してください"
+    message = "株数・口数は0より大きく10億以下の数値を小数第4位までで入力してください"
     if type(value) not in (int, float):
         raise ValueError(message)
     shares = Decimal(str(value))
@@ -171,10 +171,12 @@ class ExcludedHolding(BaseModel):
 class ListPortfolio(BaseModel):
     total_value_jpy: float
     stocks_value_jpy: float
+    funds_value_jpy: float
     cash_jpy: int
     cash_ratio_pct: float | None
     by_region: list[PortfolioWeight]
     by_currency: list[PortfolioWeight]
+    by_asset_class: list[PortfolioWeight]
     by_sector: list[PortfolioWeight]
     concentration: Concentration
     usd_jpy: PortfolioFX | None

@@ -17,11 +17,11 @@ const summary = id => `${root}/${id}/summary?cached=true`;
 const html = readFileSync('frontend/index.html', 'utf8');
 
 test('dashboard subtitle follows sign-in and sign-out', () => {
-    const guest = 'ログインすると、株数や現金を入力して評価額と構成比を確認できます。';
+    const guest = 'ログインすると、株数・口数や現金を入力して評価額と構成比を確認できます。';
     assert.ok(html.includes(guest));
     state.currentUser = { id: 7, username: 'alice' };
     updateAccountUI();
-    assert.equal(byId('list-description').textContent, '株数と現金を入力すると、評価額と構成比を表示します。');
+    assert.equal(byId('list-description').textContent, '株数・口数や現金を入力すると、評価額と構成比を表示します。');
     state.currentUser = null;
     updateAccountUI();
     assert.equal(byId('list-description').textContent, guest);
