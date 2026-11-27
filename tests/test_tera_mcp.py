@@ -22,7 +22,7 @@ ACCOUNT = Settings(username="alice", password=PASSWORD)
 TOOL_NAMES = {
     "list_watchlists", "get_watchlist", "get_price_alerts", "get_stock", "get_financials",
     "get_price_history", "get_news", "get_exchange_rate", "list_backtest_strategies", "run_backtest",
-    "list_saved_backtests", "get_saved_backtest", "search_symbols", "get_market_overview",
+    "list_saved_backtests", "get_saved_backtest", "search_symbols", "get_market_overview", "get_jp_financials",
 }
 
 
@@ -93,6 +93,23 @@ def test_symbol_search_is_public_and_allowlisted():
             with pytest.raises(ToolError):
                 await api.get("/symbols/refresh")
             assert requests == [("GET", "/symbols/search")]
+
+    asyncio.run(scenario())
+
+
+def test_jquants_reads_are_allowlisted_for_stdio():
+    payload = {"symbol": "186A.T", "delay_note": "無料プランは12週間遅れです。", "summaries": []}
+    expected = [("GET", "/stock/186A.T/jq-financials"), ("GET", "/jquants/status")]
+
+    async def scenario():
+        api, requests = mock_client({expected[0]: payload, expected[1]: {"enabled": True}}, Settings())
+        async with api:
+            server = create_server(api)
+            assert await call(server, "get_jp_financials", symbol="186a.t") == payload
+            assert await api.get("/jquants/status") == {"enabled": True}
+            with pytest.raises(ToolError, match="許可されていない"):
+                await api.get("/jquants/sync")
+        assert requests == expected
 
     asyncio.run(scenario())
 

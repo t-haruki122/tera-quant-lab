@@ -28,6 +28,33 @@ Proxmox VE の Debian / Ubuntu LXC に配置する例です。環境変数は `.
 uv run python scripts/update_symbol_directory.py
 ```
 
+## J-Quants の設定
+
+1. J-Quants の無料プランに登録します。
+2. ダッシュボードで API キーを発行します。
+3. `.env` に `JQUANTS_API_KEY=発行したキー` を設定し、アプリを再起動します。
+
+キーはサーバーの `.env` または環境変数で管理します。無料プランは個人投資家の個人利用向けです。商用・機関利用は対象外です。提供データを共有する場合は契約条件を確認してください。
+
+| 環境変数 | 既定値 | 説明 |
+| --- | --- | --- |
+| `JQUANTS_API_KEY` | 空欄 | 空欄なら J-Quants 機能は無効 |
+| `JQUANTS_ENABLED` | `true` | `false` でキー設定済みでも無効化 |
+| `JQUANTS_REQUESTS_PER_MINUTE` | `5` | 1以上。再試行と追加ページを含む60秒間の上限。無料プランでは `5` 以下を使用 |
+| `JQUANTS_BASE_URL` | `https://api.jquants.com/v2` | API V2 の接続先。テスト用に上書き可能 |
+| `JQUANTS_HISTORY_YEARS` | `2` | 初回の同期対象年数（1〜20）。契約による取得範囲が優先 |
+| `JQUANTS_DELAY_WEEKS` | `12` | 同期対象の終了日を当日から遡る週数（0〜52）。無料プランでは `12` を使用 |
+
+日本時間で日付を判定します。無料プランの取得対象はおおむね12週間前までの2年分です。初回は平日の開示を古い順に取得し、毎分5リクエストでは約2時間かかります。追加ページや再試行があれば所要時間は延びます。起動直後からアプリを利用でき、再起動時は保存済みの開示日の次から再開します。初回同期後は日ごとに取得可能になった開示日を取得します。銘柄マスターは1日1回更新します。同期状況はシステム統計または `GET /jquants/status` で確認できます。日足株価には引き続き yfinance を使用します。
+
+```bash
+uv run --frozen python scripts/sync_jquants.py --status
+uv run --frozen python scripts/sync_jquants.py
+uv run --frozen python scripts/sync_jquants.py --dates-from 2026-08-31 --dates-to 2026-09-04
+```
+
+CLI は同じ `DATABASE_URL` を使用します。同期中に CLI を実行すると先行処理が優先されます。日付を指定すると対象の平日を再取得でき、同じ開示番号の保存済みデータは上書きされます。通常の同期開始位置は維持します。取得したデータはマイグレーション `0011` で追加される3テーブルに保存されます。
+
 ## LXC にインストールする
 
 1. LXC 内でデプロイ作業をする一般ユーザーに `sudo` を用意し、Python 3.12 の環境を `uv` で作ります。`<リポジトリURL>` を実際のURLに置き換えます。すでに用意したリポジトリも使えます。

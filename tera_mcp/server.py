@@ -141,6 +141,11 @@ def create_server(client: ToolClient) -> MCPServer[None]:
         return result
 
     @server.tool(annotations=MARKET_READ)
+    async def get_jp_financials(symbol: str) -> dict[str, Any]:
+        """日本株の J-Quants 決算短信サマリーを取得します。無料プランでは12週間遅れのデータです。"""
+        return await client.get(f"/stock/{quote(_symbol(symbol), safe='')}/jq-financials")
+
+    @server.tool(annotations=MARKET_READ)
     async def get_price_history(
         symbol: str, start_date: str | None = None, end_date: str | None = None, interval: HistoryInterval = "1d",
     ) -> dict[str, Any]:

@@ -28,9 +28,12 @@ def test_fresh_startup_and_second_upgrade_are_idempotent(async_db):
         assert not logger.disabled
         async with engine.connect() as connection:
             tables = await connection.run_sync(lambda conn: inspect(conn).get_table_names())
-            added = {"alembic_version", "api_stats_daily", "price_alerts", "backtest_runs", "symbol_directory", "api_tokens"}
+            added = {
+                "alembic_version", "api_stats_daily", "price_alerts", "backtest_runs", "symbol_directory", "api_tokens",
+                "jq_issues", "jq_fin_summaries", "jq_sync_state",
+            }
             assert set(tables) == set(LegacyBase.metadata.tables) | added
-            assert await connection.scalar(text("SELECT version_num FROM alembic_version")) == "0010"
+            assert await connection.scalar(text("SELECT version_num FROM alembic_version")) == "0011"
             columns = await connection.run_sync(lambda conn: inspect(conn).get_columns("users"))
             token_version = next(column for column in columns if column["name"] == "token_version")
             assert not token_version["nullable"]
@@ -104,6 +107,30 @@ def test_financial_currency_upgrade_and_downgrade_preserve_amounts(settings):
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0009"
         assert "currency" not in {column["name"] for column in inspect(connection).get_columns("financials")}
         assert connection.execute(amounts).all() == before
+    engine.dispose()
+
+
+def test_jquants_upgrade_downgrade_indexes_and_existing_data(settings):
+    engine = create_engine(settings.database_url.replace("+aiosqlite", ""))
+    with engine.begin() as connection:
+        upgrade(connection, "0010")
+        connection.execute(text("INSERT INTO users (id, username, password_hash, created_at) "
+                                "VALUES (1, 'keep', 'hash', CURRENT_TIMESTAMP)"))
+        upgrade(connection, "0011")
+        inspector = inspect(connection)
+        tables = {"jq_issues", "jq_fin_summaries", "jq_sync_state"}
+        assert tables <= set(inspector.get_table_names())
+        assert inspector.get_pk_constraint("jq_fin_summaries")["constrained_columns"] == ["disc_no"]
+        assert {tuple(index["column_names"]) for index in inspector.get_indexes("jq_fin_summaries")} == {
+            ("code5", "period_end"), ("symbol", "disclosed_date"),
+        }
+        connection.execute(text("INSERT INTO jq_sync_state VALUES ('last_synced_date', '2026-09-04')"))
+        config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+        config.attributes["connection"] = connection
+        command.downgrade(config, "0010")
+        assert not tables & set(inspect(connection).get_table_names())
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0010"
+        assert connection.scalar(text("SELECT username FROM users WHERE id=1")) == "keep"
     engine.dispose()
 
 

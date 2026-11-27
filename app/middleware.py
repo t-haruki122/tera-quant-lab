@@ -65,7 +65,11 @@ class RequestIDFilter(logging.Filter):
 
 class TokenRedactingFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
-        return TOKEN_PATTERN.sub("[非表示]", super().format(record))
+        message = super().format(record)
+        key = get_settings().jquants_api_key
+        if key:
+            message = message.replace(key.get_secret_value(), "[非表示]")
+        return TOKEN_PATTERN.sub("[非表示]", message)
 
 
 logger = logging.getLogger(__name__)
@@ -86,13 +90,15 @@ class RequestMiddleware:
         request = Request(scope)
         path = get_route_path(scope)
         incoming = request.headers.getlist("x-request-id")
+        settings = get_settings()
+        key = settings.jquants_api_key
         correlation_id = incoming[0] if (
             len(incoming) == 1 and re.fullmatch(r"[A-Za-z0-9._-]{1,64}", incoming[0])
             and not TOKEN_PATTERN.search(incoming[0])
+            and not (key and key.get_secret_value() in incoming[0])
         ) else uuid4().hex
         request.state.request_id = correlation_id
         token = request_id.set(correlation_id)
-        settings = get_settings()
         ip = client_ip(request, settings)
         if scheme := forwarded_scheme(request, settings):
             scope["scheme"] = scheme

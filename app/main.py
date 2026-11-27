@@ -19,8 +19,9 @@ from app.database import init_db
 from app.exceptions import register_exception_handlers
 from app.mcp_http import MCP_PATHS, AppCORSMiddleware, MCPGateway, serve_mcp
 from app.middleware import InternalErrorMiddleware, RequestIDFilter, RequestMiddleware, TokenRedactingFormatter
-from app.routers import api_tokens, backtest, forex, investments, market, stats, stock, symbols, user
+from app.routers import api_tokens, backtest, forex, investments, jquants, market, stats, stock, symbols, user
 from app.services.cache_warmer import warm_cache_periodically
+from app.services.jquants_sync import sync_jquants_periodically
 from app.services.symbol_directory import initialize_symbol_directory
 from app.stats import stats as app_stats
 
@@ -77,6 +78,11 @@ async def lifespan(app: FastAPI):
     await init_db()
     symbol_task = asyncio.create_task(initialize_symbol_directory(settings))
     flush_task = asyncio.create_task(app_stats.flush_periodically(settings.stats_flush_seconds))
+    jquants_task = None
+    if settings.jquants_active:
+        jquants_task = asyncio.create_task(sync_jquants_periodically(settings))
+    elif not settings.jquants_api_key:
+        logger.info("J-Quants の API キーが未設定です")
     warm_task = None
     if settings.cache_warm_enabled:
         warm_task = asyncio.create_task(warm_cache_periodically(
@@ -89,6 +95,10 @@ async def lifespan(app: FastAPI):
     finally:
         flush_task.cancel()
         symbol_task.cancel()
+        if jquants_task is not None:
+            jquants_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await jquants_task
         if warm_task is not None:
             warm_task.cancel()
             with suppress(asyncio.CancelledError):
@@ -152,6 +162,7 @@ app.include_router(forex.router)
 app.include_router(market.router)
 app.include_router(backtest.router)
 app.include_router(symbols.router)
+app.include_router(jquants.router)
 app.router.routes.extend(Route(path, MCPGateway(), name="mcp") for path in MCP_PATHS)
 
 # 例外ハンドラー登録

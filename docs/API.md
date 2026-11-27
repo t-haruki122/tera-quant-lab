@@ -16,6 +16,7 @@
 | ニュース | 銘柄関連ニュースの取得 | `GET /stock/{symbol}/news` |
 | 為替 | 通貨ペアの現在レート取得 | `GET /forex/{pair}` |
 | 経済指標 | 主要な市況データと日次終値の推移 | `GET /market/overview` |
+| J-Quants | 日本株の決算短信サマリーと同期状況 | `GET /stock/{symbol}/jq-financials`、`GET /jquants/status` |
 | ユーザー機能 | ユーザー登録/ログイン、銘柄リスト管理、タグ管理 | `POST /user/register`、`POST /user/login`、`/user/{user_id}/lists...` |
 | Claude 連携 | APIトークンの発行・無効化、読み取り専用 MCP | `/user/{user_id}/api-tokens`、`/mcp` |
 | ウォッチリストの保有資産 | 株数・現金の設定、円換算評価、構成比 | `GET /user/{user_id}/lists/{list_id}/summary` |
@@ -75,6 +76,15 @@
 
 EMA は最初の N 本の単純平均で開始し、以降は重み `2 / (N + 1)` で更新します。週足・月足では集約後の終値で各指標を計算します。開始日を指定すると、計算に必要な過去のバーも取得し、レスポンスは指定期間に絞ります。上場間もない銘柄などで必要本数が揃わない値は `null` です。ボリンジャーバンドは20本目、MACD は26本目、シグナルとヒストグラムは34本目から値が入ります。
 レスポンスでは MACD とボリンジャーバンドを小数第4位に、SMA と RSI を小数第2位に丸めます。
+
+### J-Quants の決算短信サマリー
+
+両方とも公開の読み取り専用 API です。読み取り専用 API トークンも利用できます。決算短信は SQLite に保存されたデータから返し、無料プランでは12週間遅れです。
+
+- `GET /jquants/status` は `enabled`、キーの設定有無を表す `configured`、`issues_count`、`summaries_count`、`window`（`start`、`end`）、`last_synced_date`、`backfill_complete`、`last_error`、`last_success_at` を返します。日付は日本時間、成功時刻は UTC です。`progress.synced_days` と `progress.total_days` は処理済みと対象の平日数です。取得範囲外と明示されて処理を進めた直近の日が `last_rejected_date` に入ります。無効時は件数が0で `window` は `null` になります。キーの値は応答に含まれません。
+- `GET /stock/7203.T/jq-financials` は `symbol`、`source`、`currency`、`delay_weeks`、`delay_note`、`summaries` を返します。決算の年次・四半期データは開示日・時刻の降順です。各行には `disc_no`、`doc_type`、`consolidated`、`period_type`、対象期間、業績・配当・予想などの開示値が含まれます。金額は円、欠損値は `null` です。海外銘柄、未取得銘柄、無効時は `200` で空の `summaries` と理由の `note` を返します。
+
+`roe_calc` は通期の純利益を当期・前期末の平均自己資本で割った値で、比較可能な前期末の値がなければ当期末の自己資本を使います。`operating_margin` は営業利益を売上高で割った値です。`equity_ratio` は開示値を優先し、欠損時には自己資本を総資産で割ります。計算した比率は小数（`0.12` は12%）で、除数が0または計算に必要な値が欠ける場合は `null` です。配当性向や ROE などの開示比率は提供値を保持します。
 
 ### 2. 為替データ
 
@@ -154,12 +164,14 @@ EMA は最初の N 本の単純平均で開始し、以降は重み `2 / (N + 1)
 - `GET /backtest/runs`
 - `GET /backtest/runs/{run_id}`
 - `GET /symbols/search`
+- `GET /jquants/status`
 - `GET /stock/{symbol}`
 - `GET /stock/{symbol}/history`
 - `GET /stock/{symbol}/profile`
 - `GET /stock/{symbol}/indicators`
 - `GET /stock/{symbol}/financials`
 - `GET /stock/{symbol}/financials/history`
+- `GET /stock/{symbol}/jq-financials`
 - `GET /stock/{symbol}/news`
 - `GET /forex/{pair}`
 - `POST /backtest/run`（結果の保存を伴わない単一バックテスト）
