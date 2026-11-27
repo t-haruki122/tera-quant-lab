@@ -494,6 +494,19 @@
                     </div>
                 </div>
 
+                <section class="card card-wide hidden" id="peers-card" aria-labelledby="peers-heading">
+                    <div class="card-header"><h3 id="peers-heading">同業種比較</h3></div>
+                    <div class="card-body">
+                        <p id="peers-status" class="valuation-note text-muted" role="status"></p>
+                        <div id="peers-body"></div>
+                    </div>
+                </section>
+
+                <section class="card card-wide hidden" id="valuation-history-card" aria-labelledby="valuation-history-heading">
+                    <div class="card-header"><h3 id="valuation-history-heading">PER・PBRの推移</h3></div>
+                    <div class="card-body" id="valuation-history-body"></div>
+                </section>
+
                 <!-- ニュース -->
                 <div class="card card-wide" id="news-card">
                     <div class="card-header"><h3>📰 関連ニュース</h3></div>
@@ -565,6 +578,7 @@
                             <th class="sortable" data-sort="name"><button type="button">会社名 <span class="sort-arrow" aria-hidden="true"></span></button></th>
                             <th class="sortable numeric" data-sort="price"><button type="button">株価 <span class="sort-arrow" aria-hidden="true"></span></button></th>
                             <th class="sortable numeric" data-sort="market_cap"><button type="button">会社規模 <span class="sort-arrow" aria-hidden="true"></span></button></th>
+                            <th class="sortable numeric" data-sort="roe"><button type="button">ROE <span class="sort-arrow" aria-hidden="true"></span></button></th>
                             <th class="sortable numeric" data-sort="mix_index"><button type="button">ミックス指数 <span class="sort-arrow" aria-hidden="true"></span></button></th>
                             <th class="sortable numeric" data-sort="dividend_yield"><button type="button">配当利回り <span class="sort-arrow" aria-hidden="true"></span></button></th>
                             <th class="sortable numeric" data-sort="shares"><button type="button">株数 <span class="sort-arrow" aria-hidden="true"></span></button></th>

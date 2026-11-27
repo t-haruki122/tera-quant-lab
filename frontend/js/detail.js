@@ -10,6 +10,7 @@ import { renderComparison, resetComparison } from './comparison.js';
 import { normalizeSymbol } from './router.js';
 import { renderFinancialHistoryChart, renderDividendHistoryChart } from './financial-chart.js';
 import { formatMarketValue } from './market-format.js';
+import { clearValuationCharts, loadPeers, MIX_INDEX_HELP, renderValuationHistory } from './valuation.js';
 
 let displayedQuote = null;
 let detailRequestId = 0;
@@ -56,13 +57,14 @@ export async function loadStock(symbol) {
     displayedQuote = null;
     resetComparison();
     clearFinancialCharts();
+    clearValuationCharts();
     renderCompanyHeader(symbol, {});
     byId('price-display').textContent = '…';
     byId('price-timestamp').textContent = '';
     byId('quote-error').textContent = '';
     byId('search-retry-btn').classList.add('hidden');
     byId('quote-stale').textContent = '';
-    for (const card of ['profile-card', 'financials-card', 'indicators-card']) {
+    for (const card of ['profile-card', 'financials-card', 'indicators-card', 'peers-card', 'valuation-history-card']) {
         byId(card).classList.toggle('hidden', marketInstrument);
     }
     byId('price-chart-title').textContent = marketInstrument ? '📊 価格・指標チャート' : '📊 株価チャート';
@@ -86,16 +88,20 @@ export async function loadStock(symbol) {
     refreshDetailHistory();
     const panels = [price, loadNews(symbol, isCurrent)];
     if (!marketInstrument) {
+        byId('valuation-history-body').innerHTML = skeleton;
+        const profilePanel = loadPanel(`${path}/profile`, 'profile-body', data => {
+            profile = data;
+            renderCompanyHeader(symbol, profile);
+            renderProfile(profile);
+            if (displayedQuote) renderStockHeader(displayedQuote, profile);
+            updateChartCurrency(currency());
+        }, isCurrent);
+        const indicatorsPanel = loadPanel(`${path}/indicators`, 'indicators-body', renderIndicators, isCurrent);
         panels.push(
-            loadPanel(`${path}/profile`, 'profile-body', data => {
-                profile = data;
-                renderCompanyHeader(symbol, profile);
-                renderProfile(profile);
-                if (displayedQuote) renderStockHeader(displayedQuote, profile);
-                updateChartCurrency(currency());
-            }, isCurrent),
-            loadPanel(`${path}/indicators`, 'indicators-body', renderIndicators, isCurrent),
+            profilePanel, indicatorsPanel,
             loadFinancials(symbol, { get currency() { return currency(); } }, isCurrent),
+            loadPeers(path, isCurrent, Promise.all([profilePanel, indicatorsPanel])),
+            loadPanel(`${path}/valuation-history`, 'valuation-history-body', renderValuationHistory, isCurrent),
         );
     }
     await Promise.all(panels);
@@ -249,7 +255,7 @@ export function renderIndicators(data) {
             '正の値は低いほど割安', perUnavailable ? '赤字' : ''],
         ['EPS', data.eps, '', null, '1株あたり利益'],
         ['ミックス指数', mixUnavailable ? null : data.mix_index, '', getMixIndexRating,
-            mixUnavailable ? 'PBRまたはPERが0以下のため算出できません' : 'PER×PBR（22.5未満が割安）',
+            mixUnavailable ? `${MIX_INDEX_HELP}。PBRまたはPERが0以下のため算出できません` : MIX_INDEX_HELP,
             mixUnavailable ? '算出不可' : ''],
         ['配当利回り', data.dividend_yield, '%', v => v > 3 ? 'good' : v > 1 ? 'neutral' : 'bad', '高いほど良い'],
         ['利益率', data.profit_margin, '%', v => v > 20 ? 'good' : v > 10 ? 'neutral' : 'bad', '高いほど良い'],

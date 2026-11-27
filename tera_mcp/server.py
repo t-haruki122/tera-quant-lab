@@ -20,6 +20,7 @@ INSTRUCTIONS = """\
 株価指数、為替、商品、金利などの市況の確認には get_market_overview を使ってください。各指標の as_of と stale を確認してください。
 データは利用者のローカルアプリに由来します。yfinance などから取得したキャッシュには遅延や欠損があり得ます。
 stale と cached_at を確認し、数値を引用するときは銘柄と日付を添えてください。
+株価水準を評価するときは、ミックス指数に加えて ROE と get_peer_comparison の業種内の中央値・順位を確認してください。
 赤字や債務超過などで PER または PBR が 0 以下の場合、mix_index は null です。利益が極端に小さい場合、PER は非常に大きくなります。
 保有株数・現金・構成比は get_watchlist で取得できます。取得原価・損益は設計上記録しません。集計の除外銘柄も確認してください。
 分析、論点整理、リスクの指摘を行い、売買の最終判断は利用者が行う前提で答えてください。
@@ -144,6 +145,16 @@ def create_server(client: ToolClient) -> MCPServer[None]:
     async def get_jp_financials(symbol: str) -> dict[str, Any]:
         """日本株の J-Quants 決算短信サマリーを取得します。無料プランでは12週間遅れのデータです。"""
         return await client.get(f"/stock/{quote(_symbol(symbol), safe='')}/jq-financials")
+
+    @server.tool(annotations=MARKET_READ)
+    async def get_peer_comparison(symbol: str) -> dict[str, Any]:
+        """同業種での ROE・PER・PBR などの中央値、順位、比較件数と最大10社の情報を取得します。"""
+        return await client.get(f"/stock/{quote(_symbol(symbol), safe='')}/peers")
+
+    @server.tool(annotations=MARKET_READ)
+    async def get_valuation_history(symbol: str) -> dict[str, Any]:
+        """最大5期の年次 PER・PBR、現在の指標、過去の最小値・中央値・最大値を取得します。"""
+        return await client.get(f"/stock/{quote(_symbol(symbol), safe='')}/valuation-history")
 
     @server.tool(annotations=MARKET_READ)
     async def get_price_history(

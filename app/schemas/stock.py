@@ -20,6 +20,7 @@ class StockSnapshot(CachedResponse):
     currency: str | None = None
     market_cap: int | float | None = None
     mix_index: float | None = None
+    roe: float | None = None
     dividend_yield: float | None = None
     per: float | None = None
     pbr: float | None = None

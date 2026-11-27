@@ -24,7 +24,7 @@ class ToolClient(Protocol):
 
 _GET_PATHS = re.compile(
     r"/stock/(?:[A-Z0-9]|%5E)(?:[A-Z0-9.\-]|%5E|%3D){0,19}"
-    r"(?:/history|/profile|/indicators|/financials(?:/history)?|/jq-financials|/news)?"
+    r"(?:/history|/profile|/indicators|/financials(?:/history)?|/jq-financials|/peers|/valuation-history|/news)?"
     r"|/forex/[A-Z]{6}(?:%3DX)?"
     r"|/market/overview"
     r"|/symbols/search"

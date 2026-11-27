@@ -3,13 +3,14 @@
 import logging
 import math
 from datetime import UTC, date, datetime, timedelta
+from threading import Lock
 from typing import Any, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pandas as pd
 import yfinance as yf
 
-from app.clients.errors import external_call
+from app.clients.errors import classify, external_call
 from app.exceptions import SymbolNotFoundError
 from app.market_indicators import BY_SYMBOL
 from app.timeutil import utc_iso
@@ -20,6 +21,7 @@ if hasattr(yf, "config"):
     yf.config.debug.hide_exceptions = False
 
 logger = logging.getLogger("app.external.yfinance")
+_download_lock = Lock()
 
 
 def _finite_history_value(value: Any) -> float | None:
@@ -66,6 +68,76 @@ def _market_time_fields(info: dict[str, Any]) -> dict[str, str]:
 
 class YFinanceClient:
     """yfinanceライブラリを使用した株価・財務データ取得クライアント"""
+
+    def get_batch_closes(self, symbols: tuple[str, ...]) -> dict[str, float]:
+        """One download attempt. A partial result is usable until the next batch."""
+        try:
+            with _download_lock:
+                frame = yf.download(list(symbols), period="5d", threads=False, progress=False,
+                                    auto_adjust=False, group_by="column", timeout=5)
+        except Exception as error:
+            mapped = classify(error, symbols[0])
+            if mapped is error:
+                raise
+            raise mapped from error
+        if frame is None or frame.empty or "Close" not in frame.columns:
+            return {}
+        closes = frame["Close"]
+        if isinstance(closes, pd.Series):
+            closes = closes.to_frame(name=symbols[0])
+        result = {}
+        for symbol in symbols:
+            if symbol in closes.columns:
+                for raw_value in reversed(closes[symbol].tolist()):
+                    value = _finite_history_value(raw_value)
+                    if value is not None and value > 0:
+                        result[symbol] = value
+                        break
+        return result
+
+    @external_call
+    def get_annual_valuation_statements(self, symbol: str) -> dict[str, Any]:
+        ticker = yf.Ticker(symbol)
+        info = ticker.info
+        income = ticker.financials
+        balance = ticker.balance_sheet
+
+        def amount(frame, column, *labels):
+            if column not in frame.columns:
+                return None
+            for label in labels:
+                if label in frame.index:
+                    value = _finite_history_value(frame.at[label, column])
+                    if value is not None:
+                        return value
+            return None
+
+        history = []
+        for column in set(income.columns) | set(balance.columns):
+            if not isinstance(column, date):
+                continue
+            net_income = amount(income, column, "Net Income Common Stockholders", "Net Income")
+            equity = amount(balance, column, "Stockholders Equity", "Common Stock Equity")
+            average_shares = amount(income, column, "Basic Average Shares", "Diluted Average Shares")
+            end_shares = amount(balance, column, "Ordinary Shares Number", "Share Issued")
+            if not average_shares or average_shares <= 0:
+                average_shares = end_shares
+            if not end_shares or end_shares <= 0:
+                end_shares = average_shares
+            eps = _finite_history_value(net_income / average_shares) if (
+                net_income is not None and average_shares and average_shares > 0
+            ) else None
+            bps = _finite_history_value(equity / end_shares) if (
+                equity is not None and end_shares and end_shares > 0
+            ) else None
+            roe = _finite_history_value(net_income / equity * 100) if net_income is not None and equity else None
+            if any(value is not None for value in (eps, bps, roe)):
+                history.append({"period_end": column.strftime("%Y-%m-%d"), "eps": eps, "bps": bps, "roe": roe})
+        return {
+            "statement_currency": currency_code(info.get("financialCurrency")),
+            "price_currency": currency_code(info.get("currency")),
+            "history": sorted(history, key=lambda row: row["period_end"], reverse=True)[:5],
+        }
 
     @external_call
     def search_symbols(self, query: str) -> list[dict[str, Any]]:

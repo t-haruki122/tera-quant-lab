@@ -57,6 +57,13 @@ stdio を使う場合は、Claude Desktop の PC にリポジトリと `uv` を�
 
 `get_jp_financials(symbol)` は J-Quants の保存済み決算短信サマリーを開示日の新しい順に返す読み取り専用ツールです。`7203.T` や `186A.T` のように指定します。無料プランのデータは12週間遅れで、応答の `delay_note` でも確認できます。初回同期中や対象銘柄のデータがない場合は `summaries` が空になることがあります。[J-Quants の設定](DEPLOY.md#j-quants-の設定)
 
+## 同業種比較と年次 PER・PBR
+
+- `get_peer_comparison(symbol)` は ROE、PER、PBR などの業種中央値、順位、有効件数、比較銘柄を最大10件返します。業種の出典、決算データの遅れ、比較件数は `sector_source` と `notes` で確認できます。
+- `get_valuation_history(symbol)` は最大5期の年次 PER・PBR、各期のデータ元、現在の倍率、および履歴の最小値・中央値・最大値を返します。
+
+両方とも stdio と `/mcp` で使える読み取り専用ツールです。株価水準を比較する際は、ミックス指数とともに ROE、業種中央値、指標ごとの有効件数を確認してください。
+
 ## ウォッチリストの保有資産
 
 株数や円の現金を入力したウォッチリストは、`get_watchlist` で評価額と構成比を確認できます。リストIDを省略するとデフォルトリストを参照します。別のリストを指定するには `list_watchlists` でIDを確認します。

@@ -18,7 +18,7 @@ from app.validation import currency_code
 
 logger = logging.getLogger(__name__)
 PROFILE_FIELDS = ("name", "country", "sector", "currency", "market_cap")
-INDICATOR_FIELDS = ("mix_index", "dividend_yield", "per", "pbr")
+INDICATOR_FIELDS = ("mix_index", "dividend_yield", "per", "pbr", "roe")
 
 
 async def get_list_memos(user_id: int, list_id: int, db: AsyncSession) -> dict[str, str | None]:

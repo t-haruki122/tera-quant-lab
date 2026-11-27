@@ -9,6 +9,7 @@ import { createDialog } from './dialog.js';
 import { showToast, formatCurrency, formatLargeNumber, escapeHtml, escapeAttr, oldestStaleData, formatNewsDate } from './utils.js';
 import { getMarketCapCategory, getMixIndexRating, getRatingSymbol } from './detail.js';
 import { DEFAULT_PERIOD, normalizeSymbol, serializeRoute } from './router.js';
+import { MIX_INDEX_HELP } from './valuation.js';
 
 const RATE_LIMIT_MESSAGE = 'アクセスが集中しています。しばらくしてから再試行してください。';
 
@@ -543,7 +544,8 @@ function rowMarkup(item) {
         <td class="table-company">${escapeHtml(item.name || placeholder)}${feedback}</td>
         <td class="numeric">${escapeHtml(price)}</td>
         <td class="table-market-cap" title="${escapeAttr(item.market_cap != null ? formatLargeNumber(item.market_cap, item.currency) : '')}">${escapeHtml(category || placeholder)}</td>
-        <td class="numeric">${mixValue}${mixBadge}${pbrNote}${perNote}</td>
+        <td class="numeric">${Number.isFinite(item.roe) ? item.roe.toFixed(2) + '%' : '—'}</td>
+        <td class="numeric" title="${escapeAttr(MIX_INDEX_HELP)}">${mixValue}${mixBadge}${pbrNote}${perNote}</td>
         <td class="numeric">${item.dividend_yield != null ? item.dividend_yield.toFixed(2) + '%' : placeholder}</td>
         <td class="numeric watchlist-shares">${sharesCell(item)}</td>
         <td class="numeric">${item.value_jpy == null ? awaitingValue : escapeHtml(formatYen(item.value_jpy))}</td>
@@ -606,7 +608,7 @@ export function renderListTable() {
         arrow.textContent = selected ? (state.sortAsc ? ' ▲' : ' ▼') : '';
     });
     const markup = empty ? '' : sorted.length ? sorted.map(rowMarkup).join('')
-        : '<tr><td colspan="10" class="text-muted">検索条件に一致する銘柄がありません</td></tr>';
+        : '<tr><td colspan="11" class="text-muted">検索条件に一致する銘柄がありません</td></tr>';
     updateTableRows(byId('comparison-tbody'), markup);
 }
 

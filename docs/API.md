@@ -13,6 +13,7 @@
 | 銘柄検索 | 会社名・銘柄コード・ティッカーから日米の銘柄を検索 | `GET /symbols/search` |
 | 株価 | 現在価格、過去価格の取得 | `GET /stock/{symbol}`、`GET /stock/{symbol}/history` |
 | 企業分析 | 財務情報、企業プロフィール、投資指標の取得 | `GET /stock/{symbol}/financials`、`GET /stock/{symbol}/profile`、`GET /stock/{symbol}/indicators` |
+| 株価水準 | 同業種の指標比較と年次 PER・PBR | `GET /stock/{symbol}/peers`、`GET /stock/{symbol}/valuation-history` |
 | ニュース | 銘柄関連ニュースの取得 | `GET /stock/{symbol}/news` |
 | 為替 | 通貨ペアの現在レート取得 | `GET /forex/{pair}` |
 | 経済指標 | 主要な市況データと日次終値の推移 | `GET /market/overview` |
@@ -76,6 +77,20 @@
 
 EMA は最初の N 本の単純平均で開始し、以降は重み `2 / (N + 1)` で更新します。週足・月足では集約後の終値で各指標を計算します。開始日を指定すると、計算に必要な過去のバーも取得し、レスポンスは指定期間に絞ります。上場間もない銘柄などで必要本数が揃わない値は `null` です。ボリンジャーバンドは20本目、MACD は26本目、シグナルとヒストグラムは34本目から値が入ります。
 レスポンスでは MACD とボリンジャーバンドを小数第4位に、SMA と RSI を小数第2位に丸めます。
+
+### 同業種比較と年次 PER・PBR
+
+`GET /stock/{symbol}/peers` は `symbol`、`sector_name`、`sector_source`、`peer_count`、`as_of`、`metrics`、`peers`、`notes` を返します。`as_of` は集計対象の最新開示日または指標キャッシュ日です。株価の取得日は含みません。企業以外の銘柄では比較結果が空になります。
+
+- 日本株は JPX 33業種（`jpx33`）の保存済み決算を使います。通期を優先し、ROE、営業利益率、自己資本比率、売上高成長率を比較します。売上高成長率は直近2期の通期実績を使います。J-Quants の無料プランでは決算データが12週間遅れです。
+- `prices=false` を指定すると、JPX 33業種の比較では株価を使う指標を省きます。既定では PER、PBR、ミックス指数、配当利回りも返します。株価は保存済みの値を優先し、不足分は業種ごとに1回まとめて取得し、日本時間の当日中は同じアプリプロセスで再利用します。PER は通期 EPS、PBR は BPS を使い、分母が0以下の場合は `null` です。
+- 米国株などと J-Quants の比較データがない日本株は、保存済みプロフィール・投資指標だけで比較します。キャッシュに同じ業種の銘柄が5件以上あれば `yahoo_industry`、それ以外は `yahoo_sector` です。
+- `metrics` の各行に `key`、`label`、`value`、`rank`、`percentile`、`median`、`count`、`higher_is` が入ります。指標別に欠損値を除き、`count` は対象銘柄を含む有効値の件数です。5件以上で対象銘柄の値があるとき、数値の降順で順位を付けます。同じ値は同順位で、最高値のパーセンタイルは100です。ROE、利益率、自己資本比率、成長率、配当利回りはパーセント単位です。`higher_is` は `better`、`cheaper`、`neutral` のいずれかで、PER・PBR は値が高いほど倍率が高いため `cheaper` の指標では値の低い側が割安です。
+- `peers` は比較対象の銘柄を時価総額順に最大10件返します。各行に `symbol`、`name`、`per`、`pbr`、`roe`、`mix_index`、`dividend_yield`、`market_cap` が入ります。`peer_count` は対象銘柄を含む母集団の件数です。
+
+`GET /stock/{symbol}/valuation-history` は `symbol`、`price_currency`、`points`、`current`、`band`、`notes` を返します。`points` は最大5期で、各点に `period_end`、`eps`、`bps`、`price`、`price_date`、`per`、`pbr`、`mix_index`、`roe`、`statement_currency`、`source` が入ります。日本株は同じ期の J-Quants を優先し、Yahoo Finance の年次損益計算書と貸借対照表で期間を補います。その他は Yahoo Finance の年次データを使います。
+
+株価は期末当日から7日以内で最初の日足終値です。既存の履歴キャッシュと価格調整方式を使います。決算通貨と取引通貨の間に換算が必要な場合、米ドル・円は価格日以前7日以内の保存済み USD/JPY を使います。必要な通貨やレートを確認できない場合は倍率を `null` にし、`notes` に理由を返します。EPS・BPS は報告通貨のまま返し、0以下の分母に対応する倍率は `null` です。`current` は現在の投資指標、`band.per` と `band.pbr` は履歴の有効値の `min`、`median`、`max` です。
 
 ### J-Quants の決算短信サマリー
 
@@ -172,6 +187,8 @@ EMA は最初の N 本の単純平均で開始し、以降は重み `2 / (N + 1)
 - `GET /stock/{symbol}/financials`
 - `GET /stock/{symbol}/financials/history`
 - `GET /stock/{symbol}/jq-financials`
+- `GET /stock/{symbol}/peers`
+- `GET /stock/{symbol}/valuation-history`
 - `GET /stock/{symbol}/news`
 - `GET /forex/{pair}`
 - `POST /backtest/run`（結果の保存を伴わない単一バックテスト）

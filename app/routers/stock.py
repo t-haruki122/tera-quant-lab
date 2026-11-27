@@ -21,12 +21,15 @@ from app.schemas.stock import (
     StockPriceResponse,
     StockSnapshot,
 )
+from app.schemas.valuation import PeerComparison, ValuationHistory
 from app.services import (
     finance_service,
     indicator_service,
     news_service,
+    peer_service,
     profile_service,
     stock_service,
+    valuation_history_service,
     watchlist_service,
 )
 from app.timeutil import utcnow
@@ -165,3 +168,17 @@ async def get_profile(symbol: Symbol, db: AsyncSession = Depends(get_db)):
 async def get_indicators(symbol: Symbol, db: AsyncSession = Depends(get_db)):
     """投資指数を取得"""
     return await indicator_service.get_indicators(symbol, db)
+
+
+@router.get("/{symbol}/peers", dependencies=[Depends(limit_read_data_requests)], summary="同業種比較を取得")
+async def get_peers(
+    symbol: Symbol, db: AsyncSession = Depends(get_db),
+    prices: bool = Query(True, description="日本株の株価を使う指標を含める"),
+) -> PeerComparison:
+    return await peer_service.get_peer_comparison(symbol, db, prices=prices)
+
+
+@router.get("/{symbol}/valuation-history", dependencies=[Depends(limit_read_data_requests)],
+            summary="年次のPER・PBRの推移を取得")
+async def get_valuation_history(symbol: Symbol, db: AsyncSession = Depends(get_db)) -> ValuationHistory:
+    return await valuation_history_service.get_valuation_history(symbol, db)
