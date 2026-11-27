@@ -10,12 +10,15 @@
 
 | 分類 | 主な機能 | 主なエンドポイント |
 |---|---|---|
-| 銘柄検索 | 会社名・銘柄コード・ティッカーから日米の銘柄を検索 | `GET /symbols/search` |
+| 銘柄検索 | 銘柄名・ティッカー・協会コードから日米株・投資信託を検索 | `GET /symbols/search` |
+| 投資信託 | 基準価額・統計・蓄積済みの日次履歴 | `GET /stock/{symbol}/fund` |
 | 株価 | 現在価格、過去価格の取得 | `GET /stock/{symbol}`、`GET /stock/{symbol}/history` |
 | 企業分析 | 財務情報、企業プロフィール、投資指標の取得 | `GET /stock/{symbol}/financials`、`GET /stock/{symbol}/profile`、`GET /stock/{symbol}/indicators` |
+| 株価水準 | 同業種の指標比較と年次 PER・PBR | `GET /stock/{symbol}/peers`、`GET /stock/{symbol}/valuation-history` |
 | ニュース | 銘柄関連ニュースの取得 | `GET /stock/{symbol}/news` |
 | 為替 | 通貨ペアの現在レート取得 | `GET /forex/{pair}` |
 | 経済指標 | 主要な市況データと日次終値の推移 | `GET /market/overview` |
+| J-Quants | 日本株の決算短信サマリーと同期状況 | `GET /stock/{symbol}/jq-financials`、`GET /jquants/status` |
 | ユーザー機能 | ユーザー登録/ログイン、銘柄リスト管理、タグ管理 | `POST /user/register`、`POST /user/login`、`/user/{user_id}/lists...` |
 | Claude 連携 | APIトークンの発行・無効化、読み取り専用 MCP | `/user/{user_id}/api-tokens`、`/mcp` |
 | ウォッチリストの保有資産 | 株数・現金の設定、円換算評価、構成比 | `GET /user/{user_id}/lists/{list_id}/summary` |
@@ -33,7 +36,15 @@
 {"items":[{"symbol":"7203.T","name":"トヨタ自動車","market":"JP","segment":"プライム","sector":"輸送用機器","is_etf":false,"source":"jpx"}]}
 ```
 
-`market` は `JP` または `US` です。`segment` と `sector` は情報がない場合に `null` になります。`source` は JPX の `jpx`、Nasdaq Trader の `nasdaqtrader`、キャッシュ済みの企業プロフィールの `profile`、Yahoo Finance の `yahoo` のいずれかです。ローカル候補が3件未満か銘柄ディレクトリが空のときは Yahoo Finance に検索語を送り、候補を補います。Yahoo Finance が応答できない場合も HTTP `200` でローカル候補を返します。
+`market` は `JP` または `US` です。`segment` と `sector` は情報がない場合に `null` になります。`source` は JPX の `jpx`、Nasdaq Trader の `nasdaqtrader`、キャッシュ済みの企業プロフィールの `profile`、Yahoo Finance の `yahoo`、投資信託の `fund` のいずれかです。株式のローカル候補が弱い検索では Yahoo Finance で候補を補います。Yahoo Finance が応答できない場合も HTTP `200` でローカル候補を返します。
+
+投資信託の検索結果は `segment: "投資信託"`、`source: "fund"` です。`オルカン`、`S&P500`、`TOPIX` などで組み込みの3本が見つかります。`03317172` のような協会コードや `FUND-03317172` を指定すると提供元のデータで照合します。未対応のコードは日本語のエラーを含む `404` を返します。
+
+### 投資信託の基準価額と統計
+
+`GET /stock/FUND-0331418A/fund` は `association_code`、`fund_cd`、`isin`、`name`、`base_date`（YYYY-MM-DD）、`nav`、`cancellation_price`、`net_assets`、`change`、`change_pct` を返します。基準価額はJPYの1万口あたりです。`stats` には期間別の騰落率（`returns`）、リスク（`risk`）、リスク・リターン比（`risk_return`）、最高・最低基準価額と日付（`max_nav`、`min_nav`）が入ります。`history` は `base_date` と `nav` の日次データです。`source_credit` を表示時に添えてください。
+
+データ: 三菱UFJアセットマネジメント 投信情報API。対応するシンボルは `FUND-` に8桁の英数字を続けます。基準価額は営業日の夕方（日本時間）に更新され、約6時間キャッシュします。提供元の一時的な障害時は、利用可能なキャッシュを `stale` と `cached_at` 付きで返します。マイグレーション `0012` で作成する `fund_navs` に、初回利用以降に取得した日付ごとの値を蓄積します。データは自ホストするアプリの画面とMCPでの個人利用に限り、公開・再配布は禁止です。[投信情報API利用規約](https://www.am.mufg.jp/tool/webapi/agreement.html)
 
 ### 1. 株価・分析データ
 
@@ -75,6 +86,29 @@
 
 EMA は最初の N 本の単純平均で開始し、以降は重み `2 / (N + 1)` で更新します。週足・月足では集約後の終値で各指標を計算します。開始日を指定すると、計算に必要な過去のバーも取得し、レスポンスは指定期間に絞ります。上場間もない銘柄などで必要本数が揃わない値は `null` です。ボリンジャーバンドは20本目、MACD は26本目、シグナルとヒストグラムは34本目から値が入ります。
 レスポンスでは MACD とボリンジャーバンドを小数第4位に、SMA と RSI を小数第2位に丸めます。
+
+### 同業種比較と年次 PER・PBR
+
+`GET /stock/{symbol}/peers` は `symbol`、`sector_name`、`sector_source`、`peer_count`、`as_of`、`metrics`、`peers`、`notes` を返します。`as_of` は集計対象の最新開示日または指標キャッシュ日です。株価の取得日は含みません。企業以外の銘柄では比較結果が空になります。
+
+- 日本株は JPX 33業種（`jpx33`）の保存済み決算を使います。通期を優先し、ROE、営業利益率、自己資本比率、売上高成長率を比較します。売上高成長率は直近2期の通期実績を使います。J-Quants の無料プランでは決算データが12週間遅れです。
+- `prices=false` を指定すると、JPX 33業種の比較では株価を使う指標を省きます。既定では PER、PBR、ミックス指数、配当利回りも返します。株価は保存済みの値を優先し、不足分は業種ごとに1回まとめて取得し、日本時間の当日中は同じアプリプロセスで再利用します。PER は通期 EPS、PBR は BPS を使い、分母が0以下の場合は `null` です。
+- 米国株などと J-Quants の比較データがない日本株は、保存済みプロフィール・投資指標だけで比較します。キャッシュに同じ業種の銘柄が5件以上あれば `yahoo_industry`、それ以外は `yahoo_sector` です。
+- `metrics` の各行に `key`、`label`、`value`、`rank`、`percentile`、`median`、`count`、`higher_is` が入ります。指標別に欠損値を除き、`count` は対象銘柄を含む有効値の件数です。5件以上で対象銘柄の値があるとき、数値の降順で順位を付けます。同じ値は同順位で、最高値のパーセンタイルは100です。ROE、利益率、自己資本比率、成長率、配当利回りはパーセント単位です。`higher_is` は `better`、`cheaper`、`neutral` のいずれかで、PER・PBR は値が高いほど倍率が高いため `cheaper` の指標では値の低い側が割安です。
+- `peers` は比較対象の銘柄を時価総額順に最大10件返します。各行に `symbol`、`name`、`per`、`pbr`、`roe`、`mix_index`、`dividend_yield`、`market_cap` が入ります。`peer_count` は対象銘柄を含む母集団の件数です。
+
+`GET /stock/{symbol}/valuation-history` は `symbol`、`price_currency`、`points`、`current`、`band`、`notes` を返します。`points` は最大5期で、各点に `period_end`、`eps`、`bps`、`price`、`price_date`、`per`、`pbr`、`mix_index`、`roe`、`statement_currency`、`source` が入ります。日本株は同じ期の J-Quants を優先し、Yahoo Finance の年次損益計算書と貸借対照表で期間を補います。その他は Yahoo Finance の年次データを使います。
+
+株価は期末当日から7日以内で最初の日足終値です。既存の履歴キャッシュと価格調整方式を使います。決算通貨と取引通貨の間に換算が必要な場合、米ドル・円は価格日以前7日以内の保存済み USD/JPY を使います。必要な通貨やレートを確認できない場合は倍率を `null` にし、`notes` に理由を返します。EPS・BPS は報告通貨のまま返し、0以下の分母に対応する倍率は `null` です。`current` は現在の投資指標、`band.per` と `band.pbr` は履歴の有効値の `min`、`median`、`max` です。
+
+### J-Quants の決算短信サマリー
+
+両方とも公開の読み取り専用 API です。読み取り専用 API トークンも利用できます。決算短信は SQLite に保存されたデータから返し、無料プランでは12週間遅れです。
+
+- `GET /jquants/status` は `enabled`、キーの設定有無を表す `configured`、`issues_count`、`summaries_count`、`window`（`start`、`end`）、`last_synced_date`、`backfill_complete`、`last_error`、`last_success_at` を返します。日付は日本時間、成功時刻は UTC です。`progress.synced_days` と `progress.total_days` は処理済みと対象の平日数です。取得範囲外と明示されて処理を進めた直近の日が `last_rejected_date` に入ります。無効時は件数が0で `window` は `null` になります。キーの値は応答に含まれません。
+- `GET /stock/7203.T/jq-financials` は `symbol`、`source`、`currency`、`delay_weeks`、`delay_note`、`summaries` を返します。決算の年次・四半期データは開示日・時刻の降順です。各行には `disc_no`、`doc_type`、`consolidated`、`period_type`、対象期間、業績・配当・予想などの開示値が含まれます。金額は円、欠損値は `null` です。海外銘柄、未取得銘柄、無効時は `200` で空の `summaries` と理由の `note` を返します。
+
+`roe_calc` は通期の純利益を当期・前期末の平均自己資本で割った値で、比較可能な前期末の値がなければ当期末の自己資本を使います。`operating_margin` は営業利益を売上高で割った値です。`equity_ratio` は開示値を優先し、欠損時には自己資本を総資産で割ります。計算した比率は小数（`0.12` は12%）で、除数が0または計算に必要な値が欠ける場合は `null` です。配当性向や ROE などの開示比率は提供値を保持します。
 
 ### 2. 為替データ
 
@@ -154,12 +188,17 @@ EMA は最初の N 本の単純平均で開始し、以降は重み `2 / (N + 1)
 - `GET /backtest/runs`
 - `GET /backtest/runs/{run_id}`
 - `GET /symbols/search`
+- `GET /jquants/status`
 - `GET /stock/{symbol}`
 - `GET /stock/{symbol}/history`
+- `GET /stock/{symbol}/fund`
 - `GET /stock/{symbol}/profile`
 - `GET /stock/{symbol}/indicators`
 - `GET /stock/{symbol}/financials`
 - `GET /stock/{symbol}/financials/history`
+- `GET /stock/{symbol}/jq-financials`
+- `GET /stock/{symbol}/peers`
+- `GET /stock/{symbol}/valuation-history`
 - `GET /stock/{symbol}/news`
 - `GET /forex/{pair}`
 - `POST /backtest/run`（結果の保存を伴わない単一バックテスト）
@@ -216,23 +255,24 @@ JWT の `ver` がアカウントのトークンバージョンと一致する間
 
 更新できた場合は保存した値を `200` で返します。対象のリストや銘柄が見つからなければ `404`、入力が不正なら日本語のメッセージと `422` を返します。
 
-`GET /user/1/lists/2/summary` は、リストの `cash_jpy`、銘柄ごとの `shares`、`value_jpy`（円換算評価額）、`weight_pct`（現金を含む合計に対する比率）、タグ、メモとマーケットデータを返します。株数が `null` の銘柄はウォッチ対象です。全銘柄の株数が未入力で現金が `null` または `0` なら `portfolio` は `null` です。株数か正の現金があれば、以下を `portfolio` に返します。
+`GET /user/1/lists/2/summary` は、リストの `cash_jpy`、銘柄ごとの `shares`（株数または口数）、`value_jpy`（円換算評価額）、`weight_pct`（現金を含む合計に対する比率）、タグ、メモとマーケットデータを返します。投資信託の `price` は基準価額です。`shares` が `null` の銘柄はウォッチ対象です。株数・口数が未入力で現金が `null` または `0` なら `portfolio` は `null` です。
 
 | フィールド | 内容 |
 |---|---|
-| `total_value_jpy`、`stocks_value_jpy`、`cash_jpy`、`cash_ratio_pct` | 円換算合計、株式評価額、現金（未入力は集計上0円）、現金比率 |
-| `by_region` | 日本株（JPY建て）、米国株（USD建て）、その他、現金の順で `label`、`value_jpy`、`pct` |
-| `by_currency` | JPY、USD の順で `label`、`value_jpy`、`pct`。現金は JPY に含む |
+| `total_value_jpy`、`stocks_value_jpy`、`funds_value_jpy`、`cash_jpy`、`cash_ratio_pct` | 円換算合計、株式評価額、投資信託評価額、現金（未入力は集計上0円）、現金比率 |
+| `by_asset_class` | 個別株、投資信託、現金の `label`、`value_jpy`、`pct` |
+| `by_region` | 地域別の `label`、`value_jpy`、`pct`。現金も別枠で表示 |
+| `by_currency` | 通貨エクスポージャー別の `label`、`value_jpy`、`pct`。現金は JPY に含む |
 | `by_sector` | 評価額の大きい順の `label`、`value_jpy`、`pct`。比率は評価できた株式が分母。企業プロフィールのセクターがなければ「不明」 |
 | `concentration` | 最大保有銘柄 `largest`（`symbol`、`pct`）、上位5銘柄の合計比率 `top_5_pct`、除外も含む保有銘柄数 `holding_count` |
 | `usd_jpy` | 使用した為替の `rate`、`stale`、`cached_at`。使用可能なレートがなければ `null` |
 | `excluded` | 株価、取引通貨、為替の欠損などで集計から除外した `symbol` と `reason` |
 
-JPY建ては株数×株価、USD建ては株数×株価×USD/JPYで評価します。その他の通貨は `value_jpy` と `weight_pct` が `null` になり、`warning` を返します。構成比と集中度の分母は、評価できた株式と現金の合計です。分母が0の比率は `null` です。評価できた株式が0件の場合も、最大保有銘柄と上位5銘柄比率は `null` です。取得原価、取得日、損益は設計上管理対象外です。
+株式はJPY建てなら株数×株価、USD建てなら株数×株価×USD/JPYで評価します。その他の取引通貨の株式は `value_jpy` と `weight_pct` が `null` になり、`warning` を返します。投資信託は口数×基準価額÷10,000で評価します。TOPIXは日本株・JPY、S&P500は米国株・USDとして集計します。オルカンは全世界株・外貨（複数）に一括計上します。そのほかの対応ファンドは地域が「投資信託（その他）」、通貨エクスポージャーが「不明」です。構成比と集中度の分母は評価できた株式・投資信託と現金の合計です。分母が0の比率と、評価済み銘柄が0件の場合の最大保有比率・上位5銘柄比率は `null` です。取得原価、取得日、損益は設計上管理対象外です。
 
 `?cached=true` を付けるとDBのキャッシュだけを読みます。期限切れのデータは `stale: true` と `cached_at` 付きで返し、株価・企業プロフィール・投資指標のいずれかのキャッシュがなければ `pending: true` を返します。キャッシュのない項目は `null` です。通常の概要取得では銘柄に応じて外部取得を試み、一部の失敗は各行の `error` に表示します。通常取得のデータ取得枠の消費は銘柄数にかかわらず1回です。 `WATCHLIST_SUMMARY_CONCURRENCY`（既定値8）で1リクエスト内の同時取得銘柄数を設定します。
 
-`GET /stock/{symbol}/snapshot` は株価・会社情報・投資指標を並行取得し、ダッシュボード用の項目をまとめて返します。部分取得時も `200` を返し、取得失敗の項目は省略して `error` に日本語メッセージを入れます。ダッシュボードはキャッシュの概要を描画してからこのAPIで銘柄を順次更新し、円換算の集計はキャッシュの概要を再取得して反映します。
+`GET /stock/{symbol}/snapshot` は株価・会社情報・投資指標を並行取得し、ダッシュボード用の項目をまとめて返します。株式の部分取得時は `200` と行の `error` を返します。投資信託は `asset_class`、`association_code`、`base_date`、`price`（基準価額）、`unit`、`currency`、`source_credit` を返します。キャッシュのみの概要で基準価額が未取得の場合は `pending: true` です。ダッシュボードは保存済みの概要を描画してからこのAPIで銘柄を順次更新し、円換算の集計はキャッシュの概要を再取得して反映します。
 
 旧 `/user/{user_id}/portfolio` 配下のAPIは廃止しました。マイグレーション `0007` は旧保有銘柄を各ユーザーのデフォルトリストに追加するか、登録済み銘柄の株数に合算します。株数は旧データの精度を保ったまま移行します。旧保有銘柄の取得単価、取得日、保有メモを破棄してテーブルを削除します。ダウングレードでは旧テーブルを空で再作成し、新しい株数・現金列を削除します。
 

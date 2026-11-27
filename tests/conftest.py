@@ -28,6 +28,8 @@ os.environ["DOCS_ENABLED"] = "true"
 os.environ["YFINANCE_CACHE_DIR"] = ""
 os.environ["CACHE_WARM_ENABLED"] = "false"
 os.environ["SYMBOL_DIRECTORY_ENABLED"] = "false"
+os.environ["JQUANTS_API_KEY"] = ""
+os.environ["JQUANTS_ENABLED"] = "true"
 
 
 @pytest.fixture(scope="session", autouse=True)

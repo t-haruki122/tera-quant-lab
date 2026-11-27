@@ -42,7 +42,7 @@ test('watchlist shows a dash and escaped text for a negative PBR and keeps null 
     const sortedSymbols = () => [...markup().matchAll(/<tr data-symbol="([^"]+)"/g)].map(match => match[1]);
     renderListTable();
     const row = markup().match(/<tr data-symbol="HPQ">[\s\S]*?<\/tr>/)[0];
-    assert.match(row, /<td class="numeric">— <small class="text-muted">債務超過<\/small><\/td>/);
+    assert.match(row, /<td class="numeric" title="PER×PBR。[^"]+">— <small class="text-muted">債務超過<\/small><\/td>/);
     assert.match(row, /&lt;img src=x&gt;/);
     assert.doesNotMatch(row, /<img|indicator-badge|[◎○△]/);
     assert.deepEqual(sortedSymbols(), ['LOW', 'HIGH', 'HPQ']);
@@ -52,7 +52,7 @@ test('watchlist shows a dash and escaped text for a negative PBR and keeps null 
 
     state.listItems = [{ symbol: 'LOSS', per: -10, pbr: 2, mix_index: -20 }];
     renderListTable();
-    assert.match(markup(), /<td class="numeric">— <small class="text-muted">赤字<\/small><\/td>/);
+    assert.match(markup(), /<td class="numeric" title="PER×PBR。[^"]+">— <small class="text-muted">赤字<\/small><\/td>/);
     assert.doesNotMatch(markup(), /indicator-badge/);
 });
 
@@ -62,7 +62,7 @@ test('detail shows text instead of badges for nonpositive PBR and PER', () => {
         const html = document.getElementById('indicators-body').innerHTML;
         assert.ok(html.includes(`${value}倍 <small class="text-muted">債務超過</small>`));
         assert.ok(html.includes(`${value}倍 <small class="text-muted">赤字</small>`));
-        assert.match(html, /title="PBRまたはPERが0以下のため算出できません"/);
+        assert.match(html, /title="PER×PBR。ROEが高い企業ほど高く出やすく、業種で水準が異なります。PBRまたはPERが0以下のため算出できません"/);
         assert.match(html, /— <small class="text-muted">算出不可<\/small>/);
         assert.doesNotMatch(html, /indicator-badge|[◎○△]/);
     }
@@ -75,7 +75,7 @@ test('watchlist loads stock data with one summary request and renders partial an
         '/user/7/lists/8/summary?cached=true': response({ items: [
             { symbol: '7203.T', tags: ['自動車'], price: 2450, mix_index: 8.1, memo: 'メモを保持',
               error: '一部のデータを取得できませんでした。' },
-            { symbol: 'AAPL', price: 250, name: 'Apple', currency: 'USD', mix_index: 12 },
+            { symbol: 'AAPL', price: 250, name: 'Apple', currency: 'USD', mix_index: 12, roe: 12.34 },
             { symbol: 'BAD', error: '銘柄データを取得できませんでした。' },
         ] }),
     };
@@ -99,6 +99,8 @@ test('watchlist loads stock data with one summary request and renders partial an
     assert.match(markup(), /銘柄データを取得できませんでした。/);
     assert.match(markup(), />2,450<\/td>/);
     assert.match(markup(), /Apple/);
+    assert.match(markup(), /<td class="numeric">12\.34%<\/td>\s*<td class="numeric" title="PER×PBR。ROEが高い企業ほど高く出やすく、業種で水準が異なります"/);
+    assert.match(markup(), /<td class="numeric">—<\/td>\s*<td class="numeric" title="PER×PBR。/);
 });
 
 test('adding a saved symbol reloads the summary and preserves rows across a rate limit', async () => {

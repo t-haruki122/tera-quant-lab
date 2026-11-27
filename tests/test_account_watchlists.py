@@ -174,7 +174,7 @@ def test_summary_caps_symbols_and_charges_once(client, users, settings, monkeypa
     assert complete == {
         "symbol": "AAPL", "tags": ["tag"], "name": "Company", "country": "US", "sector": "Tech",
         "price": 120, "currency": "USD", "market_cap": 1000, "mix_index": 8, "dividend_yield": 2,
-        "per": 4, "pbr": 2, "memo": None, "error": None, "shares": None, "pending": False,
+        "per": 4, "pbr": 2, "roe": None, "memo": None, "error": None, "shares": None, "pending": False,
         "value_jpy": None, "weight_pct": None, "warning": None,
     }
     assert error["symbol"] == "BAD" and error["memo"] == "retain memo"

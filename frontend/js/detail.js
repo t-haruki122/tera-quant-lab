@@ -7,9 +7,11 @@ import { fetchAPI } from './api.js';
 import { formatCurrency, formatLargeNumber, formatTimestamp, formatNewsDate, escapeHtml, safeHttpUrl, oldestStaleData, staleMessage, staleNotice } from './utils.js';
 import { loadChart, updateChartCurrency, updateChartVisibility } from './chart.js';
 import { renderComparison, resetComparison } from './comparison.js';
-import { normalizeSymbol } from './router.js';
+import { isFundSymbol, normalizeLookupSymbol } from './router.js';
 import { renderFinancialHistoryChart, renderDividendHistoryChart } from './financial-chart.js';
+import { renderFundData, resetFundChart } from './fund.js';
 import { formatMarketValue } from './market-format.js';
+import { clearValuationCharts, loadPeers, MIX_INDEX_HELP, renderValuationHistory } from './valuation.js';
 
 let displayedQuote = null;
 let detailRequestId = 0;
@@ -26,7 +28,7 @@ export function quickSearch(symbol) {
 
 export function searchStock() {
     const input = document.getElementById('search-input');
-    const symbol = normalizeSymbol(input.value);
+    const symbol = normalizeLookupSymbol(input.value);
     const error = document.getElementById('search-error');
     error.textContent = symbol ? '' : '有効なティッカーを入力してください';
     if (symbol) window.switchView('detail', symbol);
@@ -49,27 +51,57 @@ export async function loadStock(symbol) {
     const user = state.currentUser;
     const isCurrent = () => requestId === detailRequestId && user === state.currentUser;
     const path = `/stock/${encodeURIComponent(symbol)}`;
-    const marketInstrument = /^\^|=[FX]$|-(?:USD|EUR|JPY)$/.test(symbol) || symbol === '1306.T';
+    const fund = isFundSymbol(symbol);
+    const nonCompany = fund || /^\^|=[FX]$|-(?:USD|EUR|JPY)$/.test(symbol) || symbol === '1306.T';
     byId('search-input').value = symbol;
     byId('search-error').textContent = '';
     state.currentSymbol = symbol;
     displayedQuote = null;
     resetComparison();
     clearFinancialCharts();
+    clearValuationCharts();
+    resetFundChart();
     renderCompanyHeader(symbol, {});
     byId('price-display').textContent = '…';
     byId('price-timestamp').textContent = '';
     byId('quote-error').textContent = '';
     byId('search-retry-btn').classList.add('hidden');
     byId('quote-stale').textContent = '';
-    for (const card of ['profile-card', 'financials-card', 'indicators-card']) {
-        byId(card).classList.toggle('hidden', marketInstrument);
+    for (const card of ['profile-card', 'financials-card', 'indicators-card', 'peers-card', 'valuation-history-card']) {
+        byId(card).classList.toggle('hidden', nonCompany);
     }
-    byId('price-chart-title').textContent = marketInstrument ? '📊 価格・指標チャート' : '📊 株価チャート';
-    byId('price-chart').setAttribute('aria-label', marketInstrument ? '価格・指標の推移' : '株価の推移');
+    for (const id of ['news-card', 'stock-chart-card', 'compare-card', 'btn-detail-alert', 'btn-detail-backtest']) {
+        byId(id).classList.toggle('hidden', fund);
+    }
+    byId('fund-meta').classList.add('hidden');
+    byId('fund-panels').classList.add('hidden');
+    byId('price-chart-title').textContent = nonCompany ? '📊 価格・指標チャート' : '📊 株価チャート';
+    byId('price-chart').setAttribute('aria-label', nonCompany ? '価格・指標の推移' : '株価の推移');
     byId('profile-body').innerHTML = skeleton;
     byId('indicators-body').innerHTML = skeleton;
     showSection('stock-detail');
+
+    const showQuoteError = error => {
+        if (!isCurrent()) return;
+        byId('price-display').textContent = '—';
+        byId('quote-error').textContent = error.message;
+        byId('search-retry-btn').classList.remove('hidden');
+    };
+    if (fund) {
+        byId('stock-meta').textContent = `協会コード ${symbol.slice(5)}`;
+        try {
+            const data = await fetchAPI(`${path}/fund`);
+            if (!isCurrent()) return;
+            renderCompanyHeader(symbol, data);
+            byId('quote-stale').textContent = staleMessage(data);
+            byId('fund-meta').classList.remove('hidden');
+            byId('fund-panels').classList.remove('hidden');
+            renderFundData(data);
+        } catch (error) {
+            showQuoteError(error);
+        }
+        return;
+    }
 
     let profile = {};
     const currency = () => displayedQuote?.currency ?? profile.currency;
@@ -77,25 +109,24 @@ export async function loadStock(symbol) {
         if (!isCurrent()) return;
         renderStockHeader(quote, profile);
         updateChartCurrency(currency(), quote.unit);
-    }).catch(error => {
-        if (!isCurrent()) return;
-        byId('price-display').textContent = '—';
-        byId('quote-error').textContent = error.message;
-        byId('search-retry-btn').classList.remove('hidden');
-    });
+    }).catch(showQuoteError);
     refreshDetailHistory();
     const panels = [price, loadNews(symbol, isCurrent)];
-    if (!marketInstrument) {
+    if (!nonCompany) {
+        byId('valuation-history-body').innerHTML = skeleton;
+        const profilePanel = loadPanel(`${path}/profile`, 'profile-body', data => {
+            profile = data;
+            renderCompanyHeader(symbol, profile);
+            renderProfile(profile);
+            if (displayedQuote) renderStockHeader(displayedQuote, profile);
+            updateChartCurrency(currency());
+        }, isCurrent);
+        const indicatorsPanel = loadPanel(`${path}/indicators`, 'indicators-body', renderIndicators, isCurrent);
         panels.push(
-            loadPanel(`${path}/profile`, 'profile-body', data => {
-                profile = data;
-                renderCompanyHeader(symbol, profile);
-                renderProfile(profile);
-                if (displayedQuote) renderStockHeader(displayedQuote, profile);
-                updateChartCurrency(currency());
-            }, isCurrent),
-            loadPanel(`${path}/indicators`, 'indicators-body', renderIndicators, isCurrent),
+            profilePanel, indicatorsPanel,
             loadFinancials(symbol, { get currency() { return currency(); } }, isCurrent),
+            loadPeers(path, isCurrent, Promise.all([profilePanel, indicatorsPanel])),
+            loadPanel(`${path}/valuation-history`, 'valuation-history-body', renderValuationHistory, isCurrent),
         );
     }
     await Promise.all(panels);
@@ -103,7 +134,7 @@ export async function loadStock(symbol) {
 
 export function refreshDetailHistory() {
     const { currentSymbol, currentPeriod } = state;
-    if (!currentSymbol) return;
+    if (!currentSymbol || isFundSymbol(currentSymbol)) return;
     loadChart(currentSymbol, currentPeriod, displayedQuote?.currency, displayedQuote?.unit);
     renderComparison(currentSymbol, currentPeriod);
 }
@@ -249,7 +280,7 @@ export function renderIndicators(data) {
             '正の値は低いほど割安', perUnavailable ? '赤字' : ''],
         ['EPS', data.eps, '', null, '1株あたり利益'],
         ['ミックス指数', mixUnavailable ? null : data.mix_index, '', getMixIndexRating,
-            mixUnavailable ? 'PBRまたはPERが0以下のため算出できません' : 'PER×PBR（22.5未満が割安）',
+            mixUnavailable ? `${MIX_INDEX_HELP}。PBRまたはPERが0以下のため算出できません` : MIX_INDEX_HELP,
             mixUnavailable ? '算出不可' : ''],
         ['配当利回り', data.dividend_yield, '%', v => v > 3 ? 'good' : v > 1 ? 'neutral' : 'bad', '高いほど良い'],
         ['利益率', data.profit_margin, '%', v => v > 20 ? 'good' : v > 10 ? 'neutral' : 'bad', '高いほど良い'],

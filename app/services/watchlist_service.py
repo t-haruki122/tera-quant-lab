@@ -8,17 +8,26 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.cache import PROVIDER_FAILURES, CacheWindow
+from app.clients.fund_client import UnsupportedFundError
 from app.config import get_settings
 from app.exceptions import SymbolNotFoundError
+from app.fund_catalog import CATALOG, FUND_NAV_UNITS
 from app.market_indicators import BY_SYMBOL, USD_JPY_SYMBOL, is_non_company
-from app.models.db_models import CompanyProfile, Indicator, StockMemo, StockPrice, UserListItem
-from app.services import indicator_service, investment_quotes, profile_service, stock_service, user_service
+from app.models.db_models import CompanyProfile, FundNAV, Indicator, StockMemo, StockPrice, UserListItem
+from app.services import (
+    fund_service,
+    indicator_service,
+    investment_quotes,
+    profile_service,
+    stock_service,
+    user_service,
+)
 from app.services.investment_quotes import Bind, finite
-from app.validation import currency_code
+from app.validation import FUND_PREFIX, currency_code, fund_code
 
 logger = logging.getLogger(__name__)
 PROFILE_FIELDS = ("name", "country", "sector", "currency", "market_cap")
-INDICATOR_FIELDS = ("mix_index", "dividend_yield", "per", "pbr")
+INDICATOR_FIELDS = ("mix_index", "dividend_yield", "per", "pbr", "roe")
 
 
 async def get_list_memos(user_id: int, list_id: int, db: AsyncSession) -> dict[str, str | None]:
@@ -62,6 +71,15 @@ def snapshot_fields(symbol: str, quote, profile, indicators, *, cached: bool = F
 
 
 async def get_snapshot(symbol: str, bind: Bind) -> dict:
+    if fund_code(symbol) is not None:
+        try:
+            async with AsyncSession(bind=bind) as db:
+                return fund_service.snapshot(symbol, await fund_service.get_fund(symbol, db))
+        except UnsupportedFundError as error:
+            return fund_service.snapshot(symbol, error=error.message)
+        except PROVIDER_FAILURES:
+            return fund_service.snapshot(symbol, error="基準価額を取得できませんでした。")
+
     async def lookup(service):
         try:
             async with AsyncSession(bind=bind) as db:
@@ -80,21 +98,30 @@ async def get_snapshot(symbol: str, bind: Bind) -> dict:
 
 
 async def cached_snapshots(list_id: int, db: AsyncSession) -> list[dict]:
-    # Look up all three cache entries in one query, including data past the refresh TTL.
+    # Look up all cache entries in one query, including data past the refresh TTL.
     quote_id = stock_service.quote_query(UserListItem.symbol).with_only_columns(StockPrice.id).correlate(UserListItem)
+    code = func.substr(UserListItem.symbol, len(FUND_PREFIX) + 1)
+    fund_date = fund_service.latest_date_query(code).correlate(UserListItem).scalar_subquery()
     rows = await db.execute(
-        select(UserListItem.symbol, StockPrice, CompanyProfile, Indicator)
+        select(UserListItem.symbol, StockPrice, CompanyProfile, Indicator, FundNAV)
         .outerjoin(StockPrice, StockPrice.id == quote_id.scalar_subquery())
         .outerjoin(CompanyProfile, CompanyProfile.symbol == UserListItem.symbol)
         .outerjoin(Indicator, Indicator.symbol == UserListItem.symbol)
+        .outerjoin(FundNAV, (FundNAV.association_code == code) & (FundNAV.base_date == fund_date)
+                   & UserListItem.symbol.startswith(FUND_PREFIX))
         .where(UserListItem.list_id == list_id)
         .order_by(UserListItem.id)
     )
     settings = get_settings()
     quote_window = CacheWindow(settings.cache_ttl_current_price)
     detail_window = CacheWindow(settings.cache_ttl_history)
+    fund_window = CacheWindow(fund_service.FUND_TTL_SECONDS)
     snapshots = []
-    for symbol, q, p, i in rows:
+    for symbol, q, p, i, nav in rows:
+        if fund_code(symbol) is not None:
+            data = fund_service.cached_fund(nav, fund_window) if nav else None
+            snapshots.append(fund_service.snapshot(symbol, data, pending=data is None))
+            continue
         quote = {**stock_service.cached_quote(q), **quote_window.metadata(q.cached_at)} if q else None
         if symbol == USD_JPY_SYMBOL:
             quote = await stock_service.read_cached_usd_jpy_quote(db) or quote
@@ -118,31 +145,44 @@ def value_holdings(items: list[dict], cash: int | None, fx: dict) -> dict | None
     cash = cash or 0
     rate = finite(fx.get("rate"))
     rate = rate if rate and rate > 0 else None
-    regions = dict.fromkeys(("日本株", "米国株", "その他", "現金"), 0.0)
+    regions: dict[str, float] = dict.fromkeys(("日本株", "米国株", "その他", "現金"), 0.0)
     regions["現金"] = float(cash)
     currencies = {"JPY": float(cash), "USD": 0.0}
+    assets = {"個別株": 0.0, "投資信託": 0.0, "現金": float(cash)}
     sectors: dict[str, float] = defaultdict(float)
     excluded = []
     valued: list[dict] = []
-    stocks = 0.0
+    invested = 0.0
     for item in holdings:
         price = finite(item.get("price"))
         currency = currency_code(item.get("currency"))
-        warning = None if currency in currencies else (
+        code = fund_code(item["symbol"])
+        is_fund = code is not None
+        asset_class = "投資信託" if is_fund else "個別株"
+        warning = None if is_fund or currency in ("JPY", "USD") else (
             f"{currency} 建ての円換算には対応していません。" if currency else "取引通貨を取得できません。"
         )
         if price is None or price < 0:
-            reason = "株価を取得できません。"
-        elif currency == "USD" and rate is None:
+            reason = "基準価額を取得できません。" if is_fund else "株価を取得できません。"
+        elif not is_fund and currency == "USD" and rate is None:
             reason = "USD/JPY レートを取得できません。"
-        elif currency in ("JPY", "USD"):
-            value = finite(item["shares"] * price * ((rate or 1) if currency == "USD" else 1))
-            if value is not None and finite(stocks + cash + value) is not None:
+        elif is_fund or currency in ("JPY", "USD"):
+            amount = item["shares"] * price
+            value = finite(amount / FUND_NAV_UNITS if is_fund else amount * ((rate or 1) if currency == "USD" else 1))
+            if value is not None and finite(invested + cash + value) is not None:
                 item["value_jpy"] = value
-                stocks += value
-                regions["日本株" if currency == "JPY" else "米国株"] += value
-                currencies[currency] += value
-                sectors[item.get("sector") or "不明"] += value
+                invested += value
+                assets[asset_class] += value
+                if is_fund:
+                    entry = CATALOG.get(code or "")
+                    region = entry.region if entry else "投資信託（その他）"
+                    exposure = entry.exposure_currency if entry else "不明"
+                else:
+                    region = "日本株" if currency == "JPY" else "米国株"
+                    exposure = "JPY" if currency == "JPY" else "USD"
+                    sectors[item.get("sector") or "不明"] += value
+                regions[region] = regions.get(region, 0.0) + value
+                currencies[exposure] = currencies.get(exposure, 0.0) + value
                 valued.append(item)
                 continue
             reason = "評価額を計算できません。"
@@ -152,7 +192,7 @@ def value_holdings(items: list[dict], cash: int | None, fx: dict) -> dict | None
         excluded.append({"symbol": item["symbol"], "reason": reason})
 
     valued.sort(key=lambda item: (-item["value_jpy"], item["symbol"]))
-    total = stocks + cash
+    total = invested + cash
     for item in valued:
         item["weight_pct"] = percentage(item["value_jpy"], total)
 
@@ -164,12 +204,14 @@ def value_holdings(items: list[dict], cash: int | None, fx: dict) -> dict | None
 
     return {
         "total_value_jpy": total,
-        "stocks_value_jpy": stocks,
+        "stocks_value_jpy": assets["個別株"],
+        "funds_value_jpy": assets["投資信託"],
         "cash_jpy": cash,
         "cash_ratio_pct": percentage(cash, total),
         "by_region": weights(regions, total),
         "by_currency": weights(currencies, total),
-        "by_sector": weights(dict(sorted(sectors.items(), key=lambda pair: (-pair[1], pair[0]))), stocks),
+        "by_asset_class": weights(assets, total),
+        "by_sector": weights(dict(sorted(sectors.items(), key=lambda pair: (-pair[1], pair[0]))), assets["個別株"]),
         "concentration": {
             "largest": {"symbol": valued[0]["symbol"], "pct": valued[0]["weight_pct"]} if valued and total else None,
             "top_5_pct": percentage(sum(item["value_jpy"] for item in valued[:5]), total) if valued else None,

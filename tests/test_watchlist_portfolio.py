@@ -101,7 +101,7 @@ def test_cached_summary_values_holdings_without_provider_calls(client, users, mo
                 StockPrice(symbol="USDJPY=X", interval="forex", timestamp=fx_time, close=150, cached_at=fx_time),
                 CompanyProfile(symbol="AAPL", name="Apple", sector="技術", currency="JPY"),
                 CompanyProfile(symbol="7203.T", name="会社", sector="輸送"),
-                Indicator(symbol="AAPL", per=4, pbr=-2, mix_index=-8, dividend_yield=2),
+                Indicator(symbol="AAPL", per=4, pbr=-2, mix_index=-8, dividend_yield=2, roe=12.34),
                 StockMemo(user_id=alice["id"], symbol="aapl", memo="旧銘柄メモ"),
             ])
             await db.commit()
@@ -121,6 +121,7 @@ def test_cached_summary_values_holdings_without_provider_calls(client, users, mo
     assert us["shares"] == 1.5 and us["weight_pct"] == 45
     assert us["stale"] and us["cached_at"] == utc_iso(old) and not us["pending"]
     assert us["mix_index"] is None
+    assert us["roe"] == 12.34 and jp["roe"] is None
     assert us["memo"] == "旧銘柄メモ"
     assert eur["value_jpy"] is None and "EUR" in eur["warning"]
     assert missing["price"] is None and missing["pending"] and missing["value_jpy"] is None
@@ -175,11 +176,11 @@ def test_snapshot_fetches_components_concurrently_and_preserves_partial_data(cli
 
     monkeypatch.setattr(stock_service, "get_current_price", source({"price": 100, "currency": "USD"}))
     monkeypatch.setattr(profile_service, "get_profile", source(UpstreamUnavailableError()))
-    monkeypatch.setattr(indicator_service, "get_indicators", source({"pbr": 2, "per": 4, "mix_index": 8}))
+    monkeypatch.setattr(indicator_service, "get_indicators", source({"pbr": 2, "per": 4, "mix_index": 8, "roe": 17}))
     result = client.get("/stock/aapl/snapshot")
     assert result.status_code == 200 and ready == 3
     assert result.json() == {
         "symbol": "AAPL", "price": 100, "currency": "USD", "name": None, "mix_index": 8,
-        "dividend_yield": None, "pbr": 2, "per": 4, "error": "一部のデータを取得できませんでした。",
+        "dividend_yield": None, "pbr": 2, "per": 4, "roe": 17, "error": "一部のデータを取得できませんでした。",
     }
     assert client.get("/stock/a!pl/snapshot").status_code == 422

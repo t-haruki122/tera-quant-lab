@@ -349,7 +349,8 @@ def test_yahoo_only_returns_relevant_matches(monkeypatch):
     ])
     monkeypatch.setattr(service._yahoo, "search_symbols", yahoo)
     directory = service.SymbolDirectory()
-    assert asyncio.run(directory.search("eMAXIS", 5)) == []
+    matches = asyncio.run(directory.search("eMAXIS", 5))
+    assert len(matches) == 3 and all(row.source == "fund" for row in matches)
     assert [row.symbol for row in asyncio.run(directory.search("apple", 5))] == ["APPLEF", "AAPX"]
     assert [call.args for call in yahoo.call_args_list] == [("eMAXIS",), ("apple",)]
 

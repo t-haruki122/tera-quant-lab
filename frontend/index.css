@@ -621,6 +621,23 @@ a.market-card:focus-visible {
     grid-column: 1 / -1;
 }
 
+.valuation-table-wrap { overflow-x: auto; margin-block: var(--space-sm); }
+.valuation-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+.valuation-table caption { text-align: left; font-weight: 600; }
+.valuation-table th, .valuation-table td {
+    padding: var(--space-sm);
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+.valuation-table td { font-variant-numeric: tabular-nums; }
+.valuation-table a { color: var(--accent-blue); overflow-wrap: anywhere; }
+.peer-percentile { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-xs) var(--space-sm); }
+.peer-percentile meter { width: 4rem; }
+.valuation-note, .valuation-charts p { font-size: 0.85rem; }
+.valuation-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: var(--space-lg); }
+.valuation-plot { position: relative; height: 12rem; }
+#valuation-history-body details { margin-block: var(--space-sm); }
+
 /* --- Chart --- */
 .indicator-toggles {
     display: flex;
@@ -1325,6 +1342,7 @@ button.account-action:not(:disabled):hover {
 }
 
 @media (min-width: 64rem) {
+    #comparison-table th, #comparison-table td { padding-inline: var(--space-sm); }
     #comparison-table .table-company {
         white-space: normal;
         overflow-wrap: anywhere;
@@ -2270,6 +2288,14 @@ ul.watchlist-exclusion { padding-inline-start: 1.5rem; }
 .chart-container-pie { height: 280px; }
 .chart-container-bar { height: 280px; }
 .chart-container-line { height: 320px; }
+
+#fund-panels { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-md); }
+.fund-table-wrap { overflow-x: auto; }
+.fund-stats-table { width: 100%; border-collapse: collapse; }
+.fund-stats-table th, .fund-stats-table td { padding: 0.6rem; white-space: nowrap; }
+.fund-stats-table th { text-align: start; }
+#fund-chart-container { height: 240px; }
+.watchlist-shares small { display: block; }
 
 @media (max-width: 800px) {
     .stats-charts-grid {

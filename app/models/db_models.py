@@ -1,7 +1,7 @@
 """SQLAlchemy データベースモデル"""
 
 from datetime import date as UTCDate
-from datetime import datetime
+from datetime import datetime, time
 from typing import Literal
 
 from sqlalchemy import (
@@ -13,15 +13,34 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
+    Time,
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from app.database import Base
 from app.timeutil import to_db
+
+
+class FundNAV(Base):
+    __tablename__ = "fund_navs"
+
+    association_code: Mapped[str] = mapped_column(String(8), primary_key=True)
+    base_date: Mapped[UTCDate] = mapped_column(Date, primary_key=True)
+    nav: Mapped[float] = mapped_column(Float)
+    cancellation_price: Mapped[float | None] = mapped_column(Float)
+    net_assets: Mapped[int | None] = mapped_column(BigInteger)
+    change: Mapped[float | None] = mapped_column(Float)
+    change_pct: Mapped[float | None] = mapped_column(Float)
+    fund_name: Mapped[str] = mapped_column(Text)
+    fund_cd: Mapped[str | None] = mapped_column(String(16))
+    isin: Mapped[str | None] = mapped_column(String(12))
+    fetched_at: Mapped[datetime] = mapped_column(DateTime)
+    stats: Mapped[dict] = mapped_column(JSON)
 
 
 class SymbolDirectoryEntry(Base):
@@ -278,3 +297,83 @@ class PriceAlert(SymbolMixin, Base):
     last_triggered_market_date: Mapped[UTCDate | None] = mapped_column(Date)
     trigger_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     armed: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+
+
+class JQIssue(Base):
+    __tablename__ = "jq_issues"
+
+    code5: Mapped[str] = mapped_column(String(5), primary_key=True)
+    symbol: Mapped[str | None] = mapped_column(String(20))
+    name: Mapped[str | None] = mapped_column(Text)
+    name_en: Mapped[str | None] = mapped_column(Text)
+    sector17_code: Mapped[str | None] = mapped_column(Text)
+    sector17_name: Mapped[str | None] = mapped_column(Text)
+    sector33_code: Mapped[str | None] = mapped_column(Text)
+    sector33_name: Mapped[str | None] = mapped_column(Text)
+    scale_category: Mapped[str | None] = mapped_column(Text)
+    market_code: Mapped[str | None] = mapped_column(Text)
+    market_name: Mapped[str | None] = mapped_column(Text)
+    as_of_date: Mapped[UTCDate] = mapped_column(Date)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class JQFinSummary(Base):
+    __tablename__ = "jq_fin_summaries"
+    __table_args__ = (
+        Index("ix_jq_fin_summaries_code5_period_end", "code5", "period_end"),
+        Index("ix_jq_fin_summaries_symbol_disclosed_date", "symbol", "disclosed_date"),
+    )
+
+    disc_no: Mapped[str] = mapped_column(String(32), primary_key=True)
+    code5: Mapped[str] = mapped_column(String(5))
+    symbol: Mapped[str | None] = mapped_column(String(20))
+    disclosed_date: Mapped[UTCDate] = mapped_column(Date)
+    disclosed_time: Mapped[time | None] = mapped_column(Time)
+    doc_type: Mapped[str | None] = mapped_column(Text)
+    period_type: Mapped[str | None] = mapped_column(String(8))
+    period_start: Mapped[UTCDate | None] = mapped_column(Date)
+    period_end: Mapped[UTCDate | None] = mapped_column(Date)
+    fy_start: Mapped[UTCDate | None] = mapped_column(Date)
+    fy_end: Mapped[UTCDate | None] = mapped_column(Date)
+    sales: Mapped[float | None] = mapped_column(Float)
+    operating_profit: Mapped[float | None] = mapped_column(Float)
+    ordinary_profit: Mapped[float | None] = mapped_column(Float)
+    net_profit: Mapped[float | None] = mapped_column(Float)
+    eps: Mapped[float | None] = mapped_column(Float)
+    diluted_eps: Mapped[float | None] = mapped_column(Float)
+    total_assets: Mapped[float | None] = mapped_column(Float)
+    equity: Mapped[float | None] = mapped_column(Float)
+    equity_ratio: Mapped[float | None] = mapped_column(Float)
+    bps: Mapped[float | None] = mapped_column(Float)
+    shareholders_equity: Mapped[float | None] = mapped_column(Float)
+    roe: Mapped[float | None] = mapped_column(Float)
+    cfo: Mapped[float | None] = mapped_column(Float)
+    cfi: Mapped[float | None] = mapped_column(Float)
+    cff: Mapped[float | None] = mapped_column(Float)
+    cash: Mapped[float | None] = mapped_column(Float)
+    div_annual: Mapped[float | None] = mapped_column(Float)
+    payout_ratio_annual: Mapped[float | None] = mapped_column(Float)
+    forecast_sales: Mapped[float | None] = mapped_column(Float)
+    forecast_operating_profit: Mapped[float | None] = mapped_column(Float)
+    forecast_ordinary_profit: Mapped[float | None] = mapped_column(Float)
+    forecast_net_profit: Mapped[float | None] = mapped_column(Float)
+    forecast_eps: Mapped[float | None] = mapped_column(Float)
+    forecast_div_annual: Mapped[float | None] = mapped_column(Float)
+    next_forecast_sales: Mapped[float | None] = mapped_column(Float)
+    next_forecast_operating_profit: Mapped[float | None] = mapped_column(Float)
+    next_forecast_ordinary_profit: Mapped[float | None] = mapped_column(Float)
+    next_forecast_net_profit: Mapped[float | None] = mapped_column(Float)
+    next_forecast_eps: Mapped[float | None] = mapped_column(Float)
+    next_forecast_div_annual: Mapped[float | None] = mapped_column(Float)
+    shares_outstanding_fy: Mapped[int | None] = mapped_column(BigInteger)
+    treasury_shares_fy: Mapped[int | None] = mapped_column(BigInteger)
+    average_shares: Mapped[int | None] = mapped_column(BigInteger)
+    consolidated: Mapped[bool | None] = mapped_column(Boolean)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class JQSyncState(Base):
+    __tablename__ = "jq_sync_state"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(Text)

@@ -5,7 +5,7 @@ from functools import lru_cache
 from ipaddress import IPv4Network, IPv6Network, ip_network
 from typing import Annotated, Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode
 
 DEV_SECRET_KEY = "development-only-change-this-secret-key"
@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     cache_warm_concurrency: int = Field(default=2, gt=0)
     symbol_directory_enabled: bool = True
     symbol_directory_max_age_days: int = Field(default=7, gt=0)
+    jquants_api_key: SecretStr | None = None
+    jquants_enabled: bool = True
+    jquants_requests_per_minute: int = Field(default=5, gt=0)
+    jquants_base_url: str = "https://api.jquants.com/v2"
+    jquants_history_years: int = Field(default=2, ge=1, le=20)
+    jquants_delay_weeks: int = Field(default=12, ge=0, le=52)
     yfinance_cache_dir: str = ""
     stats_flush_seconds: float = Field(default=60, gt=0, allow_inf_nan=False)
 
@@ -109,6 +115,15 @@ class Settings(BaseSettings):
     app_env: Literal["development", "production"] = "development"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+
+    @field_validator("jquants_api_key", mode="before")
+    @classmethod
+    def normalize_jquants_key(cls, value):
+        return (value.strip() or None) if isinstance(value, str) else value
+
+    @property
+    def jquants_active(self) -> bool:
+        return self.jquants_enabled and bool(self.jquants_api_key)
 
     def has_weak_secret(self) -> bool:
         return self.secret_key == DEV_SECRET_KEY or len(self.secret_key) < 32

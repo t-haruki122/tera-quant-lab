@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Literal
 
+from app.validation import fund_code
+
 type MarketUnit = Literal["points", "jpy", "usd", "usd_per_oz", "usd_per_barrel", "yield_pct"]
 USD_JPY_SYMBOL = "JPY=X"
 
@@ -36,4 +38,4 @@ BY_SYMBOL = {indicator.symbol: indicator for indicator in INDICATORS}
 
 def is_non_company(symbol: str) -> bool:
     # The TOPIX proxy is an ETF. Its existing profile and distribution data remain available.
-    return symbol.startswith("^") or symbol.endswith(("=F", "=X")) or symbol == "BTC-USD"
+    return fund_code(symbol) is not None or symbol.startswith("^") or symbol.endswith(("=F", "=X")) or symbol == "BTC-USD"

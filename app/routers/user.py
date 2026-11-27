@@ -36,9 +36,9 @@ from app.schemas.user import (
     UserRegisterRequest,
     UserResponse,
 )
-from app.services import user_backup_service, user_service, watchlist_service
+from app.services import fund_service, user_backup_service, user_service, watchlist_service
 from app.timeutil import utcnow
-from app.validation import SQLiteID, Symbol
+from app.validation import SQLiteID, Symbol, fund_code
 
 router = APIRouter(prefix="/user", tags=["user"])
 
@@ -287,7 +287,7 @@ async def set_list_cash(
     return req
 
 
-@router.put("/{user_id}/lists/{list_id}/items/{symbol}/shares", response_model=SharesRequest, summary="銘柄の株数を設定")
+@router.put("/{user_id}/lists/{list_id}/items/{symbol}/shares", response_model=SharesRequest, summary="銘柄の株数・口数を設定")
 async def set_item_shares(
     list_id: SQLiteID, symbol: Symbol, req: SharesRequest,
     user: User = Depends(require_user_owner), db: AsyncSession = Depends(get_db),
@@ -368,6 +368,8 @@ async def add_item(
     user_id: SQLiteID, list_id: SQLiteID, req: ListItemAddRequest, db: AsyncSession = Depends(get_db)
 ):
     """リストに銘柄を追加"""
+    if fund_code(req.symbol) is not None:
+        await fund_service.get_fund(req.symbol, db)
     try:
         item = await user_service.add_list_item(user_id, list_id, req.symbol, req.tags, db)
         return ListItemResponse(

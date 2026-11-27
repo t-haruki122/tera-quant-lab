@@ -8,7 +8,8 @@ import { createActionModal } from './action-modal.js';
 import { createDialog } from './dialog.js';
 import { showToast, formatCurrency, formatLargeNumber, escapeHtml, escapeAttr, oldestStaleData, formatNewsDate } from './utils.js';
 import { getMarketCapCategory, getMixIndexRating, getRatingSymbol } from './detail.js';
-import { DEFAULT_PERIOD, normalizeSymbol, serializeRoute } from './router.js';
+import { DEFAULT_PERIOD, isFundSymbol, normalizeLookupSymbol, serializeRoute } from './router.js';
+import { MIX_INDEX_HELP } from './valuation.js';
 
 const RATE_LIMIT_MESSAGE = 'アクセスが集中しています。しばらくしてから再試行してください。';
 
@@ -184,7 +185,8 @@ async function refreshRow(item, isCurrent, signal) {
     } catch (error) {
         if (!isCurrent()) return;
         item.pending = false;
-        item.loadError = error.status === 429 ? RATE_LIMIT_MESSAGE : '銘柄データを取得できませんでした。';
+        item.loadError = error.status === 429 ? RATE_LIMIT_MESSAGE
+            : isFundSymbol(item.symbol) ? error.message : '銘柄データを取得できませんでした。';
     }
     if (isCurrent()) renderListTable();
 }
@@ -333,7 +335,7 @@ export function closeListAddModal() {
 
 export async function submitListAddFromModal() {
     const input = document.getElementById('list-add-modal-input');
-    const symbol = normalizeSymbol(input.value);
+    const symbol = normalizeLookupSymbol(input.value);
     if (!symbol) {
         showToast('有効なティッカーを入力してください', 'warning');
         return;
@@ -371,12 +373,25 @@ async function addSymbolToList(symbol) {
             return false;
         }
     }
-    const item = { symbol, pending: true, tags: [] };
+    const fund = isFundSymbol(symbol);
+    const item = { symbol, pending: !fund, tags: [] };
+    if (fund) {
+        try {
+            const data = await fetchAPI(`/stock/${encodeURIComponent(symbol)}/snapshot`, { cache: 'no-store' });
+            if (state.currentUser || state.listItems.some(entry => entry.symbol === symbol)) return false;
+            Object.assign(item, data);
+        } catch (error) {
+            if (!state.currentUser) showToast(error.message, 'error');
+            return false;
+        }
+    }
     state.listItems.push(item);
     renderListTable();
     document.dispatchEvent(new Event('watchlistchange'));
-    guestQueue.push(item);
-    void refreshGuestRows();
+    if (!fund) {
+        guestQueue.push(item);
+        void refreshGuestRows();
+    }
     return true;
 }
 
@@ -446,15 +461,15 @@ function renderPortfolio() {
     }
     const totals = [
         ['評価額合計', `${formatYen(portfolio.total_value_jpy)} 円`],
-        ['株式', `${formatYen(portfolio.stocks_value_jpy)} 円`],
         ['現金', `${formatYen(portfolio.cash_jpy)} 円`],
         ['現金比率', percent(portfolio.cash_ratio_pct)],
     ];
     const metrics = totals.map(([label, value]) => `<div class="metric-card"><dt class="metric-label">${label}</dt>
         <dd class="metric-value">${escapeHtml(value)}</dd></div>`).join('');
     const groups = [
+        ['資産クラス', portfolio.by_asset_class ?? []],
         ['地域・現金', portfolio.by_region],
-        ['通貨（円/ドル）', portfolio.by_currency.map(row => ({
+        ['通貨エクスポージャー', portfolio.by_currency.map(row => ({
             ...row, label: ({ JPY: '円（JPY）', USD: 'ドル（USD）' })[row.label] ?? row.label,
         }))],
         ['セクター（株式内）', portfolio.by_sector.slice(0, 5)],
@@ -464,7 +479,7 @@ function renderPortfolio() {
             const value = escapeAttr(row.pct == null ? 0 : Math.max(0, Math.min(100, row.pct)));
             return `<li><span>${escapeHtml(row.label)}</span><span>${escapeHtml(formatYen(row.value_jpy))} 円 · ${escapeHtml(percent(row.pct))}</span>
                 <meter aria-hidden="true" min="0" max="100" value="${value}"></meter></li>`;
-        }).join('')}</ul>` : '<p class="text-muted">評価済みの株式はありません</p>'}</section>`).join('');
+        }).join('')}</ul>` : '<p class="text-muted">表示できる内訳がありません</p>'}</section>`).join('');
     const { largest, top_5_pct: topFive, holding_count: count } = portfolio.concentration;
     const fx = portfolio.usd_jpy;
     const excluded = portfolio.excluded;
@@ -507,10 +522,14 @@ function sharesCell(item) {
     const edit = amountEdits.get(item.symbol);
     const error = escapeHtml(edit?.error);
     const id = escapeAttr(`shares-${item.symbol}`);
-    return `<label class="visually-hidden" for="${id}">${symbol} の株数</label>
+    const fund = isFundSymbol(item.symbol);
+    const help = fund ? `<small class="text-muted" id="${id}-help">投資信託は口数を入力</small>` : '';
+    const descriptions = fieldErrorId(item.symbol) + (fund ? ` shares-${item.symbol}-help` : '');
+    return `<label class="visually-hidden" for="${id}">${symbol} の${fund ? '口数' : '株数'}</label>
         <input id="${id}" class="watchlist-amount shares-input" type="number" step="any" min="0.0001" max="1000000000" autocomplete="off"
-        data-shares-input="${symbol}" aria-describedby="${escapeAttr(fieldErrorId(item.symbol))}"
+        data-shares-input="${symbol}" aria-describedby="${escapeAttr(descriptions)}"
         aria-invalid="${Boolean(error)}" value="${escapeAttr(edit?.draft ?? item.shares)}">
+        ${help}
         <p class="watchlist-field-error" id="${escapeAttr(fieldErrorId(item.symbol))}" role="alert">${error}</p>`;
 }
 
@@ -520,10 +539,11 @@ function rowMarkup(item) {
     const isPendingDelete = state.pendingDeleteSymbol === item.symbol;
     const deleteLabel = isPendingDelete ? '削除を確定' : '削除';
     const placeholder = item.pending ? '…' : '—';
-    const category = getMarketCapCategory(item.market_cap, item.currency);
-    const negativePbr = item.pbr < 0;
-    const negativePer = item.per < 0;
-    const mixRating = item.pbr <= 0 || item.per <= 0 ? null : getMixIndexRating(item.mix_index);
+    const fund = isFundSymbol(item.symbol);
+    const category = fund ? '—' : getMarketCapCategory(item.market_cap, item.currency);
+    const negativePbr = !fund && item.pbr < 0;
+    const negativePer = !fund && item.per < 0;
+    const mixRating = fund || item.pbr <= 0 || item.per <= 0 ? null : getMixIndexRating(item.mix_index);
     const mixValue = mixRating ? item.mix_index.toFixed(2) : placeholder;
     const mixBadge = mixRating ? ` <span class="indicator-badge ${mixRating}">${getRatingSymbol(mixRating)}</span>` : '';
     const pbrNote = negativePbr ? ' <small class="text-muted">債務超過</small>' : '';
@@ -541,10 +561,11 @@ function rowMarkup(item) {
     return `<tr data-symbol="${escapeAttr(item.symbol)}">
         <td class="table-ticker"><a href="${escapeAttr(route)}">${name}</a></td>
         <td class="table-company">${escapeHtml(item.name || placeholder)}${feedback}</td>
-        <td class="numeric">${escapeHtml(price)}</td>
-        <td class="table-market-cap" title="${escapeAttr(item.market_cap != null ? formatLargeNumber(item.market_cap, item.currency) : '')}">${escapeHtml(category || placeholder)}</td>
-        <td class="numeric">${mixValue}${mixBadge}${pbrNote}${perNote}</td>
-        <td class="numeric">${item.dividend_yield != null ? item.dividend_yield.toFixed(2) + '%' : placeholder}</td>
+        <td class="numeric">${escapeHtml(price)}${fund ? '<small class="stale-notice text-muted">10,000口あたり</small>' : ''}</td>
+        <td class="table-market-cap" title="${escapeAttr(!fund && item.market_cap != null ? formatLargeNumber(item.market_cap, item.currency) : '')}">${escapeHtml(category || placeholder)}</td>
+        <td class="numeric">${!fund && Number.isFinite(item.roe) ? item.roe.toFixed(2) + '%' : '—'}</td>
+        ${fund ? '<td class="numeric">—</td>' : `<td class="numeric" title="${escapeAttr(MIX_INDEX_HELP)}">${mixValue}${mixBadge}${pbrNote}${perNote}</td>`}
+        <td class="numeric">${fund ? '—' : item.dividend_yield != null ? item.dividend_yield.toFixed(2) + '%' : placeholder}</td>
         <td class="numeric watchlist-shares">${sharesCell(item)}</td>
         <td class="numeric">${item.value_jpy == null ? awaitingValue : escapeHtml(formatYen(item.value_jpy))}</td>
         <td class="numeric">${item.weight_pct == null ? awaitingValue : escapeHtml(percent(item.weight_pct))}</td>
@@ -584,6 +605,7 @@ function updateTableRows(tbody, markup) {
 export function renderListTable() {
     renderPortfolio();
     renderCash();
+    byId('watchlist-fund-source').classList.toggle('hidden', !state.listItems.some(item => isFundSymbol(item.symbol)));
     const empty = !state.listItems.length;
     byId('list-empty').classList.toggle('hidden', !empty);
     byId('list-table-section').classList.toggle('hidden', empty);
@@ -606,7 +628,7 @@ export function renderListTable() {
         arrow.textContent = selected ? (state.sortAsc ? ' ▲' : ' ▼') : '';
     });
     const markup = empty ? '' : sorted.length ? sorted.map(rowMarkup).join('')
-        : '<tr><td colspan="10" class="text-muted">検索条件に一致する銘柄がありません</td></tr>';
+        : '<tr><td colspan="11" class="text-muted">検索条件に一致する銘柄がありません</td></tr>';
     updateTableRows(byId('comparison-tbody'), markup);
 }
 
@@ -638,7 +660,7 @@ function parseAmount(draft, key, badInput) {
     if (!cash && !badInput && /^[+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:e[+-]?[0-9]+)?$/i.test(raw) &&
         value > 0 && value <= 1e9 && Number(value.toFixed(4)) === value) return value;
     throw new Error(cash ? '現金は0円以上10兆円以下の整数で入力してください'
-        : '株数は0より大きく10億以下の数値を小数第4位までで入力してください');
+        : `${isFundSymbol(key) ? '口数' : '株数'}は0より大きく10億以下の数値を小数第4位までで入力してください`);
 }
 
 function fieldInput(key) {

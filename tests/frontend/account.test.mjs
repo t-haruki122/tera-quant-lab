@@ -138,7 +138,7 @@ test('replace import waits for confirmation, keeps errors inline, and returns to
     form.requestSubmit();
     assert.equal(document.activeElement, message);
     assert.match(readFileSync('frontend/index.html', 'utf8'),
-        /id="import-replace-message"[^>]*>リスト（保有株数と現金を含む）、メモ、価格アラート、保存済みバックテストのうち、バックアップに含まれる種類のデータを置き換えますか？/);
+        /id="import-replace-message"[^>]*>リスト（保有株数・口数と現金を含む）、メモ、価格アラート、保存済みバックテストのうち、バックアップに含まれる種類のデータを置き換えますか？/);
     assert.equal(settings.classList.contains('hidden'), true);
     pressKey(overlay, message, 'Escape');
     assert.equal(overlay.classList.contains('hidden'), true);

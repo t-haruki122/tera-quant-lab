@@ -59,10 +59,28 @@ test('polls only in the visible stats view and pauses while the document is hidd
 });
 
 test('daily stats and the cache hit rate render as text', () => {
-    globalThis.Chart = class {};
+    globalThis.Chart = class {
+        constructor(_context, config) { this.data = config.data; }
+        update() {}
+    };
     const rate = document.getElementById('dash-cache-hit-rate');
     updateStatsDashboard({ cache_hit_rate: 0.125, last_7_days: [{ date: '2026-11-26', hits: 4, errors: 1, total_ms: 10 }] });
     assert.equal(rate.textContent, '12.5%');
     const day = document.getElementById('dash-daily-totals').children[0];
     assert.deepEqual(day.children.map(cell => cell.textContent), ['2026-11-26', 4, 1, '2.5 ms']);
+});
+
+test('J-Quants setup, progress, completion, and error render as text', () => {
+    const label = document.getElementById('dash-jquants-status');
+    const active = { configured: true, enabled: true, progress: { synced_days: 12, total_days: 522 } };
+    for (const [jquants, expected] of [
+        [undefined, '未設定'],
+        [{ configured: true, enabled: false }, '無効'],
+        [active, '同期中 (12/522日)'],
+        [{ ...active, backfill_complete: true, last_synced_date: '2026-09-04' }, '同期済み (最終: 2026-09-04)'],
+        [{ ...active, last_error: '<img src=x onerror=alert(1)>' }, 'エラー'],
+    ]) {
+        updateStatsDashboard({ jquants });
+        assert.equal(label.textContent, expected);
+    }
 });

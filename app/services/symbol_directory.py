@@ -30,12 +30,13 @@ from app.clients.symbol_lists import (
 from app.clients.yfinance_client import YFinanceClient
 from app.config import Settings
 from app.exceptions import ExternalAPIError, RateLimitError, SymbolNotFoundError
+from app.fund_catalog import CATALOG
 from app.models.db_models import CompanyProfile, SymbolDirectoryEntry
 from app.schemas.symbols import Market, SymbolMatch
 from app.singleflight import flight
 from app.stats import stats
 from app.timeutil import to_db
-from app.validation import normalize_symbol
+from app.validation import FUND_PREFIX, fund_code, normalize_symbol
 
 logger = logging.getLogger(__name__)
 _yahoo = YFinanceClient()
@@ -76,7 +77,7 @@ class _IndexedSymbol:
     ticker: str
     code: str
     name: str
-    alias: str
+    aliases: tuple[str, ...]
     word_starts: frozenset[int] | None
     bigrams: frozenset[str]
 
@@ -91,13 +92,18 @@ class _IndexedSymbol:
             name = _SEPARATORS.sub(" ", text).strip(" ,.")
             word_starts = frozenset(word.start() for word in _WORD_START.finditer(name))
         ticker = match.symbol.casefold()
-        code = ticker.removesuffix(".t") if match.market == "JP" else ticker
-        return cls(match, ticker, code, name, _ALIASES.get(match.symbol, ""), word_starts, _bigrams(name))
+        association_code = fund_code(match.symbol)
+        code = association_code.casefold() if association_code else ticker.removesuffix(".t") if match.market == "JP" else ticker
+        if association_code and (entry := CATALOG.get(association_code)):
+            aliases = tuple(normalize_name(alias) for alias in entry.aliases)
+        else:
+            aliases = (_ALIASES[match.symbol],) if match.symbol in _ALIASES else ()
+        return cls(match, ticker, code, name, aliases, word_starts, _bigrams(name))
 
     def name_score(self, name: str) -> tuple[int, float]:
         if not name:
             return (0, 0)
-        if name in (self.name, self.alias):
+        if name == self.name or name in self.aliases:
             return (3, 1)
         if self.name.startswith(name):
             return (3, 0)
@@ -121,6 +127,13 @@ class _IndexedSymbol:
         return score if score >= 0.57 else 0
 
 
+def fund_match(code: str, name: str) -> SymbolMatch:
+    return SymbolMatch(FUND_PREFIX + code, name, "JP", "投資信託", None, False, "fund")
+
+
+_FUND_ENTRIES = tuple(_IndexedSymbol.build(fund_match(code, entry.name)) for code, entry in CATALOG.items())
+
+
 class SymbolIndex:
     def __init__(self, rows: Iterable[tuple[SymbolMatch, str | None]] = ()):
         self.entries = {match.symbol: _IndexedSymbol.build(match, key) for match, key in rows}
@@ -141,6 +154,7 @@ class SymbolIndex:
         text = _name_text(ticker)
         compact_name = _SEPARATORS.sub("", text).strip(",.")
         spaced_name = _SEPARATORS.sub(" ", text).strip(" ,.")
+        spaced_name = re.sub(r"\bs&p500\b", "s&p 500", spaced_name)
         ranked: dict[str, tuple[tuple[int, float, bool, bool, str], SymbolMatch]] = {}
         skip_yahoo = False
 
@@ -172,6 +186,8 @@ class SymbolIndex:
             skip_yahoo |= consider_strong(entry)
         # Ticker prefixes alone suppress Yahoo only when there are at least three matches.
         skip_yahoo = skip_yahoo or len(ranked) >= 3
+        for entry in _FUND_ENTRIES:
+            consider_strong(entry)
         for match in extra:
             if match.symbol not in ranked:
                 consider_strong(_IndexedSymbol.build(match))
@@ -248,7 +264,8 @@ class SymbolDirectory:
     async def search(self, query: str, limit: int) -> list[SymbolMatch]:
         key = unicodedata.normalize("NFKC", query).casefold()
         local, skip_yahoo = self.index._search(query, limit)
-        if skip_yahoo or _JAPANESE.search(key):
+        fund_only_alias = normalize_name(query) in {"emaxisslim", "slim"}
+        if skip_yahoo or fund_only_alias or _JAPANESE.search(key):
             return local
 
         async def lookup() -> list[SymbolMatch]:

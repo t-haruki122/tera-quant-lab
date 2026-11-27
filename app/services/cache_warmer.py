@@ -1,4 +1,4 @@
-"""Refresh shared quote and USD/JPY caches for stocks on user watchlists."""
+"""Refresh quote, NAV, and USD/JPY caches for user watchlists."""
 
 import asyncio
 import logging
@@ -10,7 +10,9 @@ from app import database
 from app.exceptions import RateLimitError
 from app.models.db_models import UserListItem
 from app.services.forex_service import USD_JPY, refresh_exchange_rate
+from app.services.fund_service import get_fund
 from app.services.stock_service import refresh_quote
+from app.validation import fund_code
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +21,8 @@ async def _refresh(symbol: str | None) -> None:
     async with database.AsyncSessionLocal() as db:
         if symbol is None:
             await refresh_exchange_rate(USD_JPY, db)
+        elif fund_code(symbol) is not None:
+            await get_fund(symbol, db)
         else:
             await refresh_quote(symbol, db)
 

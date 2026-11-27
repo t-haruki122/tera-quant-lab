@@ -61,6 +61,17 @@ export function updateStatsDashboard(data) {
     document.getElementById('dash-cache-hit-rate').textContent = Number.isFinite(data.cache_hit_rate)
         ? `${(data.cache_hit_rate * 100).toFixed(1)}%` : '—';
 
+    const jq = data.jquants;
+    let status = '未設定';
+    if (jq?.configured) {
+        if (!jq.enabled) status = '無効';
+        else if (jq.last_error) status = 'エラー';
+        else if (jq.backfill_complete && jq.last_synced_date) status = `同期済み (最終: ${jq.last_synced_date})`;
+        else status = `同期中 (${jq.progress.synced_days}/${jq.progress.total_days}日)`;
+    }
+    const jqStatus = document.getElementById('dash-jquants-status');
+    if (jqStatus.textContent !== status) jqStatus.textContent = status;
+
     const daily = document.getElementById('dash-daily-totals');
     daily.textContent = '';
     for (const day of data.last_7_days ?? []) {

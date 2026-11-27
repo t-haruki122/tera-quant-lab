@@ -14,7 +14,7 @@ class SymbolMatch:
     segment: str | None
     sector: str | None
     is_etf: bool
-    source: Literal["jpx", "nasdaqtrader", "profile", "yahoo"]
+    source: Literal["jpx", "nasdaqtrader", "profile", "yahoo", "fund"]
 
 
 class SymbolSearchResponse(BaseModel):
